@@ -1,28 +1,37 @@
 /**
+ * Theme: Deep Space — Deep Space Black, Cosmic Purple, Nebula Blue, Stellar Teal, Starlight White.
  * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
  */
 
 import { Platform } from 'react-native';
 
-const tintColorLight = '#0a7ea4';
-const tintColorDark = '#fff';
+// Theme palette
+export const ThemePalette = {
+  deepSpaceBlack: '#0B0F1A',
+  cosmicPurple: '#5B2D8B',
+  nebulaBlue: '#2E6CF6',
+  stellarTeal: '#2FD4C5',
+  starlightWhite: '#F5F7FA',
+} as const;
+
+const tintColorLight = ThemePalette.nebulaBlue;
+const tintColorDark = ThemePalette.stellarTeal;
 
 export const Colors = {
   light: {
-    text: '#11181C',
-    background: '#fff',
+    text: ThemePalette.deepSpaceBlack,
+    background: ThemePalette.starlightWhite,
     tint: tintColorLight,
-    icon: '#687076',
-    tabIconDefault: '#687076',
+    icon: ThemePalette.cosmicPurple,
+    tabIconDefault: ThemePalette.cosmicPurple,
     tabIconSelected: tintColorLight,
   },
   dark: {
-    text: '#ECEDEE',
-    background: '#151718',
+    text: ThemePalette.starlightWhite,
+    background: ThemePalette.deepSpaceBlack,
     tint: tintColorDark,
-    icon: '#9BA1A6',
-    tabIconDefault: '#9BA1A6',
+    icon: '#9CA3AF',
+    tabIconDefault: '#9CA3AF',
     tabIconSelected: tintColorDark,
   },
 };
