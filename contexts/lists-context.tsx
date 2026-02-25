@@ -3,7 +3,7 @@
 import React, { createContext, useCallback, useMemo, useState } from 'react';
 
 import { MOCK_LISTS } from '@/data/mock-lists';
-import type { ListEntry, MockList } from '@/data/mock-lists';
+import type { ListEntry, ListPreset, MockList } from '@/data/mock-lists';
 
 function createEntryId(): string {
   return `e-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -19,7 +19,7 @@ interface ListsContextValue {
   /** All lists with base entries plus any added-from-search entries. */
   lists: MockList[];
   addEntryToList: (listId: string, entry: Omit<ListEntry, 'id'>) => void;
-  createList: (title: string) => void;
+  createList: (title: string, preset?: ListPreset) => void;
 }
 
 const ListsContext = createContext<ListsContextValue | null>(null);
@@ -29,20 +29,27 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
   const [userLists, setUserLists] = useState<MockList[]>([]);
 
   const addEntryToList = useCallback((listId: string, entry: Omit<ListEntry, 'id'>) => {
+    const id = createEntryId();
+    const wantsDetails =
+      entry.displayVariant === 'details' || entry.displayVariant === 'checkbox-details';
+
     const newEntry: ListEntry = {
       ...entry,
-      id: createEntryId(),
+      id,
+      // If caller didn't provide a detailPath but wants a details page, route to custom list-entry screen
+      detailPath: entry.detailPath ?? (wantsDetails ? `list-entry/${id}` : undefined),
     };
+
     setAddedByListId((prev) => ({
       ...prev,
       [listId]: [...(prev[listId] ?? []), newEntry],
     }));
   }, []);
 
-  const createList = useCallback((title: string) => {
+  const createList = useCallback((title: string, preset: ListPreset = 'blank') => {
     setUserLists((prev) => [
       ...prev,
-      { id: createListId(), title: title.trim(), entries: [] },
+      { id: createListId(), title: title.trim(), preset, entries: [] },
     ]);
   }, []);
 

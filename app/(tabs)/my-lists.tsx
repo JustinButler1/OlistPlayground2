@@ -17,6 +17,7 @@ import { ThemedView } from '@/components/themed-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useLists } from '@/contexts/lists-context';
+import type { ListPreset } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export interface ListItem {
@@ -29,6 +30,7 @@ export default function MyListsScreen() {
   const items: ListItem[] = lists.map((l) => ({ id: l.id, title: l.title }));
   const [sheetVisible, setSheetVisible] = useState(false);
   const [titleInput, setTitleInput] = useState('');
+  const [listPreset, setListPreset] = useState<ListPreset>('blank');
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
@@ -37,6 +39,7 @@ export default function MyListsScreen() {
 
   const openSheet = useCallback(() => {
     setTitleInput('');
+    setListPreset('blank');
     setSheetVisible(true);
   }, []);
 
@@ -48,9 +51,9 @@ export default function MyListsScreen() {
   const confirmCreate = useCallback(() => {
     const trimmed = titleInput.trim();
     if (!trimmed) return;
-    createList(trimmed);
+    createList(trimmed, listPreset);
     closeSheet();
-  }, [titleInput, closeSheet, createList]);
+  }, [titleInput, listPreset, closeSheet, createList]);
 
   const openListDetail = useCallback(
     (item: ListItem) => {
@@ -198,6 +201,51 @@ export default function MyListsScreen() {
                 returnKeyType="done"
                 onSubmitEditing={confirmCreate}
               />
+              <ThemedText style={[styles.presetLabel, { color: colors.icon }]}>
+                Preset
+              </ThemedText>
+              <View style={styles.presetRow}>
+                <Pressable
+                  onPress={() => setListPreset('blank')}
+                  style={[
+                    styles.presetOption,
+                    {
+                      borderColor: colors.icon + '40',
+                      backgroundColor: listPreset === 'blank' ? colors.tint + '20' : colors.icon + '12',
+                    },
+                  ]}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: listPreset === 'blank' }}
+                  accessibilityLabel="Blank list"
+                >
+                  <ThemedText style={[styles.presetOptionText, { color: colors.text }]}>
+                    Blank
+                  </ThemedText>
+                  <ThemedText style={[styles.presetOptionHint, { color: colors.icon }]}>
+                    Standard list
+                  </ThemedText>
+                </Pressable>
+                <Pressable
+                  onPress={() => setListPreset('tracking')}
+                  style={[
+                    styles.presetOption,
+                    {
+                      borderColor: colors.icon + '40',
+                      backgroundColor: listPreset === 'tracking' ? colors.tint + '20' : colors.icon + '12',
+                    },
+                  ]}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: listPreset === 'tracking' }}
+                  accessibilityLabel="Tracking list - show progress for chapters, volumes, episodes"
+                >
+                  <ThemedText style={[styles.presetOptionText, { color: colors.text }]}>
+                    Tracking
+                  </ThemedText>
+                  <ThemedText style={[styles.presetOptionHint, { color: colors.icon }]}>
+                    0/X for ep, ch, vol
+                  </ThemedText>
+                </Pressable>
+              </View>
             </View>
           </Pressable>
         </Pressable>
@@ -292,5 +340,29 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 12,
     borderWidth: 1,
+  },
+  presetLabel: {
+    fontSize: 14,
+    marginTop: 20,
+    marginBottom: 8,
+  },
+  presetRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  presetOption: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  presetOptionText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  presetOptionHint: {
+    fontSize: 12,
+    marginTop: 2,
   },
 });

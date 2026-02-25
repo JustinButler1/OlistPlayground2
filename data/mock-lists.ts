@@ -2,7 +2,10 @@
  * Mock data for My Lists and list detail screens.
  */
 
-export type ListEntryType = 'anime' | 'manga' | 'movie' | 'tv' | 'book' | 'game';
+export type ListEntryType = 'anime' | 'manga' | 'movie' | 'tv' | 'book' | 'game' | 'list';
+
+/** Preset when creating a list: blank = normal list; tracking = show 0/X progress for items with chapters/volumes/episodes */
+export type ListPreset = 'blank' | 'tracking';
 
 export interface ListEntry {
   id: string;
@@ -11,11 +14,31 @@ export interface ListEntry {
   imageUrl?: string;
   /** Optional link to detail screen: e.g. anime/123, manga/456, tv-movie/movie/789 */
   detailPath?: string;
+  /** Optional user notes for custom entries. */
+  notes?: string;
+  /**
+   * Controls how the entry behaves in list detail:
+   * - 'simple': image + title only
+   * - 'checkbox': bulk tap toggles checked
+   * - 'details': bulk tap navigates to details (default)
+   * - 'checkbox-details': bulk tap toggles checked, separate details affordance
+   */
+  displayVariant?: 'simple' | 'checkbox' | 'details' | 'checkbox-details';
+  /** For tracking lists: total episodes (anime), chapters/volumes (manga), etc. Shown as 0/X on the item. */
+  totalEpisodes?: number;
+  totalChapters?: number;
+  totalVolumes?: number;
+  /** Link to another entry: display and open use the referenced entry's current data (changes reflected). */
+  linkedEntryId?: string;
+  /** Link to another list: this entry represents that list (e.g. nested list); tap opens the list. */
+  linkedListId?: string;
 }
 
 export interface MockList {
   id: string;
   title: string;
+  /** Preset: 'blank' (default) or 'tracking'. Tracking lists show 0/X on items that have totalEpisodes/totalChapters/totalVolumes. */
+  preset?: ListPreset;
   entries: ListEntry[];
 }
 

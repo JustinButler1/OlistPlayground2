@@ -556,6 +556,7 @@ export default function SearchScreen() {
         type: 'anime',
         imageUrl: img ?? undefined,
         detailPath: `anime/${item.mal_id}`,
+        ...(item.episodes != null ? { totalEpisodes: item.episodes } : {}),
       };
       return (
         <View style={styles.animeRow}>
@@ -619,6 +620,8 @@ export default function SearchScreen() {
         type: 'manga',
         imageUrl: img ?? undefined,
         detailPath: `manga/${item.mal_id}`,
+        ...(item.chapters != null ? { totalChapters: item.chapters } : {}),
+        ...(item.volumes != null ? { totalVolumes: item.volumes } : {}),
       };
       return (
         <View style={styles.animeRow}>
