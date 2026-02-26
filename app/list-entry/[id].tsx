@@ -61,6 +61,20 @@ export default function ListEntryDetailScreen() {
                 <ThemedText style={styles.notesText}>{entry.notes}</ThemedText>
               </View>
             ) : null}
+            {entry.customFields && entry.customFields.length > 0 ? (
+              <View style={styles.section}>
+                {entry.customFields.map((field, index) => (
+                  <View key={index} style={styles.customFieldRow}>
+                    <ThemedText style={styles.customFieldTitle}>
+                      {field.title || "—"}
+                    </ThemedText>
+                    <ThemedText style={styles.customFieldValue}>
+                      {field.value || "—"}
+                    </ThemedText>
+                  </View>
+                ))}
+              </View>
+            ) : null}
           </ScrollView>
         )}
       </ThemedView>
@@ -104,6 +118,21 @@ const styles = StyleSheet.create({
   notesText: {
     fontSize: 15,
     lineHeight: 20,
+  },
+  customFieldRow: {
+    flexDirection: "row",
+    marginBottom: 8,
+    gap: 12,
+  },
+  customFieldTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    opacity: 0.8,
+    minWidth: 80,
+  },
+  customFieldValue: {
+    fontSize: 15,
+    flex: 1,
   },
 });
 

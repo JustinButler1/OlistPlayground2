@@ -389,6 +389,12 @@ export default function ListDetailScreen() {
   const [addItemMode, setAddItemMode] = useState<"custom" | "search">("custom");
   const [customTitle, setCustomTitle] = useState("");
   const [customNotes, setCustomNotes] = useState("");
+  const [customFields, setCustomFields] = useState<
+    { title: string; value: string; format?: "text" | "numbers" }[]
+  >([]);
+  const [formatPickerFieldIndex, setFormatPickerFieldIndex] = useState<
+    number | null
+  >(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [animeResults, setAnimeResults] = useState<SimpleAnimeSearchResult[]>(
     [],
@@ -423,8 +429,10 @@ export default function ListDetailScreen() {
 
   const openAddItemSheet = useCallback(() => {
     setAddItemMode("custom");
+    setFormatPickerFieldIndex(null);
     setCustomTitle("");
     setCustomNotes("");
+    setCustomFields([]);
     setSearchQuery("");
     setAnimeResults([]);
     setMangaResults([]);
@@ -450,8 +458,10 @@ export default function ListDetailScreen() {
 
   const closeAddItemSheet = useCallback(() => {
     setAddItemSheetVisible(false);
+    setFormatPickerFieldIndex(null);
     setCustomTitle("");
     setCustomNotes("");
+    setCustomFields([]);
     setSearchQuery("");
     setAnimeResults([]);
     setMangaResults([]);
@@ -485,10 +495,19 @@ export default function ListDetailScreen() {
       : displayCheckbox
       ? "checkbox"
       : "details";
+    const fields =
+      customFields
+        .filter((f) => f.title.trim() || f.value.trim())
+        .map((f) => ({
+          title: f.title.trim(),
+          value: f.value.trim(),
+          format: f.format ?? "text",
+        })) || [];
     addEntryToList(list.id, {
       title: trimmedTitle,
       type: "book",
       notes: customNotes.trim() || undefined,
+      customFields: fields.length > 0 ? fields : undefined,
       displayVariant: variant,
     });
     closeAddItemSheet();
@@ -497,11 +516,60 @@ export default function ListDetailScreen() {
     closeAddItemSheet,
     customTitle,
     customNotes,
+    customFields,
     list,
     displaySimple,
     displayCheckbox,
     displayDetails,
   ]);
+
+  const addCustomField = useCallback(() => {
+    setCustomFields((prev) => [
+      ...prev,
+      { title: "", value: "", format: "text" as const },
+    ]);
+  }, []);
+
+  const removeCustomField = useCallback((index: number) => {
+    setCustomFields((prev) => prev.filter((_, i) => i !== index));
+    setFormatPickerFieldIndex((prev) =>
+      prev === index ? null : prev !== null && prev > index ? prev - 1 : prev
+    );
+  }, []);
+
+  const updateCustomField = useCallback(
+    (index: number, key: "title" | "value" | "format", textOrFormat: string) => {
+      setCustomFields((prev) =>
+        prev.map((f, i) =>
+          i === index
+            ? key === "format"
+              ? { ...f, format: textOrFormat as "text" | "numbers" }
+              : { ...f, [key]: textOrFormat }
+            : f
+        )
+      );
+    },
+    []
+  );
+
+  const setCustomFieldFormat = useCallback(
+    (index: number, format: "text" | "numbers") => {
+      setCustomFields((prev) =>
+        prev.map((f, i) =>
+          i === index
+            ? {
+                ...f,
+                format,
+                value:
+                  format === "numbers" ? f.value.replace(/\D/g, "") : f.value,
+              }
+            : f
+        )
+      );
+      setFormatPickerFieldIndex(null);
+    },
+    []
+  );
 
   const runAllSearches = useCallback(async () => {
     const q = searchQuery.trim().toLowerCase();
@@ -1064,7 +1132,16 @@ export default function ListDetailScreen() {
         transparent
         onRequestClose={closeAddItemSheet}
       >
-        <Pressable style={styles.modalOverlay} onPress={closeAddItemSheet}>
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => {
+            if (formatPickerFieldIndex !== null) {
+              setFormatPickerFieldIndex(null);
+            } else {
+              closeAddItemSheet();
+            }
+          }}
+        >
           <Pressable
             style={[
               styles.sheet,
@@ -1276,7 +1353,12 @@ export default function ListDetailScreen() {
             </View>
 
             {addItemMode === "custom" ? (
-              <View style={styles.sheetBody}>
+              <ScrollView
+                style={styles.sheetBody}
+                contentContainerStyle={styles.sheetBodyContent}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
                 <TextInput
                   style={[
                     styles.titleInput,
@@ -1310,7 +1392,105 @@ export default function ListDetailScreen() {
                   multiline
                   textAlignVertical="top"
                 />
-              </View>
+                {customFields.map((field, index) => (
+                  <View
+                    key={index}
+                    style={styles.customFieldRow}
+                  >
+                    <TextInput
+                      style={[
+                        styles.customFieldTitleInput,
+                        {
+                          color: colors.text,
+                          backgroundColor: colors.icon + "18",
+                          borderColor: colors.icon + "40",
+                        },
+                      ]}
+                      placeholder="Title"
+                      placeholderTextColor={colors.icon}
+                      value={field.title}
+                      onChangeText={(t) => updateCustomField(index, "title", t)}
+                    />
+                    <View
+                      style={[
+                        styles.customFieldValueBox,
+                        {
+                          backgroundColor: colors.icon + "18",
+                          borderColor: colors.icon + "40",
+                        },
+                      ]}
+                    >
+                      <TextInput
+                        style={[
+                          styles.customFieldValueInput,
+                          { color: colors.text },
+                        ]}
+                        placeholder="Value"
+                        placeholderTextColor={colors.icon}
+                        value={field.value}
+                        onChangeText={(t) => {
+                          const filtered =
+                            field.format === "numbers"
+                              ? t.replace(/\D/g, "")
+                              : t;
+                          updateCustomField(index, "value", filtered);
+                        }}
+                        keyboardType={
+                          field.format === "numbers" ? "numeric" : "default"
+                        }
+                      />
+                      <Pressable
+                        onPress={() => setFormatPickerFieldIndex(index)}
+                        style={({ pressed }) => [
+                          styles.customFieldFormatButton,
+                          { opacity: pressed ? 0.7 : 1 },
+                        ]}
+                        accessibilityRole="button"
+                        accessibilityLabel="Choose value format"
+                      >
+                        <IconSymbol
+                          name="chevron.down"
+                          size={20}
+                          color={colors.icon}
+                        />
+                      </Pressable>
+                    </View>
+                    <Pressable
+                      onPress={() => removeCustomField(index)}
+                      style={({ pressed }) => [
+                        styles.customFieldTrash,
+                        { opacity: pressed ? 0.7 : 1 },
+                      ]}
+                      accessibilityRole="button"
+                      accessibilityLabel="Remove field"
+                    >
+                      <IconSymbol
+                        name="trash"
+                        size={22}
+                        color="#e53e3e"
+                      />
+                    </Pressable>
+                  </View>
+                ))}
+                <Pressable
+                  onPress={addCustomField}
+                  style={({ pressed }) => [
+                    styles.addFieldBar,
+                    {
+                      backgroundColor: colors.icon + "18",
+                      opacity: pressed ? 0.8 : 1,
+                    },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add custom field"
+                >
+                  <IconSymbol
+                    name="plus"
+                    size={24}
+                    color={colors.tint}
+                  />
+                </Pressable>
+              </ScrollView>
             ) : (
               <View style={styles.sheetBody}>
                 <View style={styles.searchRowInline}>
@@ -2052,6 +2232,109 @@ export default function ListDetailScreen() {
               </View>
             )}
           </Pressable>
+          {formatPickerFieldIndex !== null && addItemMode === "custom" && (
+            <Pressable
+              style={styles.formatPickerOverlay}
+              onPress={() => setFormatPickerFieldIndex(null)}
+            >
+              <Pressable
+                style={[
+                  styles.formatPickerCard,
+                  {
+                    backgroundColor: colors.background,
+                    borderColor: colors.icon + "30",
+                  },
+                ]}
+                onPress={(e) => e.stopPropagation()}
+              >
+                <ThemedText
+                  style={[styles.formatPickerTitle, { color: colors.icon }]}
+                >
+                  Value format
+                </ThemedText>
+                <Pressable
+                  onPress={() =>
+                    setCustomFieldFormat(formatPickerFieldIndex, "text")
+                  }
+                  style={[
+                    styles.formatPickerOption,
+                    {
+                      backgroundColor:
+                        customFields[formatPickerFieldIndex]?.format === "text"
+                          ? colors.tint + "20"
+                          : colors.icon + "12",
+                      borderColor: colors.icon + "30",
+                    },
+                  ]}
+                  accessibilityRole="radio"
+                  accessibilityState={{
+                    checked:
+                      customFields[formatPickerFieldIndex]?.format !== "numbers",
+                  }}
+                >
+                  <ThemedText
+                    style={[
+                      styles.formatPickerOptionText,
+                      {
+                        color:
+                          customFields[formatPickerFieldIndex]?.format === "text"
+                            ? colors.tint
+                            : colors.text,
+                      },
+                    ]}
+                  >
+                    Text
+                  </ThemedText>
+                  <ThemedText
+                    style={[styles.formatPickerOptionHint, { color: colors.icon }]}
+                  >
+                    Full text input
+                  </ThemedText>
+                </Pressable>
+                <Pressable
+                  onPress={() =>
+                    setCustomFieldFormat(formatPickerFieldIndex, "numbers")
+                  }
+                  style={[
+                    styles.formatPickerOption,
+                    {
+                      backgroundColor:
+                        customFields[formatPickerFieldIndex]?.format ===
+                        "numbers"
+                          ? colors.tint + "20"
+                          : colors.icon + "12",
+                      borderColor: colors.icon + "30",
+                    },
+                  ]}
+                  accessibilityRole="radio"
+                  accessibilityState={{
+                    checked:
+                      customFields[formatPickerFieldIndex]?.format === "numbers",
+                  }}
+                >
+                  <ThemedText
+                    style={[
+                      styles.formatPickerOptionText,
+                      {
+                        color:
+                          customFields[formatPickerFieldIndex]?.format ===
+                          "numbers"
+                            ? colors.tint
+                            : colors.text,
+                      },
+                    ]}
+                  >
+                    Numbers
+                  </ThemedText>
+                  <ThemedText
+                    style={[styles.formatPickerOptionHint, { color: colors.icon }]}
+                  >
+                    Numbers only
+                  </ThemedText>
+                </Pressable>
+              </Pressable>
+            </Pressable>
+          )}
         </Pressable>
       </Modal>
 
@@ -2175,6 +2458,9 @@ const styles = StyleSheet.create({
     padding: 20,
     flex: 1,
   },
+  sheetBodyContent: {
+    paddingBottom: 4,
+  },
   titleInput: {
     fontSize: 16,
     paddingHorizontal: 16,
@@ -2190,6 +2476,82 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     minHeight: 120,
+    marginBottom: 16,
+  },
+  customFieldRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 12,
+  },
+  customFieldTitleInput: {
+    flex: 1,
+    fontSize: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  customFieldValueBox: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingRight: 4,
+  },
+  customFieldValueInput: {
+    flex: 1,
+    fontSize: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  customFieldFormatButton: {
+    padding: 6,
+  },
+  customFieldTrash: {
+    padding: 8,
+  },
+  formatPickerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  formatPickerCard: {
+    marginHorizontal: 32,
+    padding: 20,
+    borderRadius: 16,
+    borderWidth: 1,
+    minWidth: 220,
+  },
+  formatPickerTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 12,
+  },
+  formatPickerOption: {
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 10,
+  },
+  formatPickerOptionText: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  formatPickerOptionHint: {
+    fontSize: 13,
+    marginTop: 2,
+  },
+  addFieldBar: {
+    alignSelf: "stretch",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 14,
+    borderRadius: 12,
+    marginTop: 12,
   },
   modeToggleRow: {
     flexDirection: "row",

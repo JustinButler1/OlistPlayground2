@@ -16,6 +16,8 @@ export interface ListEntry {
   detailPath?: string;
   /** Optional user notes for custom entries. */
   notes?: string;
+  /** Custom title/value fields for custom entries (e.g. Author, Year). */
+  customFields?: { title: string; value: string; format?: 'text' | 'numbers' }[];
   /**
    * Controls how the entry behaves in list detail:
    * - 'simple': image + title only
