@@ -2,7 +2,7 @@
 
 import React, { createContext, useCallback, useMemo, useState } from 'react';
 
-import { MOCK_LISTS } from '@/data/mock-lists';
+import { MOCK_LISTS, MOCK_TIER_SUBLISTS } from '@/data/mock-lists';
 import type { ListEntry, ListPreset, MockList } from '@/data/mock-lists';
 
 function createEntryId(): string {
@@ -15,9 +15,13 @@ function createListId(): string {
   return `list-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+const TIER_SUBLIST_IDS = new Set(MOCK_TIER_SUBLISTS.map((l) => l.id));
+
 interface ListsContextValue {
-  /** All lists with base entries plus any added-from-search entries. */
+  /** All lists with base entries plus any added-from-search entries (includes tier sublists for drill-down). */
   lists: MockList[];
+  /** Lists to show on the main My Lists page (excludes tier sublists S/A/B/C/D/E/F). */
+  mainLists: MockList[];
   addEntryToList: (listId: string, entry: Omit<ListEntry, 'id'>) => void;
   createList: (title: string, preset?: ListPreset) => void;
 }
@@ -54,16 +58,21 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const lists = useMemo(() => {
-    const base = [...MOCK_LISTS, ...userLists];
+    const base = [...MOCK_LISTS, ...MOCK_TIER_SUBLISTS, ...userLists];
     return base.map((list) => ({
       ...list,
       entries: [...list.entries, ...(addedByListId[list.id] ?? [])],
     }));
   }, [addedByListId, userLists]);
 
+  const mainLists = useMemo(
+    () => lists.filter((l) => !TIER_SUBLIST_IDS.has(l.id)),
+    [lists]
+  );
+
   const value = useMemo<ListsContextValue>(
-    () => ({ lists, addEntryToList, createList }),
-    [lists, addEntryToList, createList]
+    () => ({ lists, mainLists, addEntryToList, createList }),
+    [lists, mainLists, addEntryToList, createList]
   );
 
   return (

@@ -1,6 +1,5 @@
-import { Image } from "expo-image";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
@@ -14,9 +13,12 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { ProductLinkImport } from "@/components/product-link-import";
+import { ThumbnailImage } from "@/components/thumbnail-image";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import type { ProductPreview } from "@/lib/product-link-import";
 import { Colors } from "@/constants/theme";
 import { useLists } from "@/contexts/lists-context";
 import type { ListEntry, ListEntryType, MockList } from "@/data/mock-lists";
@@ -30,7 +32,26 @@ const ENTRY_TYPE_LABELS: Record<ListEntryType, string> = {
   book: "Book",
   game: "Game",
   list: "List",
+  link: "Link",
 };
+
+/** Tier list palette: top tier = index 0, bottom = last. */
+const TIER_COLORS = [
+  "#E8A598", // 1. Light coral/salmon
+  "#FFCC80", // 2. Light orange/peach
+  "#FFF59D", // 3. Pale yellow
+  "#AED581", // 4. Lime green
+  "#81C784", // 5. Light green
+  "#4DD0E1", // 6. Aqua
+  "#64B5F6", // 7. Sky blue
+  "#7986CB", // 8. Periwinkle
+  "#F06292", // 9. Fuchsia/pink
+  "#BA68C8", // 10. Muted purple
+  "#616161", // 11. Dark grey
+  "#9E9E9E", // 12. Medium grey
+  "#E0E0E0", // 13. Light grey
+  "#FFFFFF", // 14. White (with border when used)
+];
 
 const JIKAN_API = "https://api.jikan.moe/v4";
 const OPEN_LIBRARY_SEARCH = "https://openlibrary.org/search.json";
@@ -386,7 +407,9 @@ export default function ListDetailScreen() {
   const entries = list?.entries ?? [];
 
   const [addItemSheetVisible, setAddItemSheetVisible] = useState(false);
-  const [addItemMode, setAddItemMode] = useState<"custom" | "search">("custom");
+  const [addItemMode, setAddItemMode] = useState<
+    "custom" | "search" | "link"
+  >("custom");
   const [customTitle, setCustomTitle] = useState("");
   const [customNotes, setCustomNotes] = useState("");
   const [customFields, setCustomFields] = useState<
@@ -419,6 +442,7 @@ export default function ListDetailScreen() {
     existing: true,
   });
   const [showSourcePicker, setShowSourcePicker] = useState(false);
+  const [linkPreview, setLinkPreview] = useState<ProductPreview | null>(null);
   const [displaySimple, setDisplaySimple] = useState(false);
   const [displayCheckbox, setDisplayCheckbox] = useState(false);
   const [displayDetails, setDisplayDetails] = useState(true);
@@ -426,6 +450,10 @@ export default function ListDetailScreen() {
   const [focusedSource, setFocusedSource] = useState<
     "anime" | "manga" | "books" | "tvMovie" | "games" | "existing" | null
   >(null);
+  const [listViewMode, setListViewMode] = useState<
+    "list" | "grid" | "compare" | "tier"
+  >("list");
+  const [viewMenuVisible, setViewMenuVisible] = useState(false);
 
   const openAddItemSheet = useCallback(() => {
     setAddItemMode("custom");
@@ -453,6 +481,7 @@ export default function ListDetailScreen() {
     setDisplayCheckbox(false);
     setDisplayDetails(true);
     setFocusedSource(null);
+    setLinkPreview(null);
     setAddItemSheetVisible(true);
   }, []);
 
@@ -482,6 +511,7 @@ export default function ListDetailScreen() {
     setDisplayCheckbox(false);
     setDisplayDetails(true);
     setFocusedSource(null);
+    setLinkPreview(null);
   }, []);
 
   const confirmAddCustomItem = useCallback(() => {
@@ -518,6 +548,41 @@ export default function ListDetailScreen() {
     customNotes,
     customFields,
     list,
+    displaySimple,
+    displayCheckbox,
+    displayDetails,
+  ]);
+
+  const confirmAddLinkItem = useCallback(() => {
+    if (!list || !linkPreview) return;
+    const variant: ListEntry["displayVariant"] = displaySimple
+      ? "simple"
+      : displayCheckbox && displayDetails
+      ? "checkbox-details"
+      : displayCheckbox
+      ? "checkbox"
+      : "details";
+    const priceStr =
+      linkPreview.price != null
+        ? new Intl.NumberFormat("en-US", {
+            style: "currency",
+            currency: linkPreview.currency ?? "USD",
+          }).format(linkPreview.price)
+        : undefined;
+    addEntryToList(list.id, {
+      title: linkPreview.title,
+      type: "link",
+      imageUrl: linkPreview.imageUrl,
+      productUrl: linkPreview.canonicalUrl,
+      price: priceStr,
+      displayVariant: variant,
+    });
+    closeAddItemSheet();
+  }, [
+    addEntryToList,
+    closeAddItemSheet,
+    list,
+    linkPreview,
     displaySimple,
     displayCheckbox,
     displayDetails,
@@ -994,12 +1059,8 @@ export default function ListDetailScreen() {
               ) : null}
             </View>
           ) : null}
-          <Image
-            source={
-              displayEntry.imageUrl
-                ? { uri: displayEntry.imageUrl }
-                : require("../../assets/images/placeholder-thumbnail.png")
-            }
+          <ThumbnailImage
+            imageUrl={displayEntry.imageUrl}
             style={styles.resultPoster}
             contentFit="cover"
           />
@@ -1011,6 +1072,7 @@ export default function ListDetailScreen() {
               <View style={styles.resultMetaRow}>
                 {(item.linkedEntryId ||
                   item.linkedListId ||
+                  item.type === "link" ||
                   (item.detailPath && !item.detailPath.startsWith("list-entry/"))) ? (
                   <View
                     style={[
@@ -1024,6 +1086,13 @@ export default function ListDetailScreen() {
                       {ENTRY_TYPE_LABELS[displayEntry.type]}
                     </ThemedText>
                   </View>
+                ) : null}
+                {displayEntry.type === "link" && displayEntry.price ? (
+                  <ThemedText
+                    style={[styles.trackingBadge, { color: colors.tint, fontWeight: "600" }]}
+                  >
+                    {displayEntry.price}
+                  </ThemedText>
                 ) : null}
                 {list?.preset === "tracking" &&
                   (displayEntry.totalEpisodes != null ||
@@ -1086,6 +1155,96 @@ export default function ListDetailScreen() {
 
   const keyExtractor = useCallback((item: ListEntry) => item.id, []);
 
+  const entriesWithCustomFields = useMemo(() => {
+    return entries.filter((e) => {
+      const d = getDisplayEntry(lists, e);
+      return d.customFields && d.customFields.length > 0;
+    });
+  }, [entries, lists]);
+
+  const allCustomFieldTitles = useMemo(() => {
+    const titles = new Set<string>();
+    for (const e of entriesWithCustomFields) {
+      const d = getDisplayEntry(lists, e);
+      for (const f of d.customFields ?? []) {
+        if (f.title.trim()) titles.add(f.title.trim());
+      }
+    }
+    return Array.from(titles);
+  }, [entriesWithCustomFields, lists]);
+
+  const getFieldValue = useCallback(
+    (entry: ListEntry, fieldTitle: string): string => {
+      const d = getDisplayEntry(lists, entry);
+      const f = d.customFields?.find(
+        (x) => x.title.trim() === fieldTitle.trim()
+      );
+      return f?.value ?? "";
+    },
+    [lists],
+  );
+
+  const tierTiers = useMemo(() => {
+    if (!list) return [];
+    return list.entries
+      .filter((e): e is ListEntry & { linkedListId: string } =>
+        !!e.linkedListId
+      )
+      .map((entry, index) => {
+        const sublist = lists.find((l) => l.id === entry.linkedListId);
+        if (!sublist) return null;
+        const items = sublist.entries.filter((e) => !e.linkedListId);
+        return {
+          id: sublist.id,
+          name: sublist.title,
+          color: TIER_COLORS[index % TIER_COLORS.length],
+          items,
+        };
+      })
+      .filter((t): t is NonNullable<typeof t> => t !== null);
+  }, [list, lists]);
+
+  const renderGridItem = useCallback(
+    ({ item }: { item: ListEntry }) => {
+      const displayEntry = getDisplayEntry(lists, item);
+      const variant = item.displayVariant ?? "details";
+      const isCheckbox =
+        variant === "checkbox" || variant === "checkbox-details";
+      const hasDetails =
+        variant === "details" || variant === "checkbox-details";
+      const hasPath =
+        displayEntry.detailPath ||
+        item.linkedListId ||
+        (item.linkedEntryId &&
+          !!findEntryById(lists, item.linkedEntryId)?.entry.detailPath);
+
+      return (
+        <Pressable
+          onPress={() => (hasDetails && hasPath ? openEntry(item) : null)}
+          style={({ pressed }) => [
+            styles.gridCard,
+            { opacity: pressed ? 0.8 : 1 },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel={displayEntry.title}
+        >
+          <ThumbnailImage
+            imageUrl={displayEntry.imageUrl}
+            style={styles.gridCardImage}
+            contentFit="cover"
+          />
+          <ThemedText
+            style={styles.gridCardTitle}
+            numberOfLines={2}
+          >
+            {displayEntry.title}
+          </ThemedText>
+        </Pressable>
+      );
+    },
+    [lists, openEntry],
+  );
+
   return (
     <>
       <Stack.Screen
@@ -1093,17 +1252,34 @@ export default function ListDetailScreen() {
           title: headerTitle,
           headerRight: () =>
             list ? (
-              <Pressable
-                onPress={openAddItemSheet}
-                style={({ pressed }) => [
-                  styles.headerButton,
-                  { opacity: pressed ? 0.7 : 1 },
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel="Add item to list"
-              >
-                <IconSymbol name="plus" size={26} color={colors.tint} />
-              </Pressable>
+              <View style={styles.headerButtonsRow}>
+                <Pressable
+                  onPress={openAddItemSheet}
+                  style={({ pressed }) => [
+                    styles.headerButton,
+                    { opacity: pressed ? 0.7 : 1 },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add item to list"
+                >
+                  <IconSymbol name="plus" size={26} color={colors.tint} />
+                </Pressable>
+                <Pressable
+                  onPress={() => setViewMenuVisible(true)}
+                  style={({ pressed }) => [
+                    styles.headerButton,
+                    { opacity: pressed ? 0.7 : 1 },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel="View options"
+                >
+                  <IconSymbol
+                    name="ellipsis.circle"
+                    size={26}
+                    color={colors.tint}
+                  />
+                </Pressable>
+              </View>
             ) : null,
         }}
       />
@@ -1112,8 +1288,148 @@ export default function ListDetailScreen() {
           <ThemedText style={styles.placeholder}>
             This list is empty. Add items from Search.
           </ThemedText>
+        ) : listViewMode === "compare" ? (
+          entriesWithCustomFields.length === 0 ? (
+            <ThemedText style={styles.placeholder}>
+              No items with custom fields to compare. Add custom fields to
+              items first.
+            </ThemedText>
+          ) : (
+            <View style={[styles.compareContainer, { paddingBottom: insets.bottom + 24 }]}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={true}
+                contentContainerStyle={styles.compareScrollContent}
+              >
+                <View style={[styles.compareTable, { borderColor: colors.icon + "40" }]}>
+                  <View style={[styles.compareTableRow, styles.compareHeaderRow, { borderBottomColor: colors.icon + "40", backgroundColor: colors.icon + "15" }]}>
+                    <View style={[styles.compareCell, styles.compareTitleCol]}>
+                      <ThemedText style={styles.compareHeaderText}>Title</ThemedText>
+                    </View>
+                    {allCustomFieldTitles.map((title) => (
+                      <View key={title} style={styles.compareCell}>
+                        <ThemedText style={styles.compareHeaderText}>{title}</ThemedText>
+                      </View>
+                    ))}
+                  </View>
+                  {entriesWithCustomFields.map((entry) => {
+                    const displayEntry = getDisplayEntry(lists, entry);
+                    return (
+                      <View
+                        key={entry.id}
+                        style={[styles.compareTableRow, { borderBottomColor: colors.icon + "30" }]}
+                      >
+                        <View style={[styles.compareCell, styles.compareTitleCol]}>
+                          <ThemedText style={styles.compareCellText} numberOfLines={2}>
+                            {displayEntry.title}
+                          </ThemedText>
+                        </View>
+                        {allCustomFieldTitles.map((fieldTitle) => (
+                          <View key={fieldTitle} style={styles.compareCell}>
+                            <ThemedText style={styles.compareCellText} numberOfLines={2}>
+                              {getFieldValue(entry, fieldTitle)}
+                            </ThemedText>
+                          </View>
+                        ))}
+                      </View>
+                    );
+                  })}
+                </View>
+              </ScrollView>
+            </View>
+          )
+        ) : listViewMode === "tier" ? (
+          tierTiers.length === 0 ? (
+            <ThemedText style={styles.placeholder}>
+              No sublists to display as tiers. Add lists as items to this list
+              (from Search → existing lists) to use Tier list view.
+            </ThemedText>
+          ) : (
+            <ScrollView
+              style={styles.tierListScroll}
+              contentContainerStyle={[
+                styles.tierListContent,
+                { paddingBottom: insets.bottom + 24 },
+              ]}
+              showsVerticalScrollIndicator={false}
+            >
+              {tierTiers.map((tier) => {
+                const isWhiteTier = tier.color === "#FFFFFF";
+                return (
+                  <View
+                    key={tier.id}
+                    style={[styles.tierRow, { borderBottomColor: colors.icon + "30" }]}
+                  >
+                    <View
+                      style={[
+                        styles.tierLabel,
+                        {
+                          backgroundColor: tier.color,
+                          borderWidth: isWhiteTier ? 1 : 0,
+                          borderColor: isWhiteTier ? "#000" : "transparent",
+                        },
+                      ]}
+                    >
+                      <ThemedText
+                        style={[
+                          styles.tierLabelText,
+                          { color: "#1a1a1a" },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {tier.name}
+                      </ThemedText>
+                    </View>
+                    <ScrollView
+                      horizontal
+                      style={styles.tierItemsScroll}
+                      contentContainerStyle={styles.tierItemsContent}
+                      showsHorizontalScrollIndicator={false}
+                    >
+                      {tier.items.map((item) => {
+                        const displayEntry = getDisplayEntry(lists, item);
+                        return (
+                          <Pressable
+                            key={item.id}
+                            onPress={() => openEntry(item)}
+                            style={({ pressed }) => [
+                              styles.tierItem,
+                              { opacity: pressed ? 0.8 : 1 },
+                            ]}
+                            accessibilityRole="button"
+                            accessibilityLabel={displayEntry.title}
+                          >
+                            <ThumbnailImage
+                              imageUrl={displayEntry.imageUrl}
+                              style={styles.tierItemImage}
+                              contentFit="cover"
+                            />
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                );
+              })}
+            </ScrollView>
+          )
+        ) : listViewMode === "grid" ? (
+          <FlatList
+            key="grid"
+            data={entries}
+            keyExtractor={keyExtractor}
+            renderItem={renderGridItem}
+            numColumns={2}
+            contentContainerStyle={[
+              styles.gridContent,
+              { paddingBottom: insets.bottom + 24 },
+            ]}
+            columnWrapperStyle={styles.gridRow}
+            showsVerticalScrollIndicator={false}
+          />
         ) : (
           <FlatList
+            key="list"
             data={entries}
             keyExtractor={keyExtractor}
             renderItem={renderItem}
@@ -1174,6 +1490,8 @@ export default function ListDetailScreen() {
               <ThemedText type="subtitle" style={styles.sheetTitle}>
                 {addItemMode === "custom"
                   ? "Add custom item"
+                  : addItemMode === "link"
+                  ? "Add from link"
                   : "Add from search"}
               </ThemedText>
               {addItemMode === "custom" ? (
@@ -1183,6 +1501,20 @@ export default function ListDetailScreen() {
                     styles.sheetHeaderButton,
                     styles.sheetHeaderButtonRight,
                     { opacity: pressed ? 0.7 : 1 },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add item"
+                >
+                  <IconSymbol name="checkmark" size={24} color={colors.tint} />
+                </Pressable>
+              ) : addItemMode === "link" ? (
+                <Pressable
+                  onPress={confirmAddLinkItem}
+                  disabled={!linkPreview}
+                  style={({ pressed }) => [
+                    styles.sheetHeaderButton,
+                    styles.sheetHeaderButtonRight,
+                    { opacity: pressed ? 0.7 : linkPreview ? 1 : 0.4 },
                   ]}
                   accessibilityRole="button"
                   accessibilityLabel="Add item"
@@ -1247,6 +1579,33 @@ export default function ListDetailScreen() {
                   ]}
                 >
                   Search item
+                </ThemedText>
+              </Pressable>
+              <Pressable
+                onPress={() => setAddItemMode("link")}
+                style={({ pressed }) => [
+                  styles.modeToggleButton,
+                  {
+                    backgroundColor:
+                      addItemMode === "link"
+                        ? colors.tint
+                        : colors.icon + "12",
+                    opacity: pressed ? 0.8 : 1,
+                  },
+                ]}
+              >
+                <ThemedText
+                  style={[
+                    styles.modeToggleText,
+                    {
+                      color:
+                        addItemMode === "link"
+                          ? colors.background
+                          : colors.text,
+                    },
+                  ]}
+                >
+                  Link
                 </ThemedText>
               </Pressable>
             </View>
@@ -1352,7 +1711,13 @@ export default function ListDetailScreen() {
               </Pressable>
             </View>
 
-            {addItemMode === "custom" ? (
+            {addItemMode === "link" ? (
+              <ProductLinkImport
+                compact
+                onImportSuccess={setLinkPreview}
+                onReset={() => setLinkPreview(null)}
+              />
+            ) : addItemMode === "custom" ? (
               <ScrollView
                 style={styles.sheetBody}
                 contentContainerStyle={styles.sheetBodyContent}
@@ -1801,12 +2166,8 @@ export default function ListDetailScreen() {
                                 accessibilityRole="button"
                                 accessibilityLabel={`Add ${result.entry.title} to list`}
                               >
-                                <Image
-                                  source={
-                                    result.entry.imageUrl
-                                      ? { uri: result.entry.imageUrl }
-                                      : require("../../assets/images/placeholder-thumbnail.png")
-                                  }
+                                <ThumbnailImage
+                                  imageUrl={result.entry.imageUrl}
                                   style={styles.resultPoster}
                                   contentFit="cover"
                                 />
@@ -1880,12 +2241,8 @@ export default function ListDetailScreen() {
                               accessibilityRole="button"
                               accessibilityLabel={`Add ${result.title} to list`}
                             >
-                              <Image
-                                source={
-                                  result.imageUrl
-                                    ? { uri: result.imageUrl }
-                                    : require("../../assets/images/placeholder-thumbnail.png")
-                                }
+                              <ThumbnailImage
+                                imageUrl={result.imageUrl}
                                 style={styles.resultPoster}
                                 contentFit="cover"
                               />
@@ -1955,12 +2312,8 @@ export default function ListDetailScreen() {
                               accessibilityRole="button"
                               accessibilityLabel={`Add ${result.title} to list`}
                             >
-                              <Image
-                                source={
-                                  result.imageUrl
-                                    ? { uri: result.imageUrl }
-                                    : require("../../assets/images/placeholder-thumbnail.png")
-                                }
+                              <ThumbnailImage
+                                imageUrl={result.imageUrl}
                                 style={styles.resultPoster}
                                 contentFit="cover"
                               />
@@ -2030,12 +2383,8 @@ export default function ListDetailScreen() {
                               accessibilityRole="button"
                               accessibilityLabel={`Add ${result.title} to list`}
                             >
-                              <Image
-                                source={
-                                  result.imageUrl
-                                    ? { uri: result.imageUrl }
-                                    : require("../../assets/images/placeholder-thumbnail.png")
-                                }
+                              <ThumbnailImage
+                                imageUrl={result.imageUrl}
                                 style={styles.resultPoster}
                                 contentFit="cover"
                               />
@@ -2113,12 +2462,8 @@ export default function ListDetailScreen() {
                               accessibilityRole="button"
                               accessibilityLabel={`Add ${result.title} to list`}
                             >
-                              <Image
-                                source={
-                                  result.imageUrl
-                                    ? { uri: result.imageUrl }
-                                    : require("../../assets/images/placeholder-thumbnail.png")
-                                }
+                              <ThumbnailImage
+                                imageUrl={result.imageUrl}
                                 style={styles.resultPoster}
                                 contentFit="cover"
                               />
@@ -2190,12 +2535,8 @@ export default function ListDetailScreen() {
                               accessibilityRole="button"
                               accessibilityLabel={`Add ${result.title} to list`}
                             >
-                              <Image
-                                source={
-                                  result.imageUrl
-                                    ? { uri: result.imageUrl }
-                                    : require("../../assets/images/placeholder-thumbnail.png")
-                                }
+                              <ThumbnailImage
+                                imageUrl={result.imageUrl}
                                 style={styles.resultPoster}
                                 contentFit="cover"
                               />
@@ -2338,6 +2679,95 @@ export default function ListDetailScreen() {
         </Pressable>
       </Modal>
 
+      <Modal
+        visible={viewMenuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setViewMenuVisible(false)}
+      >
+        <Pressable
+          style={styles.viewMenuOverlay}
+          onPress={() => setViewMenuVisible(false)}
+        >
+          <Pressable
+            style={[
+              styles.viewMenuDropdown,
+              {
+                backgroundColor: colors.background,
+                borderColor: colors.icon + "30",
+                top: insets.top + 56,
+              },
+            ]}
+            onPress={() => {}}
+          >
+            <Pressable
+              onPress={() => {
+                setListViewMode("list");
+                setViewMenuVisible(false);
+              }}
+              style={({ pressed }) => [
+                styles.viewMenuItem,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <ThemedText style={styles.viewMenuText}>List view</ThemedText>
+              <IconSymbol
+                name="list.bullet"
+                size={20}
+                color={colors.icon}
+              />
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setListViewMode("grid");
+                setViewMenuVisible(false);
+              }}
+              style={({ pressed }) => [
+                styles.viewMenuItem,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <ThemedText style={styles.viewMenuText}>Grid view</ThemedText>
+              <IconSymbol
+                name="square.grid.2x2"
+                size={20}
+                color={colors.icon}
+              />
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setListViewMode("compare");
+                setViewMenuVisible(false);
+              }}
+              style={({ pressed }) => [
+                styles.viewMenuItem,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <ThemedText style={styles.viewMenuText}>Compare view</ThemedText>
+              <IconSymbol name="tablecells" size={20} color={colors.icon} />
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setListViewMode("tier");
+                setViewMenuVisible(false);
+              }}
+              style={({ pressed }) => [
+                styles.viewMenuItem,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <ThemedText style={styles.viewMenuText}>Tier list</ThemedText>
+              <IconSymbol
+                name="square.stack.3d.up"
+                size={20}
+                color={colors.icon}
+              />
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
     </>
   );
 }
@@ -2346,8 +2776,39 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  headerButtonsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
   headerButton: {
     padding: 5,
+  },
+  viewMenuOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.3)",
+  },
+  viewMenuDropdown: {
+    position: "absolute",
+    right: 16,
+    minWidth: 180,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingVertical: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  viewMenuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  viewMenuText: {
+    fontSize: 16,
   },
   placeholder: {
     flex: 1,
@@ -2358,6 +2819,109 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: 20,
     paddingTop: 8,
+  },
+  gridContent: {
+    paddingHorizontal: 12,
+    paddingTop: 8,
+  },
+  gridRow: {
+    gap: 12,
+    marginBottom: 12,
+    paddingHorizontal: 8,
+  },
+  gridCard: {
+    flex: 1,
+    minWidth: 0,
+  },
+  gridCardImage: {
+    width: "100%",
+    aspectRatio: 2 / 3,
+    borderRadius: 8,
+  },
+  gridCardTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginTop: 6,
+    paddingHorizontal: 2,
+  },
+  compareContainer: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  compareScrollContent: {
+    paddingTop: 12,
+    paddingBottom: 12,
+  },
+  compareTable: {
+    borderWidth: 1,
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  compareTableRow: {
+    flexDirection: "row",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  compareHeaderRow: {
+    borderBottomWidth: 1,
+  },
+  compareCell: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    minWidth: 120,
+    maxWidth: 180,
+  },
+  compareTitleCol: {
+    minWidth: 140,
+    maxWidth: 200,
+  },
+  compareHeaderText: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  compareCellText: {
+    fontSize: 14,
+  },
+  tierListScroll: {
+    flex: 1,
+  },
+  tierListContent: {
+    paddingHorizontal: 0,
+    paddingTop: 8,
+  },
+  tierRow: {
+    flexDirection: "row",
+    minHeight: 100,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  tierLabel: {
+    width: 72,
+    minHeight: 100,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 6,
+  },
+  tierLabelText: {
+    fontSize: 14,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  tierItemsScroll: {
+    flex: 1,
+  },
+  tierItemsContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  tierItem: {
+    width: 56,
+  },
+  tierItemImage: {
+    width: 56,
+    height: 80,
+    borderRadius: 6,
   },
   resultRow: {
     flexDirection: "row",

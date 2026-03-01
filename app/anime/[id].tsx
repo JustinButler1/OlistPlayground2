@@ -3,6 +3,7 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Linking,
   Modal,
   Pressable,
   ScrollView,
@@ -16,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { ThumbnailImage } from '@/components/thumbnail-image';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -32,6 +34,17 @@ interface RelationEntry {
 interface AnimeRelation {
   relation: string;
   entry: RelationEntry[];
+}
+
+interface AnimeTrailer {
+  youtube_id: string | null;
+  url: string | null;
+  embed_url: string | null;
+  images?: {
+    medium_image_url?: string;
+    large_image_url?: string;
+    maximum_image_url?: string;
+  };
 }
 
 interface AnimeDetails {
@@ -55,6 +68,7 @@ interface AnimeDetails {
   studios: { mal_id: number; name: string }[];
   url: string;
   relations?: AnimeRelation[];
+  trailer?: AnimeTrailer;
 }
 
 async function fetchAnimeDetails(id: string): Promise<AnimeDetails> {
@@ -172,18 +186,16 @@ export default function AnimeDetailsScreen() {
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
         showsVerticalScrollIndicator={false}
       >
-        {img ? (
-          <Pressable
-            onPress={() => setFullScreenImageVisible(true)}
-            style={({ pressed }) => [styles.heroImageWrap, pressed && { opacity: 0.9 }]}
-          >
-            <Image
-              source={{ uri: img }}
-              style={styles.heroImage}
-              contentFit="cover"
-            />
-          </Pressable>
-        ) : null}
+        <Pressable
+          onPress={() => img && setFullScreenImageVisible(true)}
+          style={({ pressed }) => [styles.heroImageWrap, pressed && img && { opacity: 0.9 }]}
+        >
+          <ThumbnailImage
+            imageUrl={img ?? undefined}
+            style={styles.heroImage}
+            contentFit="cover"
+          />
+        </Pressable>
 
         <Modal
           visible={fullScreenImageVisible}
@@ -393,6 +405,48 @@ export default function AnimeDetailsScreen() {
                 )}
             </>
           ) : null}
+
+          {anime!.trailer?.youtube_id ? (
+            <View style={styles.trailerSection}>
+              <ThemedText type="subtitle" style={styles.sectionTitle}>
+                Trailer
+              </ThemedText>
+              <Pressable
+                onPress={() =>
+                  Linking.openURL(
+                    anime!.trailer!.url ?? `https://www.youtube.com/watch?v=${anime!.trailer!.youtube_id}`
+                  )
+                }
+                style={({ pressed }) => [
+                  styles.trailerCard,
+                  { backgroundColor: colors.tint + '15' },
+                  pressed && { opacity: 0.8 },
+                ]}
+              >
+                <View style={styles.trailerThumbWrap}>
+                  <Image
+                    source={{
+                      uri: `https://img.youtube.com/vi/${anime!.trailer!.youtube_id}/hqdefault.jpg`,
+                    }}
+                    style={styles.trailerThumb}
+                    contentFit="cover"
+                  />
+                  <View style={styles.trailerPlayOverlay}>
+                    <IconSymbol
+                      name="play.circle.fill"
+                      size={56}
+                      color="rgba(255,255,255,0.95)"
+                    />
+                  </View>
+                </View>
+                <ThemedText
+                  style={[styles.trailerTitle, { color: colors.text }]}
+                >
+                  Watch trailer
+                </ThemedText>
+              </Pressable>
+            </View>
+          ) : null}
         </View>
       </ScrollView>
     </ThemedView>
@@ -483,6 +537,34 @@ const styles = StyleSheet.create({
   genreText: {
     fontSize: 13,
     fontWeight: '600',
+  },
+  trailerSection: {
+    marginTop: 32,
+  },
+  trailerCard: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 20,
+  },
+  trailerThumbWrap: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    position: 'relative',
+  },
+  trailerThumb: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'rgba(128,128,128,0.3)',
+  },
+  trailerPlayOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  trailerTitle: {
+    fontSize: 14,
+    padding: 12,
   },
   sectionTitle: {
     fontSize: 18,

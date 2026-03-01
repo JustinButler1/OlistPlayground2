@@ -26,8 +26,8 @@ export interface ListItem {
 }
 
 export default function MyListsScreen() {
-  const { lists, createList } = useLists();
-  const items: ListItem[] = lists.map((l) => ({ id: l.id, title: l.title }));
+  const { mainLists, createList } = useLists();
+  const items: ListItem[] = mainLists.map((l) => ({ id: l.id, title: l.title }));
   const [sheetVisible, setSheetVisible] = useState(false);
   const [titleInput, setTitleInput] = useState('');
   const [listPreset, setListPreset] = useState<ListPreset>('blank');

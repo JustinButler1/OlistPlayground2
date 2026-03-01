@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { ThumbnailImage } from '@/components/thumbnail-image';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -26,6 +27,10 @@ export function bookKeyToSlug(key: string): string {
 
 /** Decodes route segment back to Open Library key. */
 function slugToBookKey(slug: string): string {
+  // Handle raw work ID (e.g. OL34852204W from mock data or legacy links)
+  if (/^OL\d+W$/i.test(slug)) {
+    return `/works/${slug}`;
+  }
   return '/' + slug.replace(/--/g, '/');
 }
 
@@ -183,20 +188,16 @@ export default function BookDetailsScreen() {
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
         showsVerticalScrollIndicator={false}
       >
-        {img ? (
-          <Pressable
-            onPress={() => setFullScreenImageVisible(true)}
-            style={({ pressed }) => [styles.heroImageWrap, pressed && { opacity: 0.9 }]}
-          >
-            <Image
-              source={{ uri: img }}
-              style={styles.heroImage}
-              contentFit="cover"
-            />
-          </Pressable>
-        ) : (
-          <View style={[styles.heroImageWrap, styles.placeholderImage]} />
-        )}
+        <Pressable
+          onPress={() => img && setFullScreenImageVisible(true)}
+          style={({ pressed }) => [styles.heroImageWrap, pressed && img && { opacity: 0.9 }]}
+        >
+          <ThumbnailImage
+            imageUrl={img ?? undefined}
+            style={styles.heroImage}
+            contentFit="cover"
+          />
+        </Pressable>
 
         <Modal
           visible={fullScreenImageVisible}
@@ -294,9 +295,6 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     backgroundColor: 'rgba(128,128,128,0.2)',
-  },
-  placeholderImage: {
-    backgroundColor: 'rgba(128,128,128,0.25)',
   },
   fullScreenOverlay: {
     flex: 1,

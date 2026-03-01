@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 
-const PLACEHOLDER_IMAGE = require('../../assets/images/placeholder-thumbnail.png');
+import { ThumbnailImage } from '@/components/thumbnail-image';
 const RESULTS_PER_PAGE = 15;
 import {
   ActivityIndicator,
@@ -32,6 +31,8 @@ const ADD_TO_SHEET_ENTRY_TYPE_LABELS: Record<ListEntryType, string> = {
   tv: 'TV',
   book: 'Book',
   game: 'Game',
+  list: 'List',
+  link: 'Link',
 };
 
 const JIKAN_API = 'https://api.jikan.moe/v4';
@@ -569,8 +570,8 @@ export default function SearchScreen() {
             accessible
             accessibilityRole="button"
           >
-            <Image
-              source={img ? { uri: img } : PLACEHOLDER_IMAGE}
+            <ThumbnailImage
+              imageUrl={img ?? undefined}
               style={styles.animePoster}
               contentFit="cover"
             />
@@ -634,8 +635,8 @@ export default function SearchScreen() {
             accessible
             accessibilityRole="button"
           >
-            <Image
-              source={img ? { uri: img } : PLACEHOLDER_IMAGE}
+            <ThumbnailImage
+              imageUrl={img ?? undefined}
               style={styles.animePoster}
               contentFit="cover"
             />
@@ -701,8 +702,8 @@ export default function SearchScreen() {
             accessible
             accessibilityRole="button"
           >
-            <Image
-              source={coverUri ? { uri: coverUri } : PLACEHOLDER_IMAGE}
+            <ThumbnailImage
+              imageUrl={coverUri ?? undefined}
               style={styles.animePoster}
               contentFit="cover"
             />
@@ -766,8 +767,8 @@ export default function SearchScreen() {
             accessible
             accessibilityRole="button"
           >
-            <Image
-              source={coverUri ? { uri: coverUri } : PLACEHOLDER_IMAGE}
+            <ThumbnailImage
+              imageUrl={coverUri ?? undefined}
               style={styles.animePoster}
               contentFit="cover"
             />
@@ -829,8 +830,8 @@ export default function SearchScreen() {
             accessible
             accessibilityRole="button"
           >
-            <Image
-              source={posterUri ? { uri: posterUri } : PLACEHOLDER_IMAGE}
+            <ThumbnailImage
+              imageUrl={posterUri ?? undefined}
               style={styles.animePoster}
               contentFit="cover"
             />
@@ -1475,12 +1476,8 @@ export default function SearchScreen() {
                               <IconSymbol name="checkmark" size={14} color={colors.background} />
                             ) : null}
                           </View>
-                          <Image
-                            source={
-                              listImage
-                                ? { uri: listImage }
-                                : PLACEHOLDER_IMAGE
-                            }
+                          <ThumbnailImage
+                            imageUrl={listImage ?? undefined}
                             style={styles.addToSheetListThumb}
                             contentFit="cover"
                           />
@@ -1526,12 +1523,8 @@ export default function SearchScreen() {
                     keyExtractor={(e) => e.id}
                     renderItem={({ item: entry }) => (
                       <View style={styles.addToSheetEntryRow}>
-                        <Image
-                          source={
-                            entry.imageUrl
-                              ? { uri: entry.imageUrl }
-                              : PLACEHOLDER_IMAGE
-                          }
+                        <ThumbnailImage
+                          imageUrl={entry.imageUrl}
                           style={styles.addToSheetEntryThumb}
                           contentFit="cover"
                         />

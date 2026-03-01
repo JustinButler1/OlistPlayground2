@@ -3,6 +3,7 @@ import { Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Linking,
   Modal,
   Pressable,
   ScrollView,
@@ -13,13 +14,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { ThumbnailImage } from '@/components/thumbnail-image';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 const TMDB_API_BASE = 'https://api.themoviedb.org/3';
 const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p';
-const TMDB_BACKDROP_SIZE = 'w780';
+const TMDB_BACKDROP_SIZE = 'w1280';
+const TMDB_POSTER_SIZE = 'w780';
 
 type TmdbType = 'movie' | 'tv';
 
@@ -88,6 +91,67 @@ function isMovie(d: TmdbDetails): d is TmdbMovieDetails {
   return 'title' in d && 'release_date' in d;
 }
 
+interface TmdbVideo {
+  id: string;
+  key: string;
+  name: string;
+  type: string;
+  site: string;
+}
+
+async function fetchTmdbVideos(
+  type: TmdbType,
+  id: string
+): Promise<TmdbVideo[]> {
+  const apiKey = getTmdbApiKey();
+  if (!apiKey) return [];
+
+  const endpoint = type === 'movie' ? 'movie' : 'tv';
+  const res = await fetch(
+    `${TMDB_API_BASE}/${endpoint}/${id}/videos?api_key=${encodeURIComponent(apiKey)}&language=en-US`
+  );
+  if (!res.ok) return [];
+
+  const json: { results?: TmdbVideo[] } = await res.json();
+  const results = json.results ?? [];
+
+  return results.filter(
+    (v) =>
+      v.site === 'YouTube' &&
+      (v.type === 'Trailer' || v.type === 'Teaser') &&
+      v.key
+  );
+}
+
+interface TmdbCastMember {
+  id: number;
+  name: string;
+  character: string;
+  profile_path: string | null;
+  order: number;
+}
+
+async function fetchTmdbCredits(
+  type: TmdbType,
+  id: string
+): Promise<TmdbCastMember[]> {
+  const apiKey = getTmdbApiKey();
+  if (!apiKey) return [];
+
+  const endpoint = type === 'movie' ? 'movie' : 'tv';
+  const res = await fetch(
+    `${TMDB_API_BASE}/${endpoint}/${id}/credits?api_key=${encodeURIComponent(apiKey)}&language=en-US`
+  );
+  if (!res.ok) return [];
+
+  const json: { cast?: TmdbCastMember[] } = await res.json();
+  const cast = json.cast ?? [];
+  return cast
+    .filter((c) => c.name && c.character)
+    .sort((a, b) => (a.order ?? 999) - (b.order ?? 999))
+    .slice(0, 20);
+}
+
 export default function TvMovieDetailsScreen() {
   const { type, id } = useLocalSearchParams<{ type: string; id: string }>();
   const insets = useSafeAreaInsets();
@@ -95,6 +159,8 @@ export default function TvMovieDetailsScreen() {
   const colors = Colors[colorScheme ?? 'light'];
 
   const [details, setDetails] = useState<TmdbDetails | null>(null);
+  const [trailers, setTrailers] = useState<TmdbVideo[]>([]);
+  const [cast, setCast] = useState<TmdbCastMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [fullScreenImageVisible, setFullScreenImageVisible] = useState(false);
@@ -106,16 +172,26 @@ export default function TvMovieDetailsScreen() {
     if (!id || !mediaType) return;
     setLoading(true);
     setError(null);
-    fetchTmdbDetails(mediaType, id)
-      .then(setDetails)
+    Promise.all([
+      fetchTmdbDetails(mediaType, id),
+      fetchTmdbVideos(mediaType, id),
+      fetchTmdbCredits(mediaType, id),
+    ])
+      .then(([detailsData, trailersData, castData]) => {
+        setDetails(detailsData);
+        setTrailers(trailersData);
+        setCast(castData);
+      })
       .catch(() => setError('Failed to load details'))
       .finally(() => setLoading(false));
   }, [id, mediaType]);
 
-  const backdropPath = details?.backdrop_path ?? details?.poster_path;
-  const img = backdropPath
-    ? `${TMDB_IMAGE_BASE}/${TMDB_BACKDROP_SIZE}${backdropPath}`
-    : null;
+  const backdropPath = details?.backdrop_path;
+  const posterPath = details?.poster_path;
+  const img =
+    backdropPath || posterPath
+      ? `${TMDB_IMAGE_BASE}/${backdropPath ? TMDB_BACKDROP_SIZE : TMDB_POSTER_SIZE}${backdropPath ?? posterPath!}`
+      : null;
   const title = details
     ? isMovie(details)
       ? details.title
@@ -184,18 +260,16 @@ export default function TvMovieDetailsScreen() {
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
         showsVerticalScrollIndicator={false}
       >
-        {img ? (
-          <Pressable
-            onPress={() => setFullScreenImageVisible(true)}
-            style={({ pressed }) => [styles.heroImageWrap, pressed && { opacity: 0.9 }]}
-          >
-            <Image
-              source={{ uri: img }}
-              style={styles.heroImage}
-              contentFit="cover"
-            />
-          </Pressable>
-        ) : null}
+        <Pressable
+          onPress={() => img && setFullScreenImageVisible(true)}
+          style={({ pressed }) => [styles.heroImageWrap, pressed && img && { opacity: 0.9 }]}
+        >
+          <ThumbnailImage
+            imageUrl={img ?? undefined}
+            style={styles.heroImage}
+            contentFit="cover"
+          />
+        </Pressable>
 
         <Modal
           visible={fullScreenImageVisible}
@@ -278,6 +352,105 @@ export default function TvMovieDetailsScreen() {
               </ThemedText>
               <ThemedText style={styles.synopsis}>{details!.overview}</ThemedText>
             </>
+          ) : null}
+
+          {cast.length > 0 ? (
+            <View style={styles.castSection}>
+              <ThemedText type="subtitle" style={styles.sectionTitle}>
+                Cast
+              </ThemedText>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.castScroll}
+              >
+                {cast.map((member) => {
+                  const profileUri = member.profile_path
+                    ? `${TMDB_IMAGE_BASE}/w185${member.profile_path}`
+                    : null;
+                  return (
+                    <View
+                      key={`${member.id}-${member.character}`}
+                      style={[styles.castCard, { backgroundColor: colors.tint + '15' }]}
+                    >
+                      <View style={styles.castImageWrap}>
+                        {profileUri ? (
+                          <Image
+                            source={{ uri: profileUri }}
+                            style={styles.castImage}
+                            contentFit="cover"
+                          />
+                        ) : (
+                          <View style={[styles.castImage, styles.castImagePlaceholder]} />
+                        )}
+                      </View>
+                      <ThemedText
+                        style={[styles.castName, { color: colors.text }]}
+                        numberOfLines={2}
+                      >
+                        {member.name}
+                      </ThemedText>
+                      <ThemedText
+                        style={[styles.castCharacter, { color: colors.icon }]}
+                        numberOfLines={2}
+                      >
+                        {member.character}
+                      </ThemedText>
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          ) : null}
+
+          {trailers.length > 0 ? (
+            <View style={styles.trailerSection}>
+              <ThemedText type="subtitle" style={styles.sectionTitle}>
+                Trailers
+              </ThemedText>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.trailerScroll}
+              >
+                {trailers.map((trailer) => {
+                  const thumbnailUri = `https://img.youtube.com/vi/${trailer.key}/hqdefault.jpg`;
+                  const youtubeUrl = `https://www.youtube.com/watch?v=${trailer.key}`;
+                  return (
+                    <Pressable
+                      key={trailer.id}
+                      onPress={() => Linking.openURL(youtubeUrl)}
+                      style={({ pressed }) => [
+                        styles.trailerCard,
+                        { backgroundColor: colors.tint + '15' },
+                        pressed && { opacity: 0.8 },
+                      ]}
+                    >
+                      <View style={styles.trailerThumbWrap}>
+                        <Image
+                          source={{ uri: thumbnailUri }}
+                          style={styles.trailerThumb}
+                          contentFit="cover"
+                        />
+                        <View style={styles.trailerPlayOverlay}>
+                          <IconSymbol
+                            name="play.circle.fill"
+                            size={56}
+                            color="rgba(255,255,255,0.95)"
+                          />
+                        </View>
+                      </View>
+                      <ThemedText
+                        style={[styles.trailerTitle, { color: colors.text }]}
+                        numberOfLines={2}
+                      >
+                        {trailer.name}
+                      </ThemedText>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
           ) : null}
         </View>
       </ScrollView>
@@ -374,6 +547,81 @@ const styles = StyleSheet.create({
   genreText: {
     fontSize: 13,
     fontWeight: '600',
+  },
+  castSection: {
+    marginTop: 24,
+  },
+  castScroll: {
+    paddingBottom: 8,
+    paddingRight: 20,
+  },
+  castCard: {
+    width: 100,
+    marginRight: 12,
+    borderRadius: 10,
+    overflow: 'hidden',
+    alignItems: 'center',
+  },
+  castImageWrap: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    overflow: 'hidden',
+    marginTop: 8,
+    backgroundColor: 'rgba(128,128,128,0.2)',
+  },
+  castImage: {
+    width: '100%',
+    height: '100%',
+  },
+  castImagePlaceholder: {
+    backgroundColor: 'rgba(128,128,128,0.3)',
+  },
+  castName: {
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+    paddingHorizontal: 6,
+    paddingTop: 6,
+  },
+  castCharacter: {
+    fontSize: 11,
+    textAlign: 'center',
+    paddingHorizontal: 6,
+    paddingBottom: 8,
+  },
+  trailerSection: {
+    marginTop: 32,
+  },
+  trailerScroll: {
+    paddingBottom: 8,
+    paddingRight: 20,
+  },
+  trailerCard: {
+    width: 280,
+    marginRight: 12,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  trailerThumbWrap: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    position: 'relative',
+  },
+  trailerThumb: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'rgba(128,128,128,0.3)',
+  },
+  trailerPlayOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  trailerTitle: {
+    fontSize: 14,
+    padding: 12,
   },
   sectionTitle: {
     fontSize: 18,

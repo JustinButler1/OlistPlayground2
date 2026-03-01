@@ -55,6 +55,10 @@ export default function RootLayout() {
           name="modal"
           options={{ presentation: "modal", title: "Modal" }}
         />
+        <Stack.Screen
+          name="product-import"
+          options={{ title: "Import Product" }}
+        />
       </Stack>
       <StatusBar style="auto" />
       </ListsProvider>

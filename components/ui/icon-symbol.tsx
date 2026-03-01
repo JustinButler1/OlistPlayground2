@@ -19,6 +19,7 @@ const MAPPING = {
   'chevron.left.forwardslash.chevron.right': 'code',
   'chevron.right': 'chevron-right',
   'chevron.down': 'keyboard-arrow-down',
+  'chevron.up': 'keyboard-arrow-up',
   'xmark': 'close',
   'plus': 'add',
   'checkmark': 'check',
@@ -26,6 +27,14 @@ const MAPPING = {
   'list.bullet': 'list',
   'person.fill': 'person',
   'trash': 'delete',
+  'ellipsis.circle': 'more-vert',
+  'square.grid.2x2': 'view-module',
+  'tablecells': 'table-chart',
+  'square.stack.3d.up': 'view-agenda',
+  'play.circle.fill': 'play-circle',
+  'link': 'link',
+  'arrow.up.right': 'open-in-new',
+  'arrow.up.forward': 'open-in-new',
 } as IconMapping;
 
 /**
