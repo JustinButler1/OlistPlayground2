@@ -1,261 +1,575 @@
-/**
- * Mock data for My Lists and list detail screens.
- */
+const DAY_MS = 24 * 60 * 60 * 1000;
+const NOW = new Date('2026-03-07T12:00:00.000Z').getTime();
 
-export type ListEntryType = 'anime' | 'manga' | 'movie' | 'tv' | 'book' | 'game' | 'list' | 'link';
-
-/** Preset when creating a list: blank = normal list; tracking = show 0/X progress for items with chapters/volumes/episodes */
+export type EntryStatus = 'planned' | 'active' | 'paused' | 'completed' | 'dropped';
+export type EntryProgressUnit = 'episode' | 'chapter' | 'volume' | 'item' | 'percent';
+export type EntrySourceType =
+  | 'anime'
+  | 'manga'
+  | 'book'
+  | 'movie'
+  | 'tv'
+  | 'link'
+  | 'custom';
+export type ListEntryType = EntrySourceType | 'game';
 export type ListPreset = 'blank' | 'tracking';
+export type ListViewMode = 'list' | 'grid';
+export type ListSortMode = 'updated-desc' | 'title-asc' | 'rating-desc' | 'status';
+export type ListFilterMode =
+  | 'all'
+  | 'active'
+  | 'planned'
+  | 'completed'
+  | 'paused'
+  | 'dropped'
+  | 'archived';
+export type ListGroupMode = 'none' | 'status' | 'tag';
+
+export interface EntryProgress {
+  current: number;
+  total?: number;
+  unit: EntryProgressUnit;
+  updatedAt: number;
+}
+
+export interface EntrySourceRef {
+  source: EntrySourceType;
+  externalId?: string;
+  detailPath?: string;
+  canonicalUrl?: string;
+}
+
+export interface CustomField {
+  title: string;
+  value: string;
+  format?: 'text' | 'numbers';
+}
 
 export interface ListEntry {
   id: string;
   title: string;
   type: ListEntryType;
   imageUrl?: string;
-  /** Optional link to detail screen: e.g. anime/123, manga/456, tv-movie/movie/789 */
   detailPath?: string;
-  /** Optional user notes for custom entries. */
   notes?: string;
-  /** Custom title/value fields for custom entries (e.g. Author, Year). */
-  customFields?: { title: string; value: string; format?: 'text' | 'numbers' }[];
-  /**
-   * Controls how the entry behaves in list detail:
-   * - 'simple': image + title only
-   * - 'checkbox': bulk tap toggles checked
-   * - 'details': bulk tap navigates to details (default)
-   * - 'checkbox-details': bulk tap toggles checked, separate details affordance
-   */
-  displayVariant?: 'simple' | 'checkbox' | 'details' | 'checkbox-details';
-  /** For tracking lists: total episodes (anime), chapters/volumes (manga), etc. Shown as 0/X on the item. */
-  totalEpisodes?: number;
-  totalChapters?: number;
-  totalVolumes?: number;
-  /** Link to another entry: display and open use the referenced entry's current data (changes reflected). */
-  linkedEntryId?: string;
-  /** Link to another list: this entry represents that list (e.g. nested list); tap opens the list. */
-  linkedListId?: string;
-  /** For link type: product page URL on an e-commerce site. */
+  customFields?: CustomField[];
+  status: EntryStatus;
+  rating?: number;
+  tags: string[];
+  progress?: EntryProgress;
+  sourceRef: EntrySourceRef;
+  addedAt: number;
+  updatedAt: number;
+  reminderAt?: number;
+  coverAssetUri?: string;
   productUrl?: string;
-  /** For link type: parsed product price (e.g. "$29.99"). */
   price?: string;
+  archivedAt?: number;
 }
 
-export interface MockList {
+export interface ListPreferences {
+  viewMode: ListViewMode;
+  sortMode: ListSortMode;
+  filterMode: ListFilterMode;
+  groupMode: ListGroupMode;
+  showCompleted: boolean;
+}
+
+export interface TrackerList {
   id: string;
   title: string;
-  /** Preset: 'blank' (default) or 'tracking'. Tracking lists show 0/X on items that have totalEpisodes/totalChapters/totalVolumes. */
-  preset?: ListPreset;
+  description?: string;
+  preset: ListPreset;
   entries: ListEntry[];
+  preferences: ListPreferences;
+  pinned: boolean;
+  createdAt: number;
+  updatedAt: number;
+  templateId?: string;
+  archivedAt?: number;
+  deletedAt?: number;
 }
 
-export const MOCK_LISTS: MockList[] = [
+export type MockList = TrackerList;
+
+export interface ListTemplate {
+  id: string;
+  title: string;
+  description: string;
+  preset: ListPreset;
+  suggestedTags: string[];
+  starterEntries: Array<
+    Omit<ListEntry, 'id' | 'addedAt' | 'updatedAt' | 'status' | 'tags' | 'sourceRef'>
+    & {
+      status?: EntryStatus;
+      tags?: string[];
+      sourceRef?: EntrySourceRef;
+    }
+  >;
+}
+
+export const DEFAULT_LIST_PREFERENCES: ListPreferences = {
+  viewMode: 'list',
+  sortMode: 'updated-desc',
+  filterMode: 'all',
+  groupMode: 'none',
+  showCompleted: true,
+};
+
+function createSeedEntry(
+  id: string,
+  title: string,
+  type: ListEntryType,
+  options: Partial<ListEntry> = {}
+): ListEntry {
+  const source = options.sourceRef?.source ?? (type === 'game' ? 'custom' : type);
+  const progressUpdatedAt =
+    options.progress?.updatedAt ?? options.updatedAt ?? options.addedAt ?? NOW;
+
+  return {
+    id,
+    title,
+    type,
+    status: options.status ?? 'planned',
+    tags: options.tags ?? [],
+    addedAt: options.addedAt ?? NOW,
+    updatedAt: options.updatedAt ?? options.addedAt ?? NOW,
+    sourceRef: options.sourceRef ?? {
+      source,
+      externalId: options.detailPath?.split('/').pop(),
+      detailPath: options.detailPath,
+      canonicalUrl: options.productUrl,
+    },
+    imageUrl: options.imageUrl,
+    detailPath: options.detailPath,
+    notes: options.notes,
+    customFields: options.customFields,
+    rating: options.rating,
+    progress: options.progress
+      ? {
+          ...options.progress,
+          updatedAt: progressUpdatedAt,
+        }
+      : undefined,
+    reminderAt: options.reminderAt,
+    coverAssetUri: options.coverAssetUri,
+    productUrl: options.productUrl,
+    price: options.price,
+    archivedAt: options.archivedAt,
+  };
+}
+
+function createSeedList(
+  id: string,
+  title: string,
+  entries: ListEntry[],
+  options: Partial<TrackerList> = {}
+): TrackerList {
+  return {
+    id,
+    title,
+    description: options.description,
+    preset: options.preset ?? 'tracking',
+    entries,
+    preferences: options.preferences ?? DEFAULT_LIST_PREFERENCES,
+    pinned: options.pinned ?? false,
+    createdAt: options.createdAt ?? NOW,
+    updatedAt: options.updatedAt ?? NOW,
+    templateId: options.templateId,
+    archivedAt: options.archivedAt,
+    deletedAt: options.deletedAt,
+  };
+}
+
+export const LIST_TEMPLATES: ListTemplate[] = [
   {
-    id: 'list-watchlist',
-    title: 'Watchlist',
-    entries: [
+    id: 'template-watch',
+    title: 'Watch Rotation',
+    description: 'Keep one active show, one planned movie, and one comfort rewatch in view.',
+    preset: 'tracking',
+    suggestedTags: ['night', 'weekend', 'comfort'],
+    starterEntries: [
       {
-        id: 'e1',
-        title: 'Attack on Titan',
+        title: "Frieren: Beyond Journey's End",
         type: 'anime',
-        imageUrl: 'https://cdn.myanimelist.net/images/anime/10/47347.jpg',
-        detailPath: 'anime/16498',
+        imageUrl: 'https://cdn.myanimelist.net/images/anime/1015/138006.jpg',
+        detailPath: 'anime/52991',
+        progress: { current: 12, total: 28, unit: 'episode', updatedAt: NOW - DAY_MS },
+        status: 'active',
+        rating: 9,
+        tags: ['comfort'],
       },
       {
-        id: 'e2',
-        title: 'Dune',
+        title: 'Dune: Part Two',
         type: 'movie',
-        imageUrl: 'https://image.tmdb.org/t/p/w200/8b8R8l88Qje9dn9OE8PY05Nxl1X.jpg',
-        detailPath: 'tv-movie/movie/438631',
+        imageUrl: 'https://image.tmdb.org/t/p/w342/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg',
+        detailPath: 'tv-movie/movie/693134',
+        status: 'planned',
+        tags: ['imax'],
       },
       {
-        id: 'e3',
-        title: 'The Legend of Zelda: Breath of the Wild',
-        type: 'game',
-        detailPath: 'games/7346',
-      },
-      {
-        id: 'e4',
-        title: 'Chainsaw Man',
-        type: 'manga',
-        imageUrl: 'https://cdn.myanimelist.net/images/manga/3/216464.jpg',
-        detailPath: 'manga/116778',
+        title: 'Only Murders in the Building',
+        type: 'tv',
+        imageUrl: 'https://image.tmdb.org/t/p/w342/pq5L9p9xanF7YgU1kR1Y5FusK9M.jpg',
+        detailPath: 'tv-movie/tv/107113',
+        status: 'paused',
+        tags: ['comedy'],
       },
     ],
   },
   {
-    id: 'list-favorites',
-    title: 'Favorites',
-    entries: [
+    id: 'template-reading',
+    title: 'Reading Stack',
+    description: 'Balance an active manga, a non-fiction read, and a finished shelf.',
+    preset: 'tracking',
+    suggestedTags: ['morning', 'deep-work', 'loan'],
+    starterEntries: [
       {
-        id: 'e5',
-        title: 'Steins;Gate',
-        type: 'anime',
+        title: 'Blue Period',
+        type: 'manga',
+        imageUrl: 'https://cdn.myanimelist.net/images/manga/1/229262.jpg',
+        detailPath: 'manga/107931',
+        progress: { current: 38, total: 65, unit: 'chapter', updatedAt: NOW - 2 * DAY_MS },
+        status: 'active',
+        tags: ['morning'],
+      },
+      {
+        title: 'Atomic Habits',
+        type: 'book',
+        detailPath: 'books/works--OL17930368W',
+        status: 'planned',
+        tags: ['deep-work'],
+      },
+    ],
+  },
+  {
+    id: 'template-links',
+    title: 'Buy Later',
+    description: 'A lightweight list for gear, books, and links before you are ready to purchase.',
+    preset: 'blank',
+    suggestedTags: ['sale', 'wishlist', 'gift'],
+    starterEntries: [
+      {
+        title: 'Mechanical keyboard switch sampler',
+        type: 'link',
+        imageUrl:
+          'https://images.unsplash.com/photo-1511467687858-23d96c32e4ae?auto=format&fit=crop&w=600&q=80',
+        status: 'planned',
+        price: '$18.00',
+        productUrl: 'https://example.com/keyboard-switch-sampler',
+        sourceRef: {
+          source: 'link',
+          canonicalUrl: 'https://example.com/keyboard-switch-sampler',
+        },
+        tags: ['sale'],
+      },
+    ],
+  },
+];
+
+export const DEFAULT_LISTS: TrackerList[] = [
+  createSeedList(
+    'list-watchlist',
+    'Continue Watching',
+    [
+      createSeedEntry('seed-watch-1', "Frieren: Beyond Journey's End", 'anime', {
+        imageUrl: 'https://cdn.myanimelist.net/images/anime/1015/138006.jpg',
+        detailPath: 'anime/52991',
+        status: 'active',
+        rating: 9,
+        tags: ['comfort', 'weekly'],
+        progress: {
+          current: 12,
+          total: 28,
+          unit: 'episode',
+          updatedAt: NOW - DAY_MS,
+        },
+        reminderAt: NOW + DAY_MS,
+        addedAt: NOW - 8 * DAY_MS,
+        updatedAt: NOW - DAY_MS,
+      }),
+      createSeedEntry('seed-watch-2', 'Dune: Part Two', 'movie', {
+        imageUrl: 'https://image.tmdb.org/t/p/w342/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg',
+        detailPath: 'tv-movie/movie/693134',
+        status: 'planned',
+        tags: ['weekend'],
+        addedAt: NOW - 6 * DAY_MS,
+        updatedAt: NOW - 2 * DAY_MS,
+      }),
+      createSeedEntry('seed-watch-3', 'The Bear', 'tv', {
+        imageUrl: 'https://image.tmdb.org/t/p/w342/nmVOQpyT5ztQcyy3dG6VfQm7N3K.jpg',
+        detailPath: 'tv-movie/tv/136315',
+        status: 'paused',
+        tags: ['short'],
+        progress: {
+          current: 4,
+          total: 10,
+          unit: 'episode',
+          updatedAt: NOW - 3 * DAY_MS,
+        },
+        addedAt: NOW - 10 * DAY_MS,
+        updatedAt: NOW - 3 * DAY_MS,
+      }),
+    ],
+    {
+      description: 'Current TV, movie, and anime rotation.',
+      pinned: true,
+      templateId: 'template-watch',
+      updatedAt: NOW - DAY_MS,
+    }
+  ),
+  createSeedList(
+    'list-reading',
+    'Reading Queue',
+    [
+      createSeedEntry('seed-read-1', 'Blue Period', 'manga', {
+        imageUrl: 'https://cdn.myanimelist.net/images/manga/1/229262.jpg',
+        detailPath: 'manga/107931',
+        status: 'active',
+        tags: ['morning'],
+        progress: {
+          current: 38,
+          total: 65,
+          unit: 'chapter',
+          updatedAt: NOW - 2 * DAY_MS,
+        },
+        addedAt: NOW - 14 * DAY_MS,
+        updatedAt: NOW - 2 * DAY_MS,
+      }),
+      createSeedEntry('seed-read-2', 'Project Hail Mary', 'book', {
+        detailPath: 'books/works--OL24210561W',
+        status: 'planned',
+        tags: ['sci-fi'],
+        addedAt: NOW - 5 * DAY_MS,
+        updatedAt: NOW - 5 * DAY_MS,
+      }),
+    ],
+    {
+      description: 'Books and manga to keep moving through.',
+      pinned: true,
+      templateId: 'template-reading',
+      updatedAt: NOW - 2 * DAY_MS,
+    }
+  ),
+  createSeedList(
+    'list-favorites',
+    'Finished Favorites',
+    [
+      createSeedEntry('seed-fav-1', 'Steins;Gate', 'anime', {
         imageUrl: 'https://cdn.myanimelist.net/images/anime/1935/127974.jpg',
         detailPath: 'anime/9253',
-      },
-      {
-        id: 'e6',
-        title: 'Breaking Bad',
-        type: 'tv',
+        status: 'completed',
+        rating: 10,
+        tags: ['all-timer'],
+        addedAt: NOW - 60 * DAY_MS,
+        updatedAt: NOW - 20 * DAY_MS,
+      }),
+      createSeedEntry('seed-fav-2', 'Everything Everywhere All at Once', 'movie', {
+        imageUrl: 'https://image.tmdb.org/t/p/w342/w3LxiVYdWWRvEVdn5RYq6jIqkb1.jpg',
+        detailPath: 'tv-movie/movie/545611',
+        status: 'completed',
+        rating: 9,
+        tags: ['rewatch'],
+        addedAt: NOW - 45 * DAY_MS,
+        updatedAt: NOW - 12 * DAY_MS,
+      }),
+    ],
+    {
+      description: 'Completed items worth keeping visible.',
+      updatedAt: NOW - 12 * DAY_MS,
+    }
+  ),
+  createSeedList(
+    'list-links',
+    'Quick Captures',
+    [
+      createSeedEntry('seed-link-1', 'Mechanical keyboard switch sampler', 'link', {
+        imageUrl:
+          'https://images.unsplash.com/photo-1511467687858-23d96c32e4ae?auto=format&fit=crop&w=600&q=80',
+        status: 'planned',
+        tags: ['sale'],
+        productUrl: 'https://example.com/keyboard-switch-sampler',
+        price: '$18.00',
+        sourceRef: {
+          source: 'link',
+          canonicalUrl: 'https://example.com/keyboard-switch-sampler',
+        },
+        notes: 'Compare against tactile pack before ordering.',
+        addedAt: NOW - 3 * DAY_MS,
+        updatedAt: NOW - 3 * DAY_MS,
+      }),
+    ],
+    {
+      description: 'Manual notes, link imports, and one-off ideas.',
+      preset: 'blank',
+      templateId: 'template-links',
+      updatedAt: NOW - 3 * DAY_MS,
+    }
+  ),
+];
+
+export const MOCK_LISTS = DEFAULT_LISTS;
+export const MOCK_TIER_SUBLISTS: TrackerList[] = [];
+
+export const LEGACY_MOCK_LISTS: TrackerList[] = [
+  createSeedList(
+    'list-watchlist',
+    'Watchlist',
+    [
+      createSeedEntry('e1', 'Attack on Titan', 'anime', {
+        imageUrl: 'https://cdn.myanimelist.net/images/anime/10/47347.jpg',
+        detailPath: 'anime/16498',
+      }),
+      createSeedEntry('e2', 'Dune', 'movie', {
+        imageUrl: 'https://image.tmdb.org/t/p/w200/8b8R8l88Qje9dn9OE8PY05Nxl1X.jpg',
+        detailPath: 'tv-movie/movie/438631',
+      }),
+      createSeedEntry('e3', 'The Legend of Zelda: Breath of the Wild', 'game', {
+        detailPath: 'games/7346',
+      }),
+      createSeedEntry('e4', 'Chainsaw Man', 'manga', {
+        imageUrl: 'https://cdn.myanimelist.net/images/manga/3/216464.jpg',
+        detailPath: 'manga/116778',
+      }),
+    ],
+    { preset: 'tracking' }
+  ),
+  createSeedList(
+    'list-favorites',
+    'Favorites',
+    [
+      createSeedEntry('e5', 'Steins;Gate', 'anime', {
+        imageUrl: 'https://cdn.myanimelist.net/images/anime/1935/127974.jpg',
+        detailPath: 'anime/9253',
+      }),
+      createSeedEntry('e6', 'Breaking Bad', 'tv', {
         imageUrl: 'https://image.tmdb.org/t/p/w200/ggFHVNu6YYI5L9pCfOacjizRGt.jpg',
         detailPath: 'tv-movie/tv/1396',
-      },
-      {
-        id: 'e7',
-        title: 'Project Hail Mary',
-        type: 'book',
+      }),
+      createSeedEntry('e7', 'Project Hail Mary', 'book', {
         detailPath: 'books/OL21745884W',
-      },
-    ],
-  },
-  {
-    id: 'list-reading',
-    title: 'Currently Reading',
-    entries: [
-      {
-        id: 'e8',
-        title: 'Berserk',
-        type: 'manga',
+      }),
+    ]
+  ),
+  createSeedList(
+    'list-reading',
+    'Currently Reading',
+    [
+      createSeedEntry('e8', 'Berserk', 'manga', {
         imageUrl: 'https://cdn.myanimelist.net/images/manga/1/157931.jpg',
         detailPath: 'manga/2',
-      },
-      {
-        id: 'e9',
-        title: 'The Three-Body Problem',
-        type: 'book',
+      }),
+      createSeedEntry('e9', 'The Three-Body Problem', 'book', {
         detailPath: 'books/OL17267881W',
-      },
+      }),
+    ]
+  ),
+  createSeedList(
+    'list-games-backlog',
+    'Games Backlog',
+    [
+      createSeedEntry('e10', 'Elden Ring', 'game', { detailPath: 'games/190667' }),
+      createSeedEntry('e11', 'Hades', 'game', { detailPath: 'games/112461' }),
+    ]
+  ),
+  createSeedList(
+    'list-movie-tier',
+    'Movie tier list',
+    [
+      createSeedEntry('tl1', 'S', 'custom', {
+        detailPath: 'list/list-tier-s',
+        notes: 'Legacy tier list bucket.',
+      }),
+      createSeedEntry('tl2', 'A', 'custom', {
+        detailPath: 'list/list-tier-a',
+        notes: 'Legacy tier list bucket.',
+      }),
+      createSeedEntry('tl3', 'B', 'custom', {
+        detailPath: 'list/list-tier-b',
+        notes: 'Legacy tier list bucket.',
+      }),
+      createSeedEntry('tl4', 'C', 'custom', {
+        detailPath: 'list/list-tier-c',
+        notes: 'Legacy tier list bucket.',
+      }),
+      createSeedEntry('tl5', 'D', 'custom', {
+        detailPath: 'list/list-tier-d',
+        notes: 'Legacy tier list bucket.',
+      }),
+      createSeedEntry('tl6', 'E', 'custom', {
+        detailPath: 'list/list-tier-e',
+        notes: 'Legacy tier list bucket.',
+      }),
+      createSeedEntry('tl7', 'F', 'custom', {
+        detailPath: 'list/list-tier-f',
+        notes: 'Legacy tier list bucket.',
+      }),
     ],
-  },
-  {
-    id: 'list-games-backlog',
-    title: 'Games Backlog',
-    entries: [
-      {
-        id: 'e10',
-        title: 'Elden Ring',
-        type: 'game',
-        detailPath: 'games/190667',
-      },
-      {
-        id: 'e11',
-        title: 'Hades',
-        type: 'game',
-        detailPath: 'games/112461',
-      },
-    ],
-  },
-  // Parent tier list – shows on My Lists (S/A/B/C/D/E/F sublists are in MOCK_TIER_SUBLISTS, not on main list page)
-  {
-    id: 'list-movie-tier',
-    title: 'Movie tier list',
-    entries: [
-      { id: 'tl1', title: 'S', type: 'list', linkedListId: 'list-tier-s', detailPath: 'list/list-tier-s' },
-      { id: 'tl2', title: 'A', type: 'list', linkedListId: 'list-tier-a', detailPath: 'list/list-tier-a' },
-      { id: 'tl3', title: 'B', type: 'list', linkedListId: 'list-tier-b', detailPath: 'list/list-tier-b' },
-      { id: 'tl4', title: 'C', type: 'list', linkedListId: 'list-tier-c', detailPath: 'list/list-tier-c' },
-      { id: 'tl5', title: 'D', type: 'list', linkedListId: 'list-tier-d', detailPath: 'list/list-tier-d' },
-      { id: 'tl6', title: 'E', type: 'list', linkedListId: 'list-tier-e', detailPath: 'list/list-tier-e' },
-      { id: 'tl7', title: 'F', type: 'list', linkedListId: 'list-tier-f', detailPath: 'list/list-tier-f' },
-    ],
-  },
+    { preset: 'blank' }
+  ),
 ];
 
-/** Movie tier list sublists (S, A, B, C, D, E, F) – used when drilling into Movie tier list, not shown on main My Lists page. */
-export const MOCK_TIER_SUBLISTS: MockList[] = [
-  {
-    id: 'list-tier-s',
-    title: 'S',
-    entries: [
-      { id: 'mt1', title: 'The Godfather', type: 'movie', imageUrl: 'https://image.tmdb.org/t/p/w200/3bhkrj58Vtu7enYsRolD1fZdja1.jpg', detailPath: 'tv-movie/movie/238' },
-      { id: 'mt2', title: 'The Dark Knight', type: 'movie', imageUrl: 'https://image.tmdb.org/t/p/w200/qJ2tW6WMUDux911r6m7haRef0WH.jpg', detailPath: 'tv-movie/movie/155' },
-      { id: 'mt3', title: 'Breaking Bad', type: 'tv', imageUrl: 'https://image.tmdb.org/t/p/w200/ggFHVNu6YYI5L9pCfOacjizRGt.jpg', detailPath: 'tv-movie/tv/1396' },
-      { id: 'mt4', title: 'Dune', type: 'movie', imageUrl: 'https://image.tmdb.org/t/p/w200/8b8R8l88Qje9dn9OE8PY05Nxl1X.jpg', detailPath: 'tv-movie/movie/438631' },
-      { id: 'mt5', title: 'Oppenheimer', type: 'movie', imageUrl: 'https://image.tmdb.org/t/p/w200/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg', detailPath: 'tv-movie/movie/872585' },
-      { id: 'mt6', title: 'The Shawshank Redemption', type: 'movie', imageUrl: 'https://image.tmdb.org/t/p/w200/q6y0Go1tsGEsmtFryDOJo3dEmqu.jpg', detailPath: 'tv-movie/movie/278' },
-    ],
-  },
-  {
-    id: 'list-tier-a',
-    title: 'A',
-    entries: [
-      { id: 'mt7', title: 'Inception', type: 'movie', imageUrl: 'https://image.tmdb.org/t/p/w200/9gk7adHYeDvHkCSEqAvQNLV5ürs.jpg', detailPath: 'tv-movie/movie/27205' },
-      { id: 'mt8', title: 'Game of Thrones', type: 'tv', imageUrl: 'https://image.tmdb.org/t/p/w200/u3bZgnGQ9T01sWNhyveQz0wH0Hl.jpg', detailPath: 'tv-movie/tv/1399' },
-      { id: 'mt9', title: 'Parasite', type: 'movie', imageUrl: 'https://image.tmdb.org/t/p/w200/7IiTTgloJzvGI1TAYymCfbfl3vT.jpg', detailPath: 'tv-movie/movie/496243' },
-      { id: 'mt10', title: 'The Last of Us', type: 'tv', imageUrl: 'https://image.tmdb.org/t/p/w200/uKvVjHNqB5VmOrdxqAt2F7J78ED.jpg', detailPath: 'tv-movie/tv/100088' },
-      { id: 'mt11', title: 'Interstellar', type: 'movie', imageUrl: 'https://image.tmdb.org/t/p/w200/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg', detailPath: 'tv-movie/movie/157336' },
-      { id: 'mt12', title: 'Succession', type: 'tv', imageUrl: 'https://image.tmdb.org/t/p/w200/6646VvD9e2VTHYCBnC2N8GEP2S7.jpg', detailPath: 'tv-movie/tv/76331' },
-    ],
-  },
-  {
-    id: 'list-tier-b',
-    title: 'B',
-    entries: [
-      { id: 'mt13', title: 'Stranger Things', type: 'tv', imageUrl: 'https://image.tmdb.org/t/p/w200/49WJfeN0moxb9IPfGn8AIqMGskD.jpg', detailPath: 'tv-movie/tv/66732' },
-      { id: 'mt14', title: 'Everything Everywhere All at Once', type: 'movie', imageUrl: 'https://image.tmdb.org/t/p/w200/w3LxiVYdWWRvEVdn5RYq6jIqkb1.jpg', detailPath: 'tv-movie/movie/545611' },
-      { id: 'mt15', title: 'The Bear', type: 'tv', imageUrl: 'https://image.tmdb.org/t/p/w200/rKgvctIuPFOBsndd2kbfjE3dUxh.jpg', detailPath: 'tv-movie/tv/114461' },
-      { id: 'mt16', title: 'Pulp Fiction', type: 'movie', imageUrl: 'https://image.tmdb.org/t/p/w200/d5iIlFn5s0ImszYzBPb8JPIfbXD.jpg', detailPath: 'tv-movie/movie/680' },
-      { id: 'mt17', title: 'The White Lotus', type: 'tv', imageUrl: 'https://image.tmdb.org/t/p/w200/b5XPfB3nJvtnPK0wdnJ3F7F5Rm0.jpg', detailPath: 'tv-movie/tv/86423' },
-      { id: 'mt18', title: 'Black Panther', type: 'movie', imageUrl: 'https://image.tmdb.org/t/p/w200/uxzzxijgPIY7slzFvMotPv8wjKA.jpg', detailPath: 'tv-movie/movie/284054' },
-    ],
-  },
-  {
-    id: 'list-tier-c',
-    title: 'C',
-    entries: [
-      { id: 'mt19', title: 'The Witcher', type: 'tv', imageUrl: 'https://image.tmdb.org/t/p/w200/7vjaCdMw15FEbXyLQTVa04URsPm.jpg', detailPath: 'tv-movie/tv/71912' },
-      { id: 'mt20', title: 'Dune: Part Two', type: 'movie', imageUrl: 'https://image.tmdb.org/t/p/w200/8b8R8l88Qje9dn9OE8PY05Nxl1X.jpg', detailPath: 'tv-movie/movie/693134' },
-      { id: 'mt21', title: 'Wednesday', type: 'tv', imageUrl: 'https://image.tmdb.org/t/p/w200/9PFonBhy4cQy7Jz20NpMygczOkv.jpg', detailPath: 'tv-movie/tv/119051' },
-      { id: 'mt22', title: 'Top Gun: Maverick', type: 'movie', imageUrl: 'https://image.tmdb.org/t/p/w200/62HCnUTziyWcpDaBO2i1DX17ljH.jpg', detailPath: 'tv-movie/movie/361743' },
-      { id: 'mt23', title: 'House of the Dragon', type: 'tv', imageUrl: 'https://image.tmdb.org/t/p/w200/utgsn9rk5COheVM6K4LuZA2wDfD.jpg', detailPath: 'tv-movie/tv/94997' },
-      { id: 'mt24', title: 'Avatar', type: 'movie', imageUrl: 'https://image.tmdb.org/t/p/w200/6EiRUJpuicQP7xKZRsNUxtzEYxN.jpg', detailPath: 'tv-movie/movie/19995' },
-    ],
-  },
-  {
-    id: 'list-tier-d',
-    title: 'D',
-    entries: [
-      { id: 'mt25', title: 'The Mandalorian', type: 'tv', imageUrl: 'https://image.tmdb.org/t/p/w200/eU1i6eHXlzMOlEq0ku1Rzq7Y4wA.jpg', detailPath: 'tv-movie/tv/82856' },
-      { id: 'mt26', title: 'Spider-Man: No Way Home', type: 'movie', imageUrl: 'https://image.tmdb.org/t/p/w200/1g0dhYtq4irTY1GPXvft6k4YLjm.jpg', detailPath: 'tv-movie/movie/634649' },
-      { id: 'mt27', title: 'Ted Lasso', type: 'tv', imageUrl: 'https://image.tmdb.org/t/p/w200/y4xbfvLjbHnjTmwmnpTTj2AIeBN.jpg', detailPath: 'tv-movie/tv/83867' },
-      { id: 'mt28', title: 'Knives Out', type: 'movie', imageUrl: 'https://image.tmdb.org/t/p/w200/pThyQovXQrw2m0s9x82twj48Jq4.jpg', detailPath: 'tv-movie/movie/546554' },
-      { id: 'mt29', title: 'Euphoria', type: 'tv', imageUrl: 'https://image.tmdb.org/t/p/w200/jtnfNzqZwN4E32FGGxx1YZaBWWf.jpg', detailPath: 'tv-movie/tv/85552' },
-      { id: 'mt30', title: 'Jurassic World', type: 'movie', imageUrl: 'https://image.tmdb.org/t/p/w200/A17KFVDbNxsG5BYXjRRHzLCbM9B.jpg', detailPath: 'tv-movie/movie/135397' },
-    ],
-  },
-  {
-    id: 'list-tier-e',
-    title: 'E',
-    entries: [
-      { id: 'mt31', title: 'Squid Game', type: 'tv', imageUrl: 'https://image.tmdb.org/t/p/w200/dDlEmu3EF0Pvfi1OVlEe8X8SXGV.jpg', detailPath: 'tv-movie/tv/93405' },
-      { id: 'mt32', title: 'The Batman', type: 'movie', imageUrl: 'https://image.tmdb.org/t/p/w200/74xTEgt7R36Fpooo50r9T25onhq.jpg', detailPath: 'tv-movie/movie/414906' },
-      { id: 'mt33', title: 'Bridgerton', type: 'tv', imageUrl: 'https://image.tmdb.org/t/p/w200/k0bK0bs40UDGgB2bBj0OoieM4V.jpg', detailPath: 'tv-movie/tv/87739' },
-      { id: 'mt34', title: 'Barbie', type: 'movie', imageUrl: 'https://image.tmdb.org/t/p/w200/iuFNMS8U5cb6xfzi51Dbkovj7vM.jpg', detailPath: 'tv-movie/movie/346698' },
-      { id: 'mt35', title: 'Severance', type: 'tv', imageUrl: 'https://image.tmdb.org/t/p/w200/lRfe2ylLMpK5xBkp9dq7cbSa2lP.jpg', detailPath: 'tv-movie/tv/95396' },
-      { id: 'mt36', title: 'Free Guy', type: 'movie', imageUrl: 'https://image.tmdb.org/t/p/w200/xmbU4JTUm8rsdtn7Y3Fcm30GmcT.jpg', detailPath: 'tv-movie/movie/550988' },
-    ],
-  },
-  {
-    id: 'list-tier-f',
-    title: 'F',
-    entries: [
-      { id: 'mt37', title: 'The Gray Man', type: 'movie', imageUrl: 'https://image.tmdb.org/t/p/w200/8cXbitsS6dWQ5gfMTZdorpAAzEH.jpg', detailPath: 'tv-movie/movie/725201' },
-      { id: 'mt38', title: 'Moon Knight', type: 'tv', imageUrl: 'https://image.tmdb.org/t/p/w200/6L6U2yffb8EvxkuXfMhZIQJ5VS0.jpg', detailPath: 'tv-movie/tv/92749' },
-      { id: 'mt39', title: 'Red Notice', type: 'movie', imageUrl: 'https://image.tmdb.org/t/p/w200/wdE6ewaKZHr62buDD4r3DeId6Tl.jpg', detailPath: 'tv-movie/movie/512195' },
-      { id: 'mt40', title: 'The Rings of Power', type: 'tv', imageUrl: 'https://image.tmdb.org/t/p/w200/mYLOqiStMxDK3fYZFirgrMt8z5d.jpg', detailPath: 'tv-movie/tv/84773' },
-      { id: 'mt41', title: 'Uncharted', type: 'movie', imageUrl: 'https://image.tmdb.org/t/p/w200/rJHC1RUORu5ht0vodFHXa4Ng27J.jpg', detailPath: 'tv-movie/movie/335787' },
-      { id: 'mt42', title: 'Halo', type: 'tv', imageUrl: 'https://image.tmdb.org/t/p/w200/7Bd4EUOqNgPKRwQRRPvv01bKcqU.jpg', detailPath: 'tv-movie/tv/52814' },
-    ],
-  },
+export const LEGACY_MOCK_TIER_SUBLISTS: TrackerList[] = [
+  createSeedList('list-tier-s', 'S', []),
+  createSeedList('list-tier-a', 'A', []),
+  createSeedList('list-tier-b', 'B', []),
+  createSeedList('list-tier-c', 'C', []),
+  createSeedList('list-tier-d', 'D', []),
+  createSeedList('list-tier-e', 'E', []),
+  createSeedList('list-tier-f', 'F', []),
 ];
 
-/** List id -> list (for detail lookup). Includes tier sublists. */
-export const MOCK_LISTS_BY_ID = Object.fromEntries(
-  [...MOCK_LISTS, ...MOCK_TIER_SUBLISTS].map((list) => [list.id, list])
-);
+export function cloneEntry(entry: ListEntry): ListEntry {
+  return {
+    ...entry,
+    tags: [...entry.tags],
+    customFields: entry.customFields?.map((field) => ({ ...field })),
+    progress: entry.progress ? { ...entry.progress } : undefined,
+    sourceRef: { ...entry.sourceRef },
+  };
+}
 
-/** Flatten to ListItem shape for My Lists tab: id + title. */
-export const MOCK_LIST_ITEMS = MOCK_LISTS.map((list) => ({
-  id: list.id,
-  title: list.title,
-}));
+export function cloneList(list: TrackerList): TrackerList {
+  return {
+    ...list,
+    preferences: { ...list.preferences },
+    entries: list.entries.map(cloneEntry),
+  };
+}
+
+export function createListFromTemplate(template: ListTemplate): TrackerList {
+  const timestamp = Date.now();
+  return createSeedList(
+    `list-${timestamp}-${Math.random().toString(36).slice(2, 8)}`,
+    template.title,
+    template.starterEntries.map((entry, index) =>
+      createSeedEntry(
+        `entry-${timestamp}-${index}-${Math.random().toString(36).slice(2, 8)}`,
+        entry.title,
+        entry.type,
+        {
+          ...entry,
+          status: entry.status ?? 'planned',
+          tags: entry.tags ?? [],
+          sourceRef:
+            entry.sourceRef ??
+            ({
+              source: entry.type === 'game' ? 'custom' : entry.type,
+              detailPath: entry.detailPath,
+              canonicalUrl: entry.productUrl,
+            } satisfies EntrySourceRef),
+          addedAt: timestamp,
+          updatedAt: timestamp,
+        }
+      )
+    ),
+    {
+      description: template.description,
+      preset: template.preset,
+      pinned: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      templateId: template.id,
+    }
+  );
+}

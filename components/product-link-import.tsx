@@ -11,7 +11,6 @@ import {
   StyleSheet,
   ScrollView,
   ActivityIndicator,
-  useWindowDimensions,
 } from "react-native";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { Colors } from "@/constants/theme";
@@ -86,8 +85,6 @@ export function ProductLinkImport({
 
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "light"];
-  const { width } = useWindowDimensions();
-
   const handleImport = useCallback(async () => {
     const trimmed = url.trim();
     if (!trimmed) return;

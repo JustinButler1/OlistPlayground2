@@ -2,7 +2,7 @@
   "expo": {
     "name": "OlistPlayground2",
     "slug": "OlistPlayground2",
-    "version": "1.0.1",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "olistplayground2",
@@ -47,7 +47,35 @@
           }
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "tracker-reminders"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Olist to choose custom covers for your tracked items.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
+      "expo-document-picker",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": "Allow Olist to protect private tracker settings and backups.",
+          "configureAndroidBackup": true
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow Olist to confirm protected backup actions."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,319 +1,361 @@
-import { Image } from 'expo-image';
-import { useNavigation, useRouter } from 'expo-router';
-import { useCallback, useLayoutEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useRouter } from 'expo-router';
 import {
-  Alert,
-  Animated,
-  Platform,
-  Dimensions,
-  FlatList,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   TextInput,
   View,
 } from 'react-native';
-import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
-import { useLists } from '@/contexts/lists-context';
-import type { ListPreset } from '@/data/mock-lists';
+import { useListActions, useListsQuery } from '@/contexts/lists-context';
+import type { ListPreset, TrackerList } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { getListStats } from '@/lib/tracker-selectors';
 
-export interface ListItem {
-  id: string;
-  title: string;
-}
+type SortMode = 'recent' | 'title';
 
 export default function MyListsScreen() {
-  const { mainLists, createList, deleteList } = useLists();
-  const items: ListItem[] = mainLists.map((l) => ({ id: l.id, title: l.title }));
-  const [sheetVisible, setSheetVisible] = useState(false);
-  const [titleInput, setTitleInput] = useState('');
-  const [listPreset, setListPreset] = useState<ListPreset>('blank');
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const router = useRouter();
-  const navigation = useNavigation();
+  const { pinnedLists, recentLists, archivedLists, listTemplates } = useListsQuery();
+  const { createList, createListFromTemplate, restoreArchivedList } = useListActions();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortMode, setSortMode] = useState<SortMode>('recent');
+  const [showArchived, setShowArchived] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [titleInput, setTitleInput] = useState('');
+  const [preset, setPreset] = useState<ListPreset>('tracking');
 
-  const openSheet = useCallback(() => {
+  const filteredRecentLists = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    const lists = recentLists.filter((list) =>
+      normalizedQuery ? list.title.toLowerCase().includes(normalizedQuery) : true
+    );
+
+    return [...lists].sort((a, b) =>
+      sortMode === 'title' ? a.title.localeCompare(b.title) : b.updatedAt - a.updatedAt
+    );
+  }, [recentLists, searchQuery, sortMode]);
+
+  const handleCreate = () => {
+    const nextListId = createList(titleInput, preset);
+    if (!nextListId) {
+      return;
+    }
     setTitleInput('');
-    setListPreset('blank');
-    setSheetVisible(true);
-  }, []);
-
-  const closeSheet = useCallback(() => {
-    setSheetVisible(false);
-    setTitleInput('');
-  }, []);
-
-  const confirmCreate = useCallback(() => {
-    const trimmed = titleInput.trim();
-    if (!trimmed) return;
-    createList(trimmed, listPreset);
-    closeSheet();
-  }, [titleInput, listPreset, closeSheet, createList]);
-
-  const openListDetail = useCallback(
-    (item: ListItem) => {
-      router.push({
-        pathname: `/list/${item.id}`,
-        params: { title: item.title },
-      });
-    },
-    [router]
-  );
-
-  const confirmDeleteList = useCallback(
-    (item: ListItem) => {
-      const runDelete = () => deleteList(item.id);
-
-      if (Platform.OS === 'web' && typeof window !== 'undefined') {
-        if (window.confirm(`Delete "${item.title}"? This cannot be undone.`)) {
-          runDelete();
-        }
-        return;
-      }
-
-      Alert.alert(
-        'Delete list?',
-        `Delete "${item.title}" and its items? This cannot be undone.`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Delete', style: 'destructive', onPress: runDelete },
-        ]
-      );
-    },
-    [deleteList]
-  );
-
-  const renderDeleteAction = useCallback(
-    (progress: Animated.AnimatedInterpolation<number>, onDelete: () => void, label: string) => {
-      const opacity = progress.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0, 1],
-        extrapolate: 'clamp',
-      });
-
-      return (
-        <Animated.View style={[styles.rightActionContainer, { opacity }]}>
-          <Pressable
-            onPress={onDelete}
-            style={({ pressed }) => [
-              styles.deleteAction,
-              { backgroundColor: '#C62828', opacity: pressed ? 0.85 : 1 },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={label}
-          >
-            <IconSymbol name="trash" size={18} color="#fff" />
-            <ThemedText style={styles.deleteActionText}>Delete</ThemedText>
-          </Pressable>
-        </Animated.View>
-      );
-    },
-    []
-  );
-
-  const renderItem = useCallback(
-    ({ item }: { item: ListItem }) => (
-      <Swipeable
-        overshootRight={false}
-        rightThreshold={40}
-        renderRightActions={(progress) =>
-          renderDeleteAction(progress, () => confirmDeleteList(item), `Delete ${item.title}`)
-        }
-      >
-        <Pressable
-          onPress={() => openListDetail(item)}
-          style={({ pressed }) => [
-            styles.resultRow,
-            { opacity: pressed ? 0.8 : 1 },
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel={`Open ${item.title}`}
-        >
-          <Image
-            source={require('../../assets/images/placeholder-thumbnail.png')}
-            style={styles.resultPoster}
-            contentFit="cover"
-          />
-          <View style={styles.resultInfo}>
-            <ThemedText style={styles.resultTitle} numberOfLines={2}>
-              {item.title}
-            </ThemedText>
-          </View>
-          <IconSymbol
-            name="chevron.right"
-            size={24}
-            color={colors.icon}
-            style={styles.resultChevron}
-          />
-        </Pressable>
-      </Swipeable>
-    ),
-    [colors.icon, confirmDeleteList, openListDetail, renderDeleteAction]
-  );
-
-  const keyExtractor = useCallback((item: ListItem) => item.id, []);
-
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      headerRight: () => (
-        <Pressable
-          onPress={openSheet}
-          style={({ pressed }) => [
-            styles.headerButton,
-            { opacity: pressed ? 0.7 : 1 },
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel="Add list"
-        >
-          <IconSymbol name="plus" size={26} color={colors.tint} />
-        </Pressable>
-      ),
-    });
-  }, [navigation, openSheet, colors.tint]);
+    setPreset('tracking');
+    setShowCreateModal(false);
+    router.push(`/list/${nextListId}`);
+  };
 
   return (
-    <ThemedView style={styles.container}>
-      {items.length === 0 ? (
-        <ThemedText style={styles.placeholder}>
-          Tap + to create a new list.
-        </ThemedText>
-      ) : (
-        <FlatList
-          data={items}
-          keyExtractor={keyExtractor}
-          renderItem={renderItem}
-          contentContainerStyle={[
-            styles.listContent,
-            { paddingBottom: insets.bottom + 24 },
-          ]}
-          showsVerticalScrollIndicator={false}
-        />
-      )}
-
-      <Modal
-        visible={sheetVisible}
-        animationType="slide"
-        transparent
-        onRequestClose={closeSheet}
+    <>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={[
+          styles.content,
+          {
+            paddingTop: insets.top + 12,
+            paddingBottom: insets.bottom + 24,
+          },
+        ]}
+        showsVerticalScrollIndicator={false}
       >
-        <Pressable style={styles.modalOverlay} onPress={closeSheet}>
-          <Pressable
+        <View style={styles.header}>
+          <ThemedText type="title">My Lists</ThemedText>
+          <ThemedText style={{ color: colors.icon }}>
+            Pin the long-term trackers, keep the recent ones searchable, and use templates when you
+            need a new structure fast.
+          </ThemedText>
+        </View>
+
+        <View style={styles.toolbar}>
+          <TextInput
             style={[
-              styles.sheet,
+              styles.searchInput,
               {
-                backgroundColor: colors.background,
-                paddingBottom: insets.bottom + 24,
-                height: Dimensions.get('window').height * 0.95,
+                color: colors.text,
+                borderColor: colors.icon + '24',
+                backgroundColor: colors.icon + '10',
               },
             ]}
-            onPress={(e) => e.stopPropagation()}
-          >
-            <View style={[styles.sheetHeader, { borderBottomColor: colors.icon + '30' }]}>
+            placeholder="Search lists"
+            placeholderTextColor={colors.icon}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+          <View style={styles.toolbarRow}>
+            {(['recent', 'title'] as const).map((option) => (
               <Pressable
-                onPress={closeSheet}
-                style={({ pressed }) => [
-                  styles.sheetHeaderButton,
-                  styles.sheetHeaderButtonLeft,
-                  { opacity: pressed ? 0.7 : 1 },
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel="Close"
-              >
-                <IconSymbol name="xmark" size={24} color={colors.text} />
-              </Pressable>
-              <ThemedText type="subtitle" style={styles.sheetTitle}>
-                New list
-              </ThemedText>
-              <Pressable
-                onPress={confirmCreate}
-                style={({ pressed }) => [
-                  styles.sheetHeaderButton,
-                  styles.sheetHeaderButtonRight,
-                  { opacity: pressed ? 0.7 : 1 },
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel="Create"
-              >
-                <IconSymbol name="checkmark" size={24} color={colors.tint} />
-              </Pressable>
-            </View>
-            <View style={styles.sheetBody}>
-              <TextInput
+                key={option}
+                onPress={() => setSortMode(option)}
                 style={[
-                  styles.titleInput,
+                  styles.toolbarChip,
                   {
-                    color: colors.text,
-                    backgroundColor: colors.icon + '18',
-                    borderColor: colors.icon + '40',
+                    backgroundColor:
+                      sortMode === option ? colors.tint : colors.icon + '10',
                   },
                 ]}
-                placeholder="Title"
-                placeholderTextColor={colors.icon}
-                value={titleInput}
-                onChangeText={setTitleInput}
-                autoFocus
-                returnKeyType="done"
-                onSubmitEditing={confirmCreate}
-              />
-              <ThemedText style={[styles.presetLabel, { color: colors.icon }]}>
-                Preset
+              >
+                <ThemedText
+                  style={{
+                    color: sortMode === option ? colors.background : colors.text,
+                  }}
+                >
+                  {option === 'recent' ? 'Recent' : 'A-Z'}
+                </ThemedText>
+              </Pressable>
+            ))}
+            <Pressable
+              onPress={() => setShowArchived((value) => !value)}
+              style={[
+                styles.toolbarChip,
+                {
+                  backgroundColor: showArchived ? colors.tint : colors.icon + '10',
+                },
+              ]}
+            >
+              <ThemedText
+                style={{
+                  color: showArchived ? colors.background : colors.text,
+                }}
+              >
+                Archived
               </ThemedText>
-              <View style={styles.presetRow}>
+            </Pressable>
+          </View>
+        </View>
+
+        <Pressable
+          onPress={() => setShowCreateModal(true)}
+          style={[
+            styles.createCard,
+            {
+              backgroundColor: colors.tint,
+            },
+          ]}
+        >
+          <ThemedText style={[styles.createEyebrow, { color: colors.background }]}>
+            New List
+          </ThemedText>
+          <ThemedText style={[styles.createTitle, { color: colors.background }]}>
+            Make list creation obvious
+          </ThemedText>
+          <ThemedText style={{ color: colors.background }}>
+            Start a blank tracker or make a fast import bucket without hiding creation in the
+            header.
+          </ThemedText>
+        </Pressable>
+
+        <Section title="Pinned">
+          {pinnedLists.length ? (
+            pinnedLists.map((list) => (
+              <ListCard key={list.id} list={list} onPress={() => router.push(`/list/${list.id}`)} />
+            ))
+          ) : (
+            <ThemedText style={styles.emptyText}>Pin a list to keep it here.</ThemedText>
+          )}
+        </Section>
+
+        <Section title="Recent">
+          {filteredRecentLists.map((list) => (
+            <ListCard key={list.id} list={list} onPress={() => router.push(`/list/${list.id}`)} />
+          ))}
+        </Section>
+
+        <Section title="Templates">
+          {listTemplates.map((template) => (
+            <Pressable
+              key={template.id}
+              onPress={() => {
+                const nextListId = createListFromTemplate(template.id);
+                if (nextListId) {
+                  router.push(`/list/${nextListId}`);
+                }
+              }}
+              style={[
+                styles.templateCard,
+                {
+                  borderColor: colors.icon + '20',
+                  backgroundColor: colors.background,
+                },
+              ]}
+            >
+              <ThemedText type="defaultSemiBold">{template.title}</ThemedText>
+              <ThemedText style={{ color: colors.icon }}>{template.description}</ThemedText>
+            </Pressable>
+          ))}
+        </Section>
+
+        {showArchived ? (
+          <Section title="Archived">
+            {archivedLists.length ? (
+              archivedLists.map((list) => (
+                <ListCard
+                  key={list.id}
+                  list={list}
+                  actionLabel="Restore"
+                  onActionPress={() => restoreArchivedList(list.id)}
+                  onPress={() => router.push(`/list/${list.id}`)}
+                />
+              ))
+            ) : (
+              <ThemedText style={styles.emptyText}>No archived lists yet.</ThemedText>
+            )}
+          </Section>
+        ) : null}
+      </ScrollView>
+
+      <Modal visible={showCreateModal} transparent animationType="fade" onRequestClose={() => setShowCreateModal(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setShowCreateModal(false)}>
+          <Pressable
+            onPress={(event) => event.stopPropagation()}
+            style={[
+              styles.modalCard,
+              {
+                backgroundColor: colors.background,
+                borderColor: colors.icon + '18',
+              },
+            ]}
+          >
+            <ThemedText type="subtitle">Create a new list</ThemedText>
+            <TextInput
+              style={[
+                styles.searchInput,
+                {
+                  color: colors.text,
+                  borderColor: colors.icon + '24',
+                  backgroundColor: colors.icon + '10',
+                },
+              ]}
+              placeholder="List title"
+              placeholderTextColor={colors.icon}
+              value={titleInput}
+              onChangeText={setTitleInput}
+              autoFocus
+            />
+            <View style={styles.toolbarRow}>
+              {(['tracking', 'blank'] as const).map((option) => (
                 <Pressable
-                  onPress={() => setListPreset('blank')}
+                  key={option}
+                  onPress={() => setPreset(option)}
                   style={[
-                    styles.presetOption,
+                    styles.toolbarChip,
                     {
-                      borderColor: colors.icon + '40',
-                      backgroundColor: listPreset === 'blank' ? colors.tint + '20' : colors.icon + '12',
+                      backgroundColor: preset === option ? colors.tint : colors.icon + '10',
                     },
                   ]}
-                  accessibilityRole="radio"
-                  accessibilityState={{ checked: listPreset === 'blank' }}
-                  accessibilityLabel="Blank list"
                 >
-                  <ThemedText style={[styles.presetOptionText, { color: colors.text }]}>
-                    Blank
-                  </ThemedText>
-                  <ThemedText style={[styles.presetOptionHint, { color: colors.icon }]}>
-                    Standard list
+                  <ThemedText
+                    style={{
+                      color: preset === option ? colors.background : colors.text,
+                    }}
+                  >
+                    {option}
                   </ThemedText>
                 </Pressable>
-                <Pressable
-                  onPress={() => setListPreset('tracking')}
-                  style={[
-                    styles.presetOption,
-                    {
-                      borderColor: colors.icon + '40',
-                      backgroundColor: listPreset === 'tracking' ? colors.tint + '20' : colors.icon + '12',
-                    },
-                  ]}
-                  accessibilityRole="radio"
-                  accessibilityState={{ checked: listPreset === 'tracking' }}
-                  accessibilityLabel="Tracking list - show progress for chapters, volumes, episodes"
-                >
-                  <ThemedText style={[styles.presetOptionText, { color: colors.text }]}>
-                    Tracking
-                  </ThemedText>
-                  <ThemedText style={[styles.presetOptionHint, { color: colors.icon }]}>
-                    0/X for ep, ch, vol
-                  </ThemedText>
-                </Pressable>
-              </View>
+              ))}
             </View>
+            <Pressable
+              onPress={handleCreate}
+              style={[
+                styles.primaryButton,
+                {
+                  backgroundColor: colors.tint,
+                },
+              ]}
+            >
+              <ThemedText style={[styles.primaryButtonText, { color: colors.background }]}>
+                Create list
+              </ThemedText>
+            </Pressable>
           </Pressable>
         </Pressable>
       </Modal>
-    </ThemedView>
+    </>
+  );
+}
+
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <View style={styles.section}>
+      <ThemedText type="subtitle">{title}</ThemedText>
+      <View style={styles.sectionContent}>{children}</View>
+    </View>
+  );
+}
+
+function ListCard({
+  list,
+  onPress,
+  actionLabel,
+  onActionPress,
+}: {
+  list: TrackerList;
+  onPress: () => void;
+  actionLabel?: string;
+  onActionPress?: () => void;
+}) {
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme ?? 'light'];
+  const stats = getListStats(list);
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.listCard,
+        {
+          borderColor: colors.icon + '20',
+          backgroundColor: colors.background,
+          opacity: pressed ? 0.84 : 1,
+        },
+      ]}
+    >
+      <View style={styles.listCardHeader}>
+        <View style={{ flex: 1, gap: 4 }}>
+          <ThemedText type="defaultSemiBold">{list.title}</ThemedText>
+          {list.description ? (
+            <ThemedText style={{ color: colors.icon }}>{list.description}</ThemedText>
+          ) : null}
+        </View>
+        {actionLabel && onActionPress ? (
+          <Pressable onPress={onActionPress}>
+            <ThemedText style={{ color: colors.tint }}>{actionLabel}</ThemedText>
+          </Pressable>
+        ) : null}
+      </View>
+      <View style={styles.statRow}>
+        <Stat label="Active" value={stats.active} />
+        <Stat label="Planned" value={stats.planned} />
+        <Stat label="Done" value={stats.completed} />
+      </View>
+    </Pressable>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: number }) {
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme ?? 'light'];
+
+  return (
+    <View style={styles.statCard}>
+      <ThemedText type="defaultSemiBold">{value}</ThemedText>
+      <ThemedText style={{ color: colors.icon }}>{label}</ThemedText>
+    </View>
   );
 }
 
@@ -321,127 +363,99 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  headerButton: {
-    padding: 8,
-    marginRight: 8,
-  },
-  placeholder: {
-    flex: 1,
+  content: {
     paddingHorizontal: 20,
-    paddingTop: 24,
-    opacity: 0.6,
+    gap: 22,
   },
-  listContent: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
+  header: {
+    gap: 8,
   },
-  resultRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(128,128,128,0.3)',
+  toolbar: {
+    gap: 12,
   },
-  resultPoster: {
-    width: 56,
-    height: 80,
-    borderRadius: 6,
-  },
-  posterPlaceholder: {
-    backgroundColor: 'rgba(128,128,128,0.2)',
-  },
-  resultInfo: {
-    flex: 1,
-    marginLeft: 14,
-  },
-  resultTitle: {
+  searchInput: {
+    borderWidth: 1,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
   },
-  resultChevron: {
-    marginLeft: 8,
+  toolbarRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
   },
-  rightActionContainer: {
-    width: 96,
-    justifyContent: 'center',
-    alignItems: 'stretch',
+  toolbarChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 999,
   },
-  deleteAction: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
+  createCard: {
+    borderRadius: 24,
+    padding: 20,
+    gap: 8,
   },
-  deleteActionText: {
-    color: '#fff',
+  createEyebrow: {
     fontSize: 12,
     fontWeight: '700',
+    textTransform: 'uppercase',
   },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.4)',
+  createTitle: {
+    fontSize: 20,
+    fontWeight: '700',
   },
-  sheet: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingTop: 8,
+  section: {
+    gap: 12,
   },
-  sheetHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+  sectionContent: {
+    gap: 10,
   },
-  sheetHeaderButton: {
-    padding: 8,
-    minWidth: 40,
-  },
-  sheetHeaderButtonLeft: {
-    alignItems: 'flex-start',
-  },
-  sheetHeaderButtonRight: {
-    alignItems: 'flex-end',
-  },
-  sheetTitle: {
-    flex: 1,
-    textAlign: 'center',
-  },
-  sheetBody: {
-    padding: 20,
-  },
-  titleInput: {
-    fontSize: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 12,
+  listCard: {
     borderWidth: 1,
+    borderRadius: 22,
+    padding: 16,
+    gap: 12,
   },
-  presetLabel: {
-    fontSize: 14,
-    marginTop: 20,
-    marginBottom: 8,
-  },
-  presetRow: {
+  listCardHeader: {
     flexDirection: 'row',
     gap: 12,
   },
-  presetOption: {
+  statRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  statCard: {
     flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 12,
+    gap: 2,
+  },
+  templateCard: {
     borderWidth: 1,
+    borderRadius: 20,
+    padding: 16,
+    gap: 6,
   },
-  presetOptionText: {
+  emptyText: {
+    opacity: 0.7,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: 20,
+    backgroundColor: 'rgba(8, 12, 20, 0.5)',
+  },
+  modalCard: {
+    borderWidth: 1,
+    borderRadius: 24,
+    padding: 20,
+    gap: 14,
+  },
+  primaryButton: {
+    borderRadius: 18,
+    paddingVertical: 15,
+    alignItems: 'center',
+  },
+  primaryButtonText: {
     fontSize: 16,
-    fontWeight: '600',
-  },
-  presetOptionHint: {
-    fontSize: 12,
-    marginTop: 2,
+    fontWeight: '700',
   },
 });

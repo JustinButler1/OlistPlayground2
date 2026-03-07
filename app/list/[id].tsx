@@ -1,2851 +1,469 @@
-import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Stack, useLocalSearchParams } from 'expo-router';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  Alert,
-  Animated,
-  Platform,
-  ActivityIndicator,
-  Dimensions,
-  FlatList,
   Modal,
   Pressable,
-  StyleSheet,
-  TextInput,
-  View,
   ScrollView,
-} from "react-native";
-import { Swipeable } from "react-native-gesture-handler";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+  StyleSheet,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ProductLinkImport } from "@/components/product-link-import";
-import { ThumbnailImage } from "@/components/thumbnail-image";
-import { ThemedText } from "@/components/themed-text";
-import { ThemedView } from "@/components/themed-view";
-import { IconSymbol } from "@/components/ui/icon-symbol";
-import type { ProductPreview } from "@/lib/product-link-import";
-import { Colors } from "@/constants/theme";
-import { useLists } from "@/contexts/lists-context";
-import type { ListEntry, ListEntryType, MockList } from "@/data/mock-lists";
-import { useColorScheme } from "@/hooks/use-color-scheme";
-
-const ENTRY_TYPE_LABELS: Record<ListEntryType, string> = {
-  anime: "Anime",
-  manga: "Manga",
-  movie: "Movie",
-  tv: "TV",
-  book: "Book",
-  game: "Game",
-  list: "List",
-  link: "Link",
-};
-
-/** Tier list palette: top tier = index 0, bottom = last. */
-const TIER_COLORS = [
-  "#E8A598", // 1. Light coral/salmon
-  "#FFCC80", // 2. Light orange/peach
-  "#FFF59D", // 3. Pale yellow
-  "#AED581", // 4. Lime green
-  "#81C784", // 5. Light green
-  "#4DD0E1", // 6. Aqua
-  "#64B5F6", // 7. Sky blue
-  "#7986CB", // 8. Periwinkle
-  "#F06292", // 9. Fuchsia/pink
-  "#BA68C8", // 10. Muted purple
-  "#616161", // 11. Dark grey
-  "#9E9E9E", // 12. Medium grey
-  "#E0E0E0", // 13. Light grey
-  "#FFFFFF", // 14. White (with border when used)
-];
-
-const JIKAN_API = "https://api.jikan.moe/v4";
-const OPEN_LIBRARY_SEARCH = "https://openlibrary.org/search.json";
-const TMDB_SEARCH_MULTI = "https://api.themoviedb.org/3/search/multi";
-const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w185";
-const IGDB_GAMES_ENDPOINT = "https://api.igdb.com/v4/games";
-const IGDB_IMAGE_BASE = "https://images.igdb.com/igdb/image/upload";
-
-interface SimpleAnimeSearchResult {
-  id: number;
-  title: string;
-  imageUrl?: string;
-  episodes?: number | null;
-}
-
-interface SimpleMangaSearchResult {
-  id: number;
-  title: string;
-  imageUrl?: string;
-  chapters?: number | null;
-  volumes?: number | null;
-}
-
-interface SimpleBookSearchResult {
-  id: string;
-  title: string;
-  subtitle?: string;
-  imageUrl?: string;
-  detailPath: string;
-}
-
-type TmdbMediaType = "movie" | "tv";
-
-interface SimpleTmdbSearchResult {
-  id: number;
-  title: string;
-  imageUrl?: string;
-  mediaType: TmdbMediaType;
-  detailPath: string;
-}
-
-interface SimpleGameSearchResult {
-  id: number;
-  title: string;
-  imageUrl?: string;
-  detailPath: string;
-}
-
-async function searchAnimeForList(
-  query: string,
-): Promise<SimpleAnimeSearchResult[]> {
-  if (!query.trim()) return [];
-  const res = await fetch(
-    `${JIKAN_API}/anime?q=${encodeURIComponent(query.trim())}&limit=25`,
-  );
-  if (!res.ok) throw new Error("Search failed");
-  const json: {
-    data: {
-      mal_id: number;
-      title: string;
-      episodes?: number | null;
-      images?: {
-        jpg?: { image_url?: string; small_image_url?: string };
-        webp?: { image_url?: string; small_image_url?: string };
-      };
-    }[];
-  } = await res.json();
-  return (json.data ?? []).map((item) => {
-    const img =
-      item.images?.jpg?.image_url ??
-      item.images?.webp?.image_url ??
-      item.images?.jpg?.small_image_url ??
-      item.images?.webp?.small_image_url;
-    return {
-      id: item.mal_id,
-      title: item.title,
-      imageUrl: img ?? undefined,
-      episodes: item.episodes ?? undefined,
-    };
-  });
-}
-
-async function searchMangaForList(
-  query: string,
-): Promise<SimpleMangaSearchResult[]> {
-  if (!query.trim()) return [];
-  const res = await fetch(
-    `${JIKAN_API}/manga?q=${encodeURIComponent(query.trim())}&limit=25`,
-  );
-  if (!res.ok) throw new Error("Search failed");
-  const json: {
-    data: {
-      mal_id: number;
-      title: string;
-      chapters?: number | null;
-      volumes?: number | null;
-      images?: {
-        jpg?: { image_url?: string; small_image_url?: string };
-        webp?: { image_url?: string; small_image_url?: string };
-      };
-    }[];
-  } = await res.json();
-  return (json.data ?? []).map((item) => {
-    const img =
-      item.images?.jpg?.image_url ??
-      item.images?.webp?.image_url ??
-      item.images?.jpg?.small_image_url ??
-      item.images?.webp?.small_image_url;
-    return {
-      id: item.mal_id,
-      title: item.title,
-      imageUrl: img ?? undefined,
-      chapters: item.chapters ?? undefined,
-      volumes: item.volumes ?? undefined,
-    };
-  });
-}
-
-async function searchBooksForList(
-  query: string,
-): Promise<SimpleBookSearchResult[]> {
-  if (!query.trim()) return [];
-  const res = await fetch(
-    `${OPEN_LIBRARY_SEARCH}?q=${encodeURIComponent(query.trim())}&limit=25`,
-  );
-  if (!res.ok) throw new Error("Search failed");
-  const json: {
-    docs: {
-      key: string;
-      title: string;
-      author_name?: string[];
-      first_publish_year?: number;
-      cover_i?: number;
-    }[];
-  } = await res.json();
-  return (json.docs ?? []).map((doc) => {
-    const coverUri = doc.cover_i
-      ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-M.jpg`
-      : undefined;
-    const author = doc.author_name?.join(", ");
-    const year = doc.first_publish_year;
-    const subtitleParts = [];
-    if (author) subtitleParts.push(author);
-    if (year) subtitleParts.push(String(year));
-    const subtitle = subtitleParts.length ? subtitleParts.join(" · ") : undefined;
-    const bookSlug = doc.key.replace(/^\//, "").replace(/\//g, "--");
-    return {
-      id: doc.key,
-      title: doc.title,
-      subtitle,
-      imageUrl: coverUri,
-      detailPath: `books/${bookSlug}`,
-    };
-  });
-}
-
-function getTmdbApiKey(): string | null {
-  const key = process.env.EXPO_PUBLIC_TMDB_API_KEY?.trim();
-  return key || null;
-}
-
-function isTmdbMediaType(value: string): value is TmdbMediaType {
-  return value === "movie" || value === "tv";
-}
-
-async function searchTmdbForList(
-  query: string,
-): Promise<SimpleTmdbSearchResult[]> {
-  if (!query.trim()) return [];
-  const apiKey = getTmdbApiKey();
-  if (!apiKey) {
-    throw new Error("missing_api_key");
-  }
-
-  const res = await fetch(
-    `${TMDB_SEARCH_MULTI}?api_key=${encodeURIComponent(
-      apiKey,
-    )}&query=${encodeURIComponent(
-      query.trim(),
-    )}&include_adult=false&page=1`,
-  );
-  if (!res.ok) throw new Error("tmdb_search_failed");
-  const json: {
-    results: {
-      id: number;
-      media_type: string;
-      title?: string;
-      name?: string;
-      poster_path?: string | null;
-      release_date?: string;
-      first_air_date?: string;
-    }[];
-  } = await res.json();
-
-  return (json.results ?? [])
-    .filter((item) => isTmdbMediaType(item.media_type))
-    .map((item) => {
-      const mediaType: TmdbMediaType =
-        item.media_type === "movie" ? "movie" : "tv";
-      const title = item.title ?? item.name ?? "Untitled";
-      const posterPath = item.poster_path ?? null;
-      const detailPath = `tv-movie/${mediaType}/${item.id}`;
-      return {
-        id: item.id,
-        title,
-        imageUrl: posterPath ? `${TMDB_IMAGE_BASE}${posterPath}` : undefined,
-        mediaType,
-        detailPath,
-      };
-    });
-}
-
-let igdbAccessToken: string | null = null;
-let igdbTokenExpiryMs = 0;
-
-function getIgdbCredentials() {
-  const clientId = process.env.EXPO_PUBLIC_IGDB_CLIENT_ID?.trim();
-  const clientSecret = process.env.EXPO_PUBLIC_IGDB_CLIENT_SECRET?.trim();
-  if (!clientId || !clientSecret) {
-    throw new Error("missing_igdb_credentials");
-  }
-  return { clientId, clientSecret };
-}
-
-async function getIgdbAccessToken(): Promise<string> {
-  const now = Date.now();
-  if (igdbAccessToken && igdbTokenExpiryMs > now + 60_000) {
-    return igdbAccessToken;
-  }
-
-  const { clientId, clientSecret } = getIgdbCredentials();
-
-  const res = await fetch(
-    `https://id.twitch.tv/oauth2/token?client_id=${encodeURIComponent(
-      clientId,
-    )}&client_secret=${encodeURIComponent(
-      clientSecret,
-    )}&grant_type=client_credentials`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-    },
-  );
-
-  if (!res.ok) {
-    throw new Error("igdb_token_failed");
-  }
-
-  const json: { access_token: string; expires_in: number } = await res.json();
-  igdbAccessToken = json.access_token;
-  igdbTokenExpiryMs = now + (json.expires_in - 60) * 1000;
-  return igdbAccessToken;
-}
-
-function buildIgdbCoverUrl(imageId?: string | null): string | null {
-  if (!imageId) return null;
-  return `${IGDB_IMAGE_BASE}/t_cover_big/${imageId}.jpg`;
-}
-
-async function searchGamesForList(
-  query: string,
-): Promise<SimpleGameSearchResult[]> {
-  if (!query.trim()) return [];
-
-  const token = await getIgdbAccessToken();
-  const { clientId } = getIgdbCredentials();
-
-  const body = [
-    `search "${query.replace(/"/g, '\\"').trim()}" ;`,
-    "fields name,cover.image_id,first_release_date,total_rating,platforms.name ;",
-    "limit 25 ;",
-  ].join(" ");
-
-  const res = await fetch(IGDB_GAMES_ENDPOINT, {
-    method: "POST",
-    headers: {
-      "Client-ID": clientId,
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "text/plain",
-    },
-    body,
-  });
-
-  if (!res.ok) {
-    throw new Error("igdb_search_failed");
-  }
-
-  const json: {
-    id: number;
-    name: string;
-    cover?: { image_id?: string | null };
-  }[] = await res.json();
-
-  return (json ?? []).map((game) => {
-    const cover = buildIgdbCoverUrl(game.cover?.image_id ?? null);
-    return {
-      id: game.id,
-      title: game.name,
-      imageUrl: cover ?? undefined,
-      detailPath: `games/${game.id}`,
-    };
-  });
-}
-
-export type ExistingSearchResult =
-  | { kind: "list"; list: MockList }
-  | { kind: "entry"; entry: ListEntry; list: MockList };
-
-function findEntryById(
-  lists: MockList[],
-  entryId: string,
-): { entry: ListEntry; list: MockList } | null {
-  for (const list of lists) {
-    const entry = list.entries.find((e) => e.id === entryId);
-    if (entry) return { entry, list };
-  }
-  return null;
-}
-
-function getDisplayEntry(
-  lists: MockList[],
-  item: ListEntry,
-): ListEntry {
-  if (item.linkedEntryId) {
-    const found = findEntryById(lists, item.linkedEntryId);
-    return found ? found.entry : item;
-  }
-  if (item.linkedListId) {
-    const targetList = lists.find((l) => l.id === item.linkedListId);
-    return targetList
-      ? {
-          ...item,
-          title: targetList.title,
-          detailPath: `list/${targetList.id}`,
-        }
-      : item;
-  }
-  return item;
-}
+import { AddItemSheet } from '@/components/tracker/AddItemSheet';
+import { EntryGridCard } from '@/components/tracker/EntryGridCard';
+import { EntryRow } from '@/components/tracker/EntryRow';
+import { ManualEntryForm } from '@/components/tracker/ManualEntryForm';
+import { ThemedText } from '@/components/themed-text';
+import { Colors } from '@/constants/theme';
+import {
+  useEntryActions,
+  useListActions,
+  useListPreferences,
+  useListsQuery,
+} from '@/contexts/lists-context';
+import type { ListEntry } from '@/data/mock-lists';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { getListStats, sortEntries } from '@/lib/tracker-selectors';
 
 export default function ListDetailScreen() {
-  const { id, title } = useLocalSearchParams<{ id: string; title?: string }>();
-  const {
-    lists,
-    addEntryToList,
-    getCheckedByListId,
-    toggleEntryChecked,
-    getListViewMode,
-    setListViewMode,
-    deleteEntryFromList,
-  } = useLists();
+  const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
-  const colors = Colors[colorScheme ?? "light"];
-  const router = useRouter();
-
-  const list = id ? lists.find((l) => l.id === id) : null;
-  const listId = list?.id ?? null;
-  const headerTitle = title ?? list?.title ?? "List";
-  const entries = list?.entries ?? [];
-  const checkedById = useMemo(
-    () => (listId ? getCheckedByListId(listId) : {}),
-    [getCheckedByListId, listId],
-  );
-  const listViewMode = listId ? getListViewMode(listId) : "list";
-
-  const [addItemSheetVisible, setAddItemSheetVisible] = useState(false);
-  const [addItemMode, setAddItemMode] = useState<
-    "custom" | "search" | "link"
-  >("custom");
-  const [customTitle, setCustomTitle] = useState("");
-  const [customNotes, setCustomNotes] = useState("");
-  const [customFields, setCustomFields] = useState<
-    { title: string; value: string; format?: "text" | "numbers" }[]
-  >([]);
-  const [formatPickerFieldIndex, setFormatPickerFieldIndex] = useState<
-    number | null
-  >(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [animeResults, setAnimeResults] = useState<SimpleAnimeSearchResult[]>(
-    [],
-  );
-  const [mangaResults, setMangaResults] = useState<SimpleMangaSearchResult[]>(
-    [],
-  );
-  const [bookResults, setBookResults] = useState<SimpleBookSearchResult[]>([]);
-  const [tmdbResults, setTmdbResults] = useState<SimpleTmdbSearchResult[]>([]);
-  const [gameResults, setGameResults] = useState<SimpleGameSearchResult[]>([]);
-  const [existingResults, setExistingResults] = useState<ExistingSearchResult[]>(
-    [],
-  );
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
-  const [searchSources, setSearchSources] = useState({
-    anime: true,
-    manga: true,
-    books: true,
-    tvMovie: true,
-    games: true,
-    existing: true,
-  });
-  const [showSourcePicker, setShowSourcePicker] = useState(false);
-  const [linkPreview, setLinkPreview] = useState<ProductPreview | null>(null);
-  const [displaySimple, setDisplaySimple] = useState(false);
-  const [displayCheckbox, setDisplayCheckbox] = useState(false);
-  const [displayDetails, setDisplayDetails] = useState(true);
-  const [focusedSource, setFocusedSource] = useState<
-    "anime" | "manga" | "books" | "tvMovie" | "games" | "existing" | null
-  >(null);
-  const [viewMenuVisible, setViewMenuVisible] = useState(false);
-
-  const openAddItemSheet = useCallback(() => {
-    setAddItemMode("custom");
-    setFormatPickerFieldIndex(null);
-    setCustomTitle("");
-    setCustomNotes("");
-    setCustomFields([]);
-    setSearchQuery("");
-    setAnimeResults([]);
-    setMangaResults([]);
-    setBookResults([]);
-    setTmdbResults([]);
-    setGameResults([]);
-    setExistingResults([]);
-    setSearchError(null);
-    setSearchSources({
-      anime: true,
-      manga: true,
-      books: true,
-      tvMovie: true,
-      games: true,
-      existing: true,
-    });
-    setDisplaySimple(false);
-    setDisplayCheckbox(false);
-    setDisplayDetails(true);
-    setFocusedSource(null);
-    setLinkPreview(null);
-    setAddItemSheetVisible(true);
-  }, []);
-
-  const closeAddItemSheet = useCallback(() => {
-    setAddItemSheetVisible(false);
-    setFormatPickerFieldIndex(null);
-    setCustomTitle("");
-    setCustomNotes("");
-    setCustomFields([]);
-    setSearchQuery("");
-    setAnimeResults([]);
-    setMangaResults([]);
-    setBookResults([]);
-    setTmdbResults([]);
-    setGameResults([]);
-    setExistingResults([]);
-    setSearchError(null);
-    setSearchSources({
-      anime: true,
-      manga: true,
-      books: true,
-      tvMovie: true,
-      games: true,
-      existing: true,
-    });
-    setDisplaySimple(false);
-    setDisplayCheckbox(false);
-    setDisplayDetails(true);
-    setFocusedSource(null);
-    setLinkPreview(null);
-  }, []);
-
-  const confirmAddCustomItem = useCallback(() => {
-    if (!list) return;
-    const trimmedTitle = customTitle.trim();
-    if (!trimmedTitle) return;
-    const variant: ListEntry["displayVariant"] = displaySimple
-      ? "simple"
-      : displayCheckbox && displayDetails
-      ? "checkbox-details"
-      : displayCheckbox
-      ? "checkbox"
-      : "details";
-    const fields =
-      customFields
-        .filter((f) => f.title.trim() || f.value.trim())
-        .map((f) => ({
-          title: f.title.trim(),
-          value: f.value.trim(),
-          format: f.format ?? "text",
-        })) || [];
-    addEntryToList(list.id, {
-      title: trimmedTitle,
-      type: "book",
-      notes: customNotes.trim() || undefined,
-      customFields: fields.length > 0 ? fields : undefined,
-      displayVariant: variant,
-    });
-    closeAddItemSheet();
-  }, [
+  const colors = Colors[colorScheme ?? 'light'];
+  const { activeLists } = useListsQuery();
+  const { markListOpened, setListPreferences } = useListActions();
+  const {
     addEntryToList,
-    closeAddItemSheet,
-    customTitle,
-    customNotes,
-    customFields,
-    list,
-    displaySimple,
-    displayCheckbox,
-    displayDetails,
-  ]);
-
-  const confirmAddLinkItem = useCallback(() => {
-    if (!list || !linkPreview) return;
-    const variant: ListEntry["displayVariant"] = displaySimple
-      ? "simple"
-      : displayCheckbox && displayDetails
-      ? "checkbox-details"
-      : displayCheckbox
-      ? "checkbox"
-      : "details";
-    const priceStr =
-      linkPreview.price != null
-        ? new Intl.NumberFormat("en-US", {
-            style: "currency",
-            currency: linkPreview.currency ?? "USD",
-          }).format(linkPreview.price)
-        : undefined;
-    addEntryToList(list.id, {
-      title: linkPreview.title,
-      type: "link",
-      imageUrl: linkPreview.imageUrl,
-      productUrl: linkPreview.canonicalUrl,
-      price: priceStr,
-      displayVariant: variant,
-    });
-    closeAddItemSheet();
-  }, [
-    addEntryToList,
-    closeAddItemSheet,
-    list,
-    linkPreview,
-    displaySimple,
-    displayCheckbox,
-    displayDetails,
-  ]);
-
-  const addCustomField = useCallback(() => {
-    setCustomFields((prev) => [
-      ...prev,
-      { title: "", value: "", format: "text" as const },
-    ]);
-  }, []);
-
-  const removeCustomField = useCallback((index: number) => {
-    setCustomFields((prev) => prev.filter((_, i) => i !== index));
-    setFormatPickerFieldIndex((prev) =>
-      prev === index ? null : prev !== null && prev > index ? prev - 1 : prev
-    );
-  }, []);
-
-  const updateCustomField = useCallback(
-    (index: number, key: "title" | "value" | "format", textOrFormat: string) => {
-      setCustomFields((prev) =>
-        prev.map((f, i) =>
-          i === index
-            ? key === "format"
-              ? { ...f, format: textOrFormat as "text" | "numbers" }
-              : { ...f, [key]: textOrFormat }
-            : f
-        )
-      );
-    },
-    []
-  );
-
-  const setCustomFieldFormat = useCallback(
-    (index: number, format: "text" | "numbers") => {
-      setCustomFields((prev) =>
-        prev.map((f, i) =>
-          i === index
-            ? {
-                ...f,
-                format,
-                value:
-                  format === "numbers" ? f.value.replace(/\D/g, "") : f.value,
-              }
-            : f
-        )
-      );
-      setFormatPickerFieldIndex(null);
-    },
-    []
-  );
-
-  const runAllSearches = useCallback(async () => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) {
-      setAnimeResults([]);
-      setMangaResults([]);
-      setBookResults([]);
-      setTmdbResults([]);
-      setGameResults([]);
-      setExistingResults([]);
-      setSearchError(null);
-      setIsSearching(false);
-      return;
-    }
-    setFocusedSource(null);
-    setIsSearching(true);
-    setSearchError(null);
-    try {
-      const promises: Promise<void>[] = [];
-
-      if (searchSources.existing) {
-        const existing: ExistingSearchResult[] = [];
-        const currentListId = list?.id;
-        for (const l of lists) {
-          if (l.id === currentListId) continue;
-          if (l.title.toLowerCase().includes(q)) {
-            existing.push({ kind: "list", list: l });
-          }
-          for (const entry of l.entries) {
-            if (entry.title.toLowerCase().includes(q)) {
-              existing.push({ kind: "entry", entry, list: l });
-            }
-          }
-        }
-        setExistingResults(existing);
-      } else {
-        setExistingResults([]);
-      }
-
-      if (searchSources.anime) {
-        promises.push(
-          searchAnimeForList(searchQuery.trim())
-            .then((res) => setAnimeResults(res))
-            .catch(() => setAnimeResults([])),
-        );
-      } else {
-        setAnimeResults([]);
-      }
-
-      if (searchSources.manga) {
-        promises.push(
-          searchMangaForList(searchQuery.trim())
-            .then((res) => setMangaResults(res))
-            .catch(() => setMangaResults([])),
-        );
-      } else {
-        setMangaResults([]);
-      }
-
-      if (searchSources.books) {
-        promises.push(
-          searchBooksForList(searchQuery.trim())
-            .then((res) => setBookResults(res))
-            .catch(() => setBookResults([])),
-        );
-      } else {
-        setBookResults([]);
-      }
-
-      if (searchSources.tvMovie) {
-        promises.push(
-          searchTmdbForList(searchQuery.trim())
-            .then((res) => setTmdbResults(res))
-            .catch(() => setTmdbResults([])),
-        );
-      } else {
-        setTmdbResults([]);
-      }
-
-      if (searchSources.games) {
-        promises.push(
-          searchGamesForList(searchQuery.trim())
-            .then((res) => setGameResults(res))
-            .catch(() => setGameResults([])),
-        );
-      } else {
-        setGameResults([]);
-      }
-
-      await Promise.all(promises);
-
-      if (
-        !searchSources.anime &&
-        !searchSources.manga &&
-        !searchSources.books &&
-        !searchSources.tvMovie &&
-        !searchSources.games &&
-        !searchSources.existing
-      ) {
-        setSearchError("No sources selected. Enable at least one filter.");
-      }
-    } catch {
-      setAnimeResults([]);
-      setMangaResults([]);
-      setBookResults([]);
-      setTmdbResults([]);
-      setGameResults([]);
-      setExistingResults([]);
-      setSearchError("Failed to search. Check your connection or API keys.");
-    } finally {
-      setIsSearching(false);
-    }
-  }, [searchQuery, searchSources, list?.id, lists]);
+    archiveEntries,
+    deleteEntryFromList,
+    duplicateEntries,
+    moveEntry,
+    reorderEntries,
+    setEntryStatus,
+    updateEntry,
+  } = useEntryActions();
+  const list = activeLists.find((item) => item.id === id) ?? null;
+  const { preferences } = useListPreferences(list?.id ?? '');
+  const [isAddItemVisible, setIsAddItemVisible] = useState(false);
+  const [selectionModeEnabled, setSelectionModeEnabled] = useState(false);
+  const [selectedEntryIds, setSelectedEntryIds] = useState<string[]>([]);
+  const [editingEntry, setEditingEntry] = useState<ListEntry | null>(null);
+  const [moveModalVisible, setMoveModalVisible] = useState(false);
 
   useEffect(() => {
-    if (!searchQuery.trim()) {
-      setAnimeResults([]);
-      setMangaResults([]);
-      setBookResults([]);
-      setTmdbResults([]);
-      setGameResults([]);
-      setExistingResults([]);
-      setSearchError(null);
-      setIsSearching(false);
-      return;
+    if (list?.id) {
+      markListOpened(list.id);
     }
-    const t = setTimeout(() => {
-      runAllSearches();
-    }, 400);
-    return () => clearTimeout(t);
-  }, [searchQuery, runAllSearches]);
+  }, [list?.id, markListOpened]);
 
-  const addAnimeResultToList = useCallback(
-    (result: SimpleAnimeSearchResult) => {
-      if (!list) return;
-      const variant: ListEntry["displayVariant"] = displaySimple
-        ? "simple"
-        : displayCheckbox && displayDetails
-        ? "checkbox-details"
-        : displayCheckbox
-        ? "checkbox"
-        : "details";
-      const isTracking = list.preset === "tracking";
-      addEntryToList(list.id, {
-        title: result.title,
-        type: "anime",
-        imageUrl: result.imageUrl,
-        detailPath: `anime/${result.id}`,
-        displayVariant: variant,
-        ...(isTracking && result.episodes != null ? { totalEpisodes: result.episodes } : {}),
-      });
-      closeAddItemSheet();
-    },
-    [
-      addEntryToList,
-      closeAddItemSheet,
-      list,
-      displaySimple,
-      displayCheckbox,
-      displayDetails,
-    ],
-  );
-
-  const addMangaResultToList = useCallback(
-    (result: SimpleMangaSearchResult) => {
-      if (!list) return;
-      const variant: ListEntry["displayVariant"] = displaySimple
-        ? "simple"
-        : displayCheckbox && displayDetails
-        ? "checkbox-details"
-        : displayCheckbox
-        ? "checkbox"
-        : "details";
-      const isTracking = list.preset === "tracking";
-      addEntryToList(list.id, {
-        title: result.title,
-        type: "manga",
-        imageUrl: result.imageUrl,
-        detailPath: `manga/${result.id}`,
-        displayVariant: variant,
-        ...(isTracking && result.chapters != null ? { totalChapters: result.chapters } : {}),
-        ...(isTracking && result.volumes != null ? { totalVolumes: result.volumes } : {}),
-      });
-      closeAddItemSheet();
-    },
-    [
-      addEntryToList,
-      closeAddItemSheet,
-      list,
-      displaySimple,
-      displayCheckbox,
-      displayDetails,
-    ],
-  );
-
-  const addBookResultToList = useCallback(
-    (result: SimpleBookSearchResult) => {
-      if (!list) return;
-      const variant: ListEntry["displayVariant"] = displaySimple
-        ? "simple"
-        : displayCheckbox && displayDetails
-        ? "checkbox-details"
-        : displayCheckbox
-        ? "checkbox"
-        : "details";
-      addEntryToList(list.id, {
-        title: result.title,
-        type: "book",
-        imageUrl: result.imageUrl,
-        detailPath: result.detailPath,
-        displayVariant: variant,
-      });
-      closeAddItemSheet();
-    },
-    [
-      addEntryToList,
-      closeAddItemSheet,
-      list,
-      displaySimple,
-      displayCheckbox,
-      displayDetails,
-    ],
-  );
-
-  const addTmdbResultToList = useCallback(
-    (result: SimpleTmdbSearchResult) => {
-      if (!list) return;
-      const variant: ListEntry["displayVariant"] = displaySimple
-        ? "simple"
-        : displayCheckbox && displayDetails
-        ? "checkbox-details"
-        : displayCheckbox
-        ? "checkbox"
-        : "details";
-      addEntryToList(list.id, {
-        title: result.title,
-        type: result.mediaType,
-        imageUrl: result.imageUrl,
-        detailPath: result.detailPath,
-        displayVariant: variant,
-      });
-      closeAddItemSheet();
-    },
-    [
-      addEntryToList,
-      closeAddItemSheet,
-      list,
-      displaySimple,
-      displayCheckbox,
-      displayDetails,
-    ],
-  );
-
-  const addGameResultToList = useCallback(
-    (result: SimpleGameSearchResult) => {
-      if (!list) return;
-      const variant: ListEntry["displayVariant"] = displaySimple
-        ? "simple"
-        : displayCheckbox && displayDetails
-        ? "checkbox-details"
-        : displayCheckbox
-        ? "checkbox"
-        : "details";
-      addEntryToList(list.id, {
-        title: result.title,
-        type: "game",
-        imageUrl: result.imageUrl,
-        detailPath: result.detailPath,
-        displayVariant: variant,
-      });
-      closeAddItemSheet();
-    },
-    [
-      addEntryToList,
-      closeAddItemSheet,
-      list,
-      displaySimple,
-      displayCheckbox,
-      displayDetails,
-    ],
-  );
-
-  const addExistingListToList = useCallback(
-    (targetList: MockList) => {
-      if (!list) return;
-      const variant: ListEntry["displayVariant"] = displaySimple
-        ? "simple"
-        : displayCheckbox && displayDetails
-        ? "checkbox-details"
-        : displayCheckbox
-        ? "checkbox"
-        : "details";
-      addEntryToList(list.id, {
-        title: targetList.title,
-        type: "list",
-        linkedListId: targetList.id,
-        detailPath: `list/${targetList.id}`,
-        displayVariant: variant,
-      });
-      closeAddItemSheet();
-    },
-    [
-      addEntryToList,
-      closeAddItemSheet,
-      list,
-      displaySimple,
-      displayCheckbox,
-      displayDetails,
-    ],
-  );
-
-  const addExistingEntryToList = useCallback(
-    (entry: ListEntry, _sourceList: MockList) => {
-      if (!list) return;
-      const variant: ListEntry["displayVariant"] = displaySimple
-        ? "simple"
-        : displayCheckbox && displayDetails
-        ? "checkbox-details"
-        : displayCheckbox
-        ? "checkbox"
-        : "details";
-      addEntryToList(list.id, {
-        title: entry.title,
-        type: entry.type,
-        imageUrl: entry.imageUrl,
-        detailPath: entry.detailPath,
-        displayVariant: variant,
-        linkedEntryId: entry.id,
-        totalEpisodes: entry.totalEpisodes,
-        totalChapters: entry.totalChapters,
-        totalVolumes: entry.totalVolumes,
-      });
-      closeAddItemSheet();
-    },
-    [
-      addEntryToList,
-      closeAddItemSheet,
-      list,
-      displaySimple,
-      displayCheckbox,
-      displayDetails,
-    ],
-  );
-
-  const openEntry = useCallback(
-    (entry: ListEntry) => {
-      if (entry.linkedListId) {
-        router.push({ pathname: `/list/${entry.linkedListId}` as any });
-        return;
-      }
-      if (entry.linkedEntryId) {
-        const found = findEntryById(lists, entry.linkedEntryId);
-        if (found?.entry.detailPath) {
-          router.push({ pathname: `/${found.entry.detailPath}` as any });
-        }
-        return;
-      }
-      if (entry.detailPath) {
-        router.push({ pathname: `/${entry.detailPath}` as any });
-      }
-    },
-    [router, lists],
-  );
-
-  const confirmDeleteEntry = useCallback(
-    (entry: ListEntry) => {
-      if (!listId) return;
-
-      const runDelete = () => deleteEntryFromList(listId, entry.id);
-
-      if (Platform.OS === "web" && typeof window !== "undefined") {
-        if (window.confirm(`Delete "${entry.title}" from this list? This cannot be undone.`)) {
-          runDelete();
-        }
-        return;
-      }
-
-      Alert.alert(
-        "Delete item?",
-        `Delete "${entry.title}" from this list? This cannot be undone.`,
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "Delete", style: "destructive", onPress: runDelete },
-        ],
-      );
-    },
-    [deleteEntryFromList, listId],
-  );
-
-  const renderDeleteAction = useCallback(
-    (progress: Animated.AnimatedInterpolation<number>, onDelete: () => void, label: string) => {
-      const opacity = progress.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0, 1],
-        extrapolate: "clamp",
-      });
-
-      return (
-        <Animated.View style={[styles.rightActionContainer, { opacity }]}>
-          <Pressable
-            onPress={onDelete}
-            style={({ pressed }) => [
-              styles.deleteAction,
-              { backgroundColor: "#C62828", opacity: pressed ? 0.85 : 1 },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={label}
-          >
-            <IconSymbol name="trash" size={18} color="#fff" />
-            <ThemedText style={styles.deleteActionText}>Delete</ThemedText>
-          </Pressable>
-        </Animated.View>
-      );
-    },
-    [],
-  );
-
-  const renderItem = useCallback(
-    ({ item }: { item: ListEntry }) => {
-      const displayEntry = getDisplayEntry(lists, item);
-      const variant = item.displayVariant ?? "details";
-      const isSimple = variant === "simple";
-      const isCheckbox =
-        variant === "checkbox" || variant === "checkbox-details";
-      const hasDetails =
-        variant === "details" || variant === "checkbox-details";
-      const checked = !!checkedById[item.id];
-      const hasPath =
-        displayEntry.detailPath ||
-        item.linkedListId ||
-        (item.linkedEntryId && !!findEntryById(lists, item.linkedEntryId)?.entry.detailPath);
-
-      const toggleChecked = () => {
-        if (!listId) return;
-        toggleEntryChecked(listId, item.id);
-      };
-
-      const onRowPress = () => {
-        if (isCheckbox) {
-          toggleChecked();
-        } else if (hasDetails) {
-          openEntry(item);
-        }
-      };
-
-      return (
-        <Swipeable
-          overshootRight={false}
-          rightThreshold={40}
-          renderRightActions={(progress) =>
-            renderDeleteAction(progress, () => confirmDeleteEntry(item), `Delete ${displayEntry.title}`)
-          }
-        >
-          <Pressable
-            onPress={onRowPress}
-            style={({ pressed }) => [
-              styles.resultRow,
-              checked && { backgroundColor: colors.tint + "12" },
-              { opacity: pressed ? 0.8 : 1 },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={hasDetails ? `Open ${displayEntry.title}` : displayEntry.title}
-          >
-            {isCheckbox ? (
-              <View
-                style={[
-                  styles.checkboxIndicator,
-                  {
-                    borderColor: colors.tint,
-                    backgroundColor: checked ? colors.tint : "transparent",
-                  },
-                ]}
-              >
-                {checked ? (
-                  <IconSymbol
-                    name="checkmark"
-                    size={14}
-                    color={colors.background}
-                  />
-                ) : null}
-              </View>
-            ) : null}
-            <ThumbnailImage
-              imageUrl={displayEntry.imageUrl}
-              style={styles.resultPoster}
-              contentFit="cover"
-            />
-            <View style={styles.resultInfo}>
-              <ThemedText style={styles.resultTitle} numberOfLines={2}>
-                {displayEntry.title}
-              </ThemedText>
-              {!isSimple ? (
-                <View style={styles.resultMetaRow}>
-                  {(item.linkedEntryId ||
-                    item.linkedListId ||
-                    item.type === "link" ||
-                    (item.detailPath && !item.detailPath.startsWith("list-entry/"))) ? (
-                    <View
-                      style={[
-                        styles.typeChip,
-                        { backgroundColor: colors.icon + "25" },
-                      ]}
-                    >
-                      <ThemedText
-                        style={[styles.typeChipText, { color: colors.tint }]}
-                      >
-                        {ENTRY_TYPE_LABELS[displayEntry.type]}
-                      </ThemedText>
-                    </View>
-                  ) : null}
-                  {displayEntry.type === "link" && displayEntry.price ? (
-                    <ThemedText
-                      style={[styles.trackingBadge, { color: colors.tint, fontWeight: "600" }]}
-                    >
-                      {displayEntry.price}
-                    </ThemedText>
-                  ) : null}
-                  {list?.preset === "tracking" &&
-                    (displayEntry.totalEpisodes != null ||
-                      displayEntry.totalChapters != null ||
-                      displayEntry.totalVolumes != null) && (
-                      <ThemedText
-                        style={[styles.trackingBadge, { color: colors.icon }]}
-                      >
-                        {displayEntry.totalEpisodes != null
-                          ? `0/${displayEntry.totalEpisodes} ep`
-                          : displayEntry.totalChapters != null
-                          ? `0/${displayEntry.totalChapters} ch`
-                          : displayEntry.totalVolumes != null
-                          ? `0/${displayEntry.totalVolumes} vol`
-                          : null}
-                      </ThemedText>
-                    )}
-                </View>
-              ) : null}
-            </View>
-            {hasDetails && hasPath ? (
-              variant === "checkbox-details" ? (
-                <Pressable
-                  onPress={() => openEntry(item)}
-                  style={({ pressed }) => [
-                    styles.detailsButtonZone,
-                    { opacity: pressed ? 0.7 : 1 },
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Open details for ${item.title}`}
-                >
-                  <IconSymbol
-                    name="chevron.right"
-                    size={24}
-                    color={colors.icon}
-                    style={styles.resultChevron}
-                  />
-                </Pressable>
-              ) : (
-                <IconSymbol
-                  name="chevron.right"
-                  size={24}
-                  color={colors.icon}
-                  style={styles.resultChevron}
-                />
-              )
-            ) : null}
-          </Pressable>
-        </Swipeable>
-      );
-    },
-    [
-      checkedById,
-      colors.background,
-      colors.icon,
-      colors.tint,
-      listId,
-      list?.preset,
-      confirmDeleteEntry,
-      openEntry,
-      renderDeleteAction,
-      toggleEntryChecked,
-    ],
-  );
-
-  const keyExtractor = useCallback((item: ListEntry) => item.id, []);
-
-  const entriesWithCustomFields = useMemo(() => {
-    return entries.filter((e) => {
-      const d = getDisplayEntry(lists, e);
-      return d.customFields && d.customFields.length > 0;
-    });
-  }, [entries, lists]);
-
-  const allCustomFieldTitles = useMemo(() => {
-    const titles = new Set<string>();
-    for (const e of entriesWithCustomFields) {
-      const d = getDisplayEntry(lists, e);
-      for (const f of d.customFields ?? []) {
-        if (f.title.trim()) titles.add(f.title.trim());
-      }
+  const visibleEntries = useMemo(() => {
+    if (!list) {
+      return [];
     }
-    return Array.from(titles);
-  }, [entriesWithCustomFields, lists]);
+    return sortEntries(list.entries, preferences);
+  }, [list, preferences]);
 
-  const getFieldValue = useCallback(
-    (entry: ListEntry, fieldTitle: string): string => {
-      const d = getDisplayEntry(lists, entry);
-      const f = d.customFields?.find(
-        (x) => x.title.trim() === fieldTitle.trim()
-      );
-      return f?.value ?? "";
-    },
-    [lists],
-  );
+  if (!list) {
+    return (
+      <>
+        <Stack.Screen options={{ title: 'List' }} />
+        <View style={[styles.centered, { paddingTop: insets.top + 24 }]}>
+          <ThemedText>This list no longer exists.</ThemedText>
+        </View>
+      </>
+    );
+  }
 
-  const tierTiers = useMemo(() => {
-    if (!list) return [];
-    return list.entries
-      .filter((e): e is ListEntry & { linkedListId: string } =>
-        !!e.linkedListId
-      )
-      .map((entry, index) => {
-        const sublist = lists.find((l) => l.id === entry.linkedListId);
-        if (!sublist) return null;
-        const items = sublist.entries.filter((e) => !e.linkedListId);
-        return {
-          id: sublist.id,
-          name: sublist.title,
-          color: TIER_COLORS[index % TIER_COLORS.length],
-          items,
-        };
-      })
-      .filter((t): t is NonNullable<typeof t> => t !== null);
-  }, [list, lists]);
+  const listStats = getListStats(list);
+  const isSelectionMode = selectionModeEnabled;
 
-  const renderGridItem = useCallback(
-    ({ item }: { item: ListEntry }) => {
-      const displayEntry = getDisplayEntry(lists, item);
-      const variant = item.displayVariant ?? "details";
-      const isCheckbox =
-        variant === "checkbox" || variant === "checkbox-details";
-      const hasDetails =
-        variant === "details" || variant === "checkbox-details";
-      const hasPath =
-        displayEntry.detailPath ||
-        item.linkedListId ||
-        (item.linkedEntryId &&
-          !!findEntryById(lists, item.linkedEntryId)?.entry.detailPath);
+  const toggleSelection = (entryId: string) => {
+    setSelectedEntryIds((current) =>
+      current.includes(entryId)
+        ? current.filter((idValue) => idValue !== entryId)
+        : [...current, entryId]
+    );
+  };
 
-      return (
-        <Pressable
-          onPress={() => (hasDetails && hasPath ? openEntry(item) : null)}
-          style={({ pressed }) => [
-            styles.gridCard,
-            { opacity: pressed ? 0.8 : 1 },
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel={displayEntry.title}
-        >
-          <ThumbnailImage
-            imageUrl={displayEntry.imageUrl}
-            style={styles.gridCardImage}
-            contentFit="cover"
-          />
-          <ThemedText
-            style={styles.gridCardTitle}
-            numberOfLines={2}
-          >
-            {displayEntry.title}
-          </ThemedText>
-        </Pressable>
-      );
-    },
-    [lists, openEntry],
-  );
+  const selectedEntries = visibleEntries.filter((entry) => selectedEntryIds.includes(entry.id));
 
   return (
     <>
-      <Stack.Screen
-        options={{
-          title: headerTitle,
-          headerRight: () =>
-            list ? (
-              <View style={styles.headerButtonsRow}>
-                <Pressable
-                  onPress={openAddItemSheet}
-                  style={({ pressed }) => [
-                    styles.headerButton,
-                    { opacity: pressed ? 0.7 : 1 },
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityLabel="Add item to list"
-                >
-                  <IconSymbol name="plus" size={26} color={colors.tint} />
-                </Pressable>
-                <Pressable
-                  onPress={() => setViewMenuVisible(true)}
-                  style={({ pressed }) => [
-                    styles.headerButton,
-                    { opacity: pressed ? 0.7 : 1 },
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityLabel="View options"
-                >
-                  <IconSymbol
-                    name="ellipsis.circle"
-                    size={26}
-                    color={colors.tint}
-                  />
-                </Pressable>
-              </View>
-            ) : null,
-        }}
-      />
-      <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-        {entries.length === 0 ? (
-          <ThemedText style={styles.placeholder}>
-            This list is empty. Add items from Search.
-          </ThemedText>
-        ) : listViewMode === "compare" ? (
-          entriesWithCustomFields.length === 0 ? (
-            <ThemedText style={styles.placeholder}>
-              No items with custom fields to compare. Add custom fields to
-              items first.
-            </ThemedText>
-          ) : (
-            <View style={[styles.compareContainer, { paddingBottom: insets.bottom + 24 }]}>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={true}
-                contentContainerStyle={styles.compareScrollContent}
-              >
-                <View style={[styles.compareTable, { borderColor: colors.icon + "40" }]}>
-                  <View style={[styles.compareTableRow, styles.compareHeaderRow, { borderBottomColor: colors.icon + "40", backgroundColor: colors.icon + "15" }]}>
-                    <View style={[styles.compareCell, styles.compareTitleCol]}>
-                      <ThemedText style={styles.compareHeaderText}>Title</ThemedText>
-                    </View>
-                    {allCustomFieldTitles.map((title) => (
-                      <View key={title} style={styles.compareCell}>
-                        <ThemedText style={styles.compareHeaderText}>{title}</ThemedText>
-                      </View>
-                    ))}
-                  </View>
-                  {entriesWithCustomFields.map((entry) => {
-                    const displayEntry = getDisplayEntry(lists, entry);
-                    return (
-                      <View
-                        key={entry.id}
-                        style={[styles.compareTableRow, { borderBottomColor: colors.icon + "30" }]}
-                      >
-                        <View style={[styles.compareCell, styles.compareTitleCol]}>
-                          <ThemedText style={styles.compareCellText} numberOfLines={2}>
-                            {displayEntry.title}
-                          </ThemedText>
-                        </View>
-                        {allCustomFieldTitles.map((fieldTitle) => (
-                          <View key={fieldTitle} style={styles.compareCell}>
-                            <ThemedText style={styles.compareCellText} numberOfLines={2}>
-                              {getFieldValue(entry, fieldTitle)}
-                            </ThemedText>
-                          </View>
-                        ))}
-                      </View>
-                    );
-                  })}
-                </View>
-              </ScrollView>
-            </View>
-          )
-        ) : listViewMode === "tier" ? (
-          tierTiers.length === 0 ? (
-            <ThemedText style={styles.placeholder}>
-              No sublists to display as tiers. Add lists as items to this list
-              (from Search → existing lists) to use Tier list view.
-            </ThemedText>
-          ) : (
-            <ScrollView
-              style={styles.tierListScroll}
-              contentContainerStyle={[
-                styles.tierListContent,
-                { paddingBottom: insets.bottom + 24 },
-              ]}
-              showsVerticalScrollIndicator={false}
-            >
-              {tierTiers.map((tier) => {
-                const isWhiteTier = tier.color === "#FFFFFF";
-                return (
-                  <View
-                    key={tier.id}
-                    style={[styles.tierRow, { borderBottomColor: colors.icon + "30" }]}
-                  >
-                    <View
-                      style={[
-                        styles.tierLabel,
-                        {
-                          backgroundColor: tier.color,
-                          borderWidth: isWhiteTier ? 1 : 0,
-                          borderColor: isWhiteTier ? "#000" : "transparent",
-                        },
-                      ]}
-                    >
-                      <ThemedText
-                        style={[
-                          styles.tierLabelText,
-                          { color: "#1a1a1a" },
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {tier.name}
-                      </ThemedText>
-                    </View>
-                    <ScrollView
-                      horizontal
-                      style={styles.tierItemsScroll}
-                      contentContainerStyle={styles.tierItemsContent}
-                      showsHorizontalScrollIndicator={false}
-                    >
-                      {tier.items.map((item) => {
-                        const displayEntry = getDisplayEntry(lists, item);
-                        return (
-                          <Pressable
-                            key={item.id}
-                            onPress={() => openEntry(item)}
-                            style={({ pressed }) => [
-                              styles.tierItem,
-                              { opacity: pressed ? 0.8 : 1 },
-                            ]}
-                            accessibilityRole="button"
-                            accessibilityLabel={displayEntry.title}
-                          >
-                            <ThumbnailImage
-                              imageUrl={displayEntry.imageUrl}
-                              style={styles.tierItemImage}
-                              contentFit="cover"
-                            />
-                          </Pressable>
-                        );
-                      })}
-                    </ScrollView>
-                  </View>
-                );
-              })}
-            </ScrollView>
-          )
-        ) : listViewMode === "grid" ? (
-          <FlatList
-            key="grid"
-            data={entries}
-            keyExtractor={keyExtractor}
-            renderItem={renderGridItem}
-            numColumns={2}
-            contentContainerStyle={[
-              styles.gridContent,
-              { paddingBottom: insets.bottom + 24 },
-            ]}
-            columnWrapperStyle={styles.gridRow}
-            showsVerticalScrollIndicator={false}
-          />
-        ) : (
-          <FlatList
-            key="list"
-            data={entries}
-            keyExtractor={keyExtractor}
-            renderItem={renderItem}
-            contentContainerStyle={[
-              styles.listContent,
-              { paddingBottom: insets.bottom + 24 },
-            ]}
-            showsVerticalScrollIndicator={false}
-          />
-        )}
-      </ThemedView>
-
-      <Modal
-        visible={addItemSheetVisible}
-        animationType="slide"
-        transparent
-        onRequestClose={closeAddItemSheet}
+      <Stack.Screen options={{ title: list.title }} />
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={[
+          styles.content,
+          {
+            paddingTop: insets.top + 12,
+            paddingBottom: insets.bottom + 24,
+          },
+        ]}
+        showsVerticalScrollIndicator={false}
       >
-        <Pressable
-          style={styles.modalOverlay}
-          onPress={() => {
-            if (formatPickerFieldIndex !== null) {
-              setFormatPickerFieldIndex(null);
-            } else {
-              closeAddItemSheet();
-            }
-          }}
-        >
+        <View style={styles.header}>
+          <View style={styles.headerText}>
+            <ThemedText type="title">{list.title}</ThemedText>
+            {list.description ? (
+              <ThemedText style={{ color: colors.icon }}>{list.description}</ThemedText>
+            ) : null}
+          </View>
           <Pressable
+            onPress={() => setIsAddItemVisible(true)}
             style={[
-              styles.sheet,
+              styles.primaryButton,
+              {
+                backgroundColor: colors.tint,
+              },
+            ]}
+          >
+            <ThemedText style={[styles.primaryButtonText, { color: colors.background }]}>
+              Add item
+            </ThemedText>
+          </Pressable>
+        </View>
+
+        <View style={styles.statRow}>
+          <StatCard label="Active" value={listStats.active} />
+          <StatCard label="Planned" value={listStats.planned} />
+          <StatCard label="Done" value={listStats.completed} />
+        </View>
+
+        <View style={styles.toolbar}>
+          <ChipGroup
+            options={[
+              { id: 'list', label: 'List' },
+              { id: 'grid', label: 'Grid' },
+            ]}
+            value={preferences.viewMode}
+            onChange={(value) => setListPreferences(list.id, { viewMode: value as 'list' | 'grid' })}
+          />
+          <ChipGroup
+            options={[
+              { id: 'updated-desc', label: 'Recent' },
+              { id: 'title-asc', label: 'A-Z' },
+              { id: 'rating-desc', label: 'Rating' },
+              { id: 'status', label: 'Status' },
+            ]}
+            value={preferences.sortMode}
+            onChange={(value) => setListPreferences(list.id, { sortMode: value as typeof preferences.sortMode })}
+          />
+          <ChipGroup
+            options={[
+              { id: 'all', label: 'All' },
+              { id: 'active', label: 'Active' },
+              { id: 'completed', label: 'Completed' },
+              { id: 'planned', label: 'Planned' },
+            ]}
+            value={preferences.filterMode}
+            onChange={(value) =>
+              setListPreferences(list.id, {
+                filterMode: value as typeof preferences.filterMode,
+              })
+            }
+          />
+          <Pressable
+            onPress={() =>
+              setListPreferences(list.id, { showCompleted: !preferences.showCompleted })
+            }
+            style={[
+              styles.secondaryChip,
+              {
+                backgroundColor: preferences.showCompleted ? colors.tint : colors.icon + '10',
+              },
+            ]}
+          >
+            <ThemedText
+              style={{
+                color: preferences.showCompleted ? colors.background : colors.text,
+              }}
+            >
+              {preferences.showCompleted ? 'Hide done off' : 'Hide done on'}
+            </ThemedText>
+          </Pressable>
+        </View>
+
+        <View style={styles.bulkHeader}>
+          <ThemedText type="subtitle">Entries</ThemedText>
+          <Pressable
+            onPress={() => {
+              if (selectionModeEnabled) {
+                setSelectionModeEnabled(false);
+                setSelectedEntryIds([]);
+              } else {
+                setSelectionModeEnabled(true);
+              }
+            }}
+            style={[
+              styles.secondaryChip,
+              {
+                backgroundColor: selectionModeEnabled ? colors.tint : colors.icon + '10',
+              },
+            ]}
+          >
+            <ThemedText
+              style={{
+                color: selectionModeEnabled ? colors.background : colors.text,
+              }}
+            >
+              {selectionModeEnabled ? 'Done selecting' : 'Select entries'}
+            </ThemedText>
+          </Pressable>
+        </View>
+
+        {isSelectionMode && selectedEntryIds.length ? (
+          <View style={styles.bulkActions}>
+            <Pressable
+              onPress={() => {
+                selectedEntries.forEach((entry) => setEntryStatus(list.id, entry.id, 'completed'));
+                setSelectedEntryIds([]);
+              }}
+              style={[styles.bulkButton, { backgroundColor: colors.tint + '14' }]}
+            >
+              <ThemedText style={{ color: colors.tint }}>Mark complete</ThemedText>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                duplicateEntries(list.id, selectedEntryIds);
+                setSelectedEntryIds([]);
+              }}
+              style={[styles.bulkButton, { backgroundColor: colors.icon + '10' }]}
+            >
+              <ThemedText>Duplicate</ThemedText>
+            </Pressable>
+            <Pressable
+              onPress={() => setMoveModalVisible(true)}
+              style={[styles.bulkButton, { backgroundColor: colors.icon + '10' }]}
+            >
+              <ThemedText>Move</ThemedText>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                archiveEntries(list.id, selectedEntryIds);
+                setSelectedEntryIds([]);
+              }}
+              style={[styles.bulkButton, { backgroundColor: colors.icon + '10' }]}
+            >
+              <ThemedText>Archive</ThemedText>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                const orderedIds = [...visibleEntries]
+                  .sort((a, b) => a.title.localeCompare(b.title))
+                  .map((entry) => entry.id);
+                reorderEntries(list.id, orderedIds);
+                setSelectedEntryIds([]);
+              }}
+              style={[styles.bulkButton, { backgroundColor: colors.icon + '10' }]}
+            >
+              <ThemedText>Reorder A-Z</ThemedText>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {preferences.viewMode === 'grid' ? (
+          <View style={styles.grid}>
+            {visibleEntries.map((entry) => (
+              <View key={entry.id} style={styles.gridItem}>
+                <EntryGridCard
+                  entry={entry}
+                  selected={selectedEntryIds.includes(entry.id)}
+                  onPress={() => {
+                    if (isSelectionMode) {
+                      toggleSelection(entry.id);
+                    } else {
+                      setEditingEntry(entry);
+                    }
+                  }}
+                />
+              </View>
+            ))}
+          </View>
+        ) : (
+          <View style={styles.list}>
+            {visibleEntries.map((entry) => (
+              <EntryRow
+                key={entry.id}
+                entry={entry}
+                selected={selectedEntryIds.includes(entry.id)}
+                selectionMode={isSelectionMode}
+                onSelectToggle={() => toggleSelection(entry.id)}
+                onPress={() => setEditingEntry(entry)}
+                subtitle={entry.tags.length ? entry.tags.join(' | ') : undefined}
+              />
+            ))}
+          </View>
+        )}
+
+        {!visibleEntries.length ? (
+          <ThemedText style={styles.emptyText}>
+            This list is empty. Add something manually, search the catalog, or try link import.
+          </ThemedText>
+        ) : null}
+      </ScrollView>
+
+      <AddItemSheet
+        visible={isAddItemVisible}
+        onClose={() => setIsAddItemVisible(false)}
+        listTitle={list.title}
+        onAddEntry={(draft) => addEntryToList(list.id, draft)}
+      />
+
+      <Modal visible={!!editingEntry} transparent animationType="slide" onRequestClose={() => setEditingEntry(null)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setEditingEntry(null)}>
+          <Pressable
+            onPress={(event) => event.stopPropagation()}
+            style={[
+              styles.modalSheet,
               {
                 backgroundColor: colors.background,
                 paddingBottom: insets.bottom + 24,
-                height: Dimensions.get("window").height * 0.9,
               },
             ]}
-            onPress={(e) => e.stopPropagation()}
           >
-            <View
-              style={[
-                styles.sheetHeader,
-                { borderBottomColor: colors.icon + "30" },
-              ]}
-            >
-              <Pressable
-                onPress={closeAddItemSheet}
-                style={({ pressed }) => [
-                  styles.sheetHeaderButton,
-                  styles.sheetHeaderButtonLeft,
-                  { opacity: pressed ? 0.7 : 1 },
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel="Close"
-              >
-                <IconSymbol name="xmark" size={24} color={colors.text} />
-              </Pressable>
-              <ThemedText type="subtitle" style={styles.sheetTitle}>
-                {addItemMode === "custom"
-                  ? "Add custom item"
-                  : addItemMode === "link"
-                  ? "Add from link"
-                  : "Add from search"}
-              </ThemedText>
-              {addItemMode === "custom" ? (
-                <Pressable
-                  onPress={confirmAddCustomItem}
-                  style={({ pressed }) => [
-                    styles.sheetHeaderButton,
-                    styles.sheetHeaderButtonRight,
-                    { opacity: pressed ? 0.7 : 1 },
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityLabel="Add item"
-                >
-                  <IconSymbol name="checkmark" size={24} color={colors.tint} />
-                </Pressable>
-              ) : addItemMode === "link" ? (
-                <Pressable
-                  onPress={confirmAddLinkItem}
-                  disabled={!linkPreview}
-                  style={({ pressed }) => [
-                    styles.sheetHeaderButton,
-                    styles.sheetHeaderButtonRight,
-                    { opacity: pressed ? 0.7 : linkPreview ? 1 : 0.4 },
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityLabel="Add item"
-                >
-                  <IconSymbol name="checkmark" size={24} color={colors.tint} />
-                </Pressable>
-              ) : (
-                <View style={styles.sheetHeaderButton} />
-              )}
-            </View>
-
-            <View style={styles.modeToggleRow}>
-              <Pressable
-                onPress={() => setAddItemMode("custom")}
-                style={({ pressed }) => [
-                  styles.modeToggleButton,
-                  {
-                    backgroundColor:
-                      addItemMode === "custom"
-                        ? colors.tint
-                        : colors.icon + "12",
-                    opacity: pressed ? 0.8 : 1,
-                  },
-                ]}
-              >
-                <ThemedText
-                  style={[
-                    styles.modeToggleText,
-                    {
-                      color:
-                        addItemMode === "custom"
-                          ? colors.background
-                          : colors.text,
-                    },
-                  ]}
-                >
-                  Custom item
-                </ThemedText>
-              </Pressable>
-              <Pressable
-                onPress={() => setAddItemMode("search")}
-                style={({ pressed }) => [
-                  styles.modeToggleButton,
-                  {
-                    backgroundColor:
-                      addItemMode === "search"
-                        ? colors.tint
-                        : colors.icon + "12",
-                    opacity: pressed ? 0.8 : 1,
-                  },
-                ]}
-              >
-                <ThemedText
-                  style={[
-                    styles.modeToggleText,
-                    {
-                      color:
-                        addItemMode === "search"
-                          ? colors.background
-                          : colors.text,
-                    },
-                  ]}
-                >
-                  Search item
-                </ThemedText>
-              </Pressable>
-              <Pressable
-                onPress={() => setAddItemMode("link")}
-                style={({ pressed }) => [
-                  styles.modeToggleButton,
-                  {
-                    backgroundColor:
-                      addItemMode === "link"
-                        ? colors.tint
-                        : colors.icon + "12",
-                    opacity: pressed ? 0.8 : 1,
-                  },
-                ]}
-              >
-                <ThemedText
-                  style={[
-                    styles.modeToggleText,
-                    {
-                      color:
-                        addItemMode === "link"
-                          ? colors.background
-                          : colors.text,
-                    },
-                  ]}
-                >
-                  Link
-                </ThemedText>
-              </Pressable>
-            </View>
-
-            <View style={styles.displayModeRow}>
+            <View style={styles.modalHeader}>
+              <ThemedText type="subtitle">Edit entry</ThemedText>
               <Pressable
                 onPress={() => {
-                  setDisplaySimple(true);
-                  setDisplayCheckbox(false);
-                  setDisplayDetails(false);
+                  if (editingEntry) {
+                    deleteEntryFromList(list.id, editingEntry.id);
+                  }
+                  setEditingEntry(null);
                 }}
-                style={({ pressed }) => [
-                  styles.displayModeBubble,
-                  {
-                    backgroundColor: displaySimple
-                      ? colors.tint
-                      : colors.icon + "12",
-                    opacity: pressed ? 0.8 : 1,
-                  },
-                ]}
-                accessibilityRole="button"
-                accessibilityState={{ selected: displaySimple }}
-                accessibilityLabel="Use simple display"
               >
-                <ThemedText
-                  style={[
-                    styles.displayModeText,
-                    {
-                      color: displaySimple ? colors.background : colors.text,
-                    },
-                  ]}
-                >
-                  Simple
-                </ThemedText>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  setDisplayCheckbox((prev) => {
-                    const next = !prev;
-                    if (next) {
-                      setDisplaySimple(false);
-                    }
-                    return next;
-                  });
-                }}
-                style={({ pressed }) => [
-                  styles.displayModeBubble,
-                  {
-                    backgroundColor: displayCheckbox
-                      ? colors.tint
-                      : colors.icon + "12",
-                    opacity: pressed ? 0.8 : 1,
-                  },
-                ]}
-                accessibilityRole="button"
-                accessibilityState={{ selected: displayCheckbox }}
-                accessibilityLabel="Toggle checkbox behavior"
-              >
-                <ThemedText
-                  style={[
-                    styles.displayModeText,
-                    {
-                      color: displayCheckbox ? colors.background : colors.text,
-                    },
-                  ]}
-                >
-                  Checkbox
-                </ThemedText>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  setDisplayDetails((prev) => {
-                    const next = !prev;
-                    if (next) {
-                      setDisplaySimple(false);
-                    }
-                    return next;
-                  });
-                }}
-                style={({ pressed }) => [
-                  styles.displayModeBubble,
-                  {
-                    backgroundColor: displayDetails
-                      ? colors.tint
-                      : colors.icon + "12",
-                    opacity: pressed ? 0.8 : 1,
-                  },
-                ]}
-                accessibilityRole="button"
-                accessibilityState={{ selected: displayDetails }}
-                accessibilityLabel="Toggle details page behavior"
-              >
-                <ThemedText
-                  style={[
-                    styles.displayModeText,
-                    {
-                      color: displayDetails ? colors.background : colors.text,
-                    },
-                  ]}
-                >
-                  Details page
-                </ThemedText>
+                <ThemedText style={{ color: '#cc3f3f' }}>Delete</ThemedText>
               </Pressable>
             </View>
-
-            {addItemMode === "link" ? (
-              <ProductLinkImport
-                compact
-                onImportSuccess={setLinkPreview}
-                onReset={() => setLinkPreview(null)}
-              />
-            ) : addItemMode === "custom" ? (
-              <ScrollView
-                style={styles.sheetBody}
-                contentContainerStyle={styles.sheetBodyContent}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-              >
-                <TextInput
-                  style={[
-                    styles.titleInput,
-                    {
-                      color: colors.text,
-                      backgroundColor: colors.icon + "18",
-                      borderColor: colors.icon + "40",
-                    },
-                  ]}
-                  placeholder="Title"
-                  placeholderTextColor={colors.icon}
-                  value={customTitle}
-                  onChangeText={setCustomTitle}
-                  autoFocus
-                  returnKeyType="done"
-                  onSubmitEditing={confirmAddCustomItem}
-                />
-                <TextInput
-                  style={[
-                    styles.notesInput,
-                    {
-                      color: colors.text,
-                      backgroundColor: colors.icon + "12",
-                      borderColor: colors.icon + "30",
-                    },
-                  ]}
-                  placeholder="Notes (optional)"
-                  placeholderTextColor={colors.icon}
-                  value={customNotes}
-                  onChangeText={setCustomNotes}
-                  multiline
-                  textAlignVertical="top"
-                />
-                {customFields.map((field, index) => (
-                  <View
-                    key={index}
-                    style={styles.customFieldRow}
-                  >
-                    <TextInput
-                      style={[
-                        styles.customFieldTitleInput,
-                        {
-                          color: colors.text,
-                          backgroundColor: colors.icon + "18",
-                          borderColor: colors.icon + "40",
-                        },
-                      ]}
-                      placeholder="Title"
-                      placeholderTextColor={colors.icon}
-                      value={field.title}
-                      onChangeText={(t) => updateCustomField(index, "title", t)}
-                    />
-                    <View
-                      style={[
-                        styles.customFieldValueBox,
-                        {
-                          backgroundColor: colors.icon + "18",
-                          borderColor: colors.icon + "40",
-                        },
-                      ]}
-                    >
-                      <TextInput
-                        style={[
-                          styles.customFieldValueInput,
-                          { color: colors.text },
-                        ]}
-                        placeholder="Value"
-                        placeholderTextColor={colors.icon}
-                        value={field.value}
-                        onChangeText={(t) => {
-                          const filtered =
-                            field.format === "numbers"
-                              ? t.replace(/\D/g, "")
-                              : t;
-                          updateCustomField(index, "value", filtered);
-                        }}
-                        keyboardType={
-                          field.format === "numbers" ? "numeric" : "default"
-                        }
-                      />
-                      <Pressable
-                        onPress={() => setFormatPickerFieldIndex(index)}
-                        style={({ pressed }) => [
-                          styles.customFieldFormatButton,
-                          { opacity: pressed ? 0.7 : 1 },
-                        ]}
-                        accessibilityRole="button"
-                        accessibilityLabel="Choose value format"
-                      >
-                        <IconSymbol
-                          name="chevron.down"
-                          size={20}
-                          color={colors.icon}
-                        />
-                      </Pressable>
-                    </View>
-                    <Pressable
-                      onPress={() => removeCustomField(index)}
-                      style={({ pressed }) => [
-                        styles.customFieldTrash,
-                        { opacity: pressed ? 0.7 : 1 },
-                      ]}
-                      accessibilityRole="button"
-                      accessibilityLabel="Remove field"
-                    >
-                      <IconSymbol
-                        name="trash"
-                        size={22}
-                        color="#e53e3e"
-                      />
-                    </Pressable>
-                  </View>
-                ))}
-                <Pressable
-                  onPress={addCustomField}
-                  style={({ pressed }) => [
-                    styles.addFieldBar,
-                    {
-                      backgroundColor: colors.icon + "18",
-                      opacity: pressed ? 0.8 : 1,
-                    },
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityLabel="Add custom field"
-                >
-                  <IconSymbol
-                    name="plus"
-                    size={24}
-                    color={colors.tint}
-                  />
-                </Pressable>
-              </ScrollView>
-            ) : (
-              <View style={styles.sheetBody}>
-                <View style={styles.searchRowInline}>
-                  <View
-                    style={[
-                      styles.searchBar,
-                      { backgroundColor: colors.icon + "20" },
-                    ]}
-                  >
-                    <IconSymbol
-                      name="magnifyingglass"
-                      size={18}
-                      color={colors.icon}
-                    />
-                    <TextInput
-                      style={[styles.searchInput, { color: colors.text }]}
-                      placeholder="Search..."
-                      placeholderTextColor={colors.icon}
-                      value={searchQuery}
-                      onChangeText={setSearchQuery}
-                      returnKeyType="search"
-                      onSubmitEditing={runAllSearches}
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                    />
-                  </View>
-                  <Pressable
-                    onPress={() => setShowSourcePicker((prev) => !prev)}
-                    style={({ pressed }) => [
-                      styles.filterButton,
-                      { opacity: pressed ? 0.7 : 1 },
-                    ]}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    accessibilityRole="button"
-                    accessibilityLabel="Filter sources"
-                  >
-                    <IconSymbol
-                      name="line.3.horizontal.decrease.circle"
-                      size={20}
-                      color={colors.icon}
-                    />
-                  </Pressable>
-                </View>
-                {showSourcePicker && (
-                  <View
-                    style={[
-                      styles.inlineFilterDropdown,
-                      { backgroundColor: colors.background },
-                    ]}
-                  >
-                    <ThemedText style={styles.filterTitle}>
-                      Filter sources
-                    </ThemedText>
-                    {[
-                      { key: "anime", label: "Anime" },
-                      { key: "manga", label: "Manga" },
-                      { key: "books", label: "Books" },
-                      { key: "tvMovie", label: "TV / Movies" },
-                      { key: "games", label: "Games" },
-                      { key: "existing", label: "Existing items" },
-                    ].map((source) => {
-                      const key = source.key as keyof typeof searchSources;
-                      const selected = searchSources[key];
-                      return (
-                        <Pressable
-                          key={source.key}
-                          onPress={() =>
-                            setSearchSources((prev) => ({
-                              ...prev,
-                              [key]: !prev[key],
-                            }))
-                          }
-                          style={({ pressed }) => [
-                            styles.filterRow,
-                            { opacity: pressed ? 0.7 : 1 },
-                          ]}
-                          accessibilityRole="button"
-                          accessibilityState={{ selected }}
-                          accessibilityLabel={`Toggle ${source.label}`}
-                        >
-                          <View
-                            style={[
-                              styles.filterCheckbox,
-                              {
-                                borderColor: colors.tint,
-                                backgroundColor: selected
-                                  ? colors.tint
-                                  : "transparent",
-                              },
-                            ]}
-                          >
-                            {selected ? (
-                              <IconSymbol
-                                name="checkmark"
-                                size={14}
-                                color={colors.background}
-                              />
-                            ) : null}
-                          </View>
-                          <ThemedText style={styles.filterLabel}>
-                            {source.label}
-                          </ThemedText>
-                        </Pressable>
-                      );
-                    })}
-                    <View style={styles.filterActionsRow}>
-                      <Pressable
-                        onPress={() => setShowSourcePicker(false)}
-                        style={({ pressed }) => [
-                          styles.filterCancelButton,
-                          { opacity: pressed ? 0.8 : 1 },
-                        ]}
-                        accessibilityRole="button"
-                        accessibilityLabel="Cancel"
-                      >
-                        <ThemedText style={styles.filterCancelText}>
-                          Cancel
-                        </ThemedText>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => {
-                          setShowSourcePicker(false);
-                          if (searchQuery.trim()) {
-                            runAllSearches();
-                          }
-                        }}
-                        style={({ pressed }) => [
-                          styles.filterApplyButton,
-                          {
-                            backgroundColor: colors.tint,
-                            opacity: pressed ? 0.8 : 1,
-                          },
-                        ]}
-                        accessibilityRole="button"
-                        accessibilityLabel="Apply filters"
-                      >
-                        <ThemedText
-                          style={[
-                            styles.filterApplyText,
-                            { color: colors.background },
-                          ]}
-                        >
-                          Apply
-                        </ThemedText>
-                      </Pressable>
-                    </View>
-                  </View>
-                )}
-                <View style={styles.searchResultsArea}>
-                  {isSearching &&
-                  !animeResults.length &&
-                  !mangaResults.length &&
-                  !bookResults.length &&
-                  !tmdbResults.length &&
-                  !gameResults.length &&
-                  !existingResults.length ? (
-                    <View style={styles.centered}>
-                      <ActivityIndicator size="large" color={colors.tint} />
-                      <ThemedText style={styles.placeholder}>
-                        Searching...
-                      </ThemedText>
-                    </View>
-                  ) : searchError ? (
-                    <ThemedText style={[styles.placeholder, styles.errorText]}>
-                      {searchError}
-                    </ThemedText>
-                  ) : !searchQuery.trim() ? (
-                    <ThemedText style={styles.placeholder}>
-                      Type a title to search across anime, manga, books, TV/movies,
-                      and games.
-                    </ThemedText>
-                  ) : !animeResults.length &&
-                    !mangaResults.length &&
-                    !bookResults.length &&
-                    !tmdbResults.length &&
-                    !gameResults.length &&
-                    !existingResults.length ? (
-                    <ThemedText style={styles.placeholder}>
-                      No results for "{searchQuery}"
-                    </ThemedText>
-                  ) : (
-                    <ScrollView
-                      showsVerticalScrollIndicator={false}
-                      contentContainerStyle={styles.searchSectionsContent}
-                    >
-                      {focusedSource && (
-                        <View style={styles.searchSectionBackRow}>
-                          <Pressable
-                            onPress={() => setFocusedSource(null)}
-                            style={({ pressed }) => [
-                              styles.backToAllButton,
-                              { opacity: pressed ? 0.7 : 1 },
-                            ]}
-                          >
-                            <IconSymbol
-                              name="chevron.left"
-                              size={18}
-                              color={colors.tint}
-                            />
-                            <ThemedText
-                              style={[
-                                styles.backToAllText,
-                                { color: colors.tint },
-                              ]}
-                            >
-                              All sections
-                            </ThemedText>
-                          </Pressable>
-                        </View>
-                      )}
-
-                      {existingResults.length > 0 &&
-                        searchSources.existing &&
-                        (!focusedSource || focusedSource === "existing") && (
-                        <View style={styles.searchSection}>
-                          <View style={styles.searchSectionHeaderRow}>
-                            <ThemedText style={styles.searchSectionHeader}>
-                              Existing items
-                            </ThemedText>
-                            {!focusedSource &&
-                              existingResults.length > 5 && (
-                                <Pressable
-                                  onPress={() => setFocusedSource("existing")}
-                                  style={({ pressed }) => [
-                                    styles.sectionMoreButton,
-                                    { opacity: pressed ? 0.7 : 1 },
-                                  ]}
-                                  accessibilityRole="button"
-                                  accessibilityLabel="Show more existing results"
-                                >
-                                  <IconSymbol
-                                    name="chevron.right"
-                                    size={18}
-                                    color={colors.icon}
-                                  />
-                                </Pressable>
-                              )}
-                          </View>
-                          {(focusedSource
-                            ? existingResults
-                            : existingResults.slice(0, 5)
-                          ).map((result, index) =>
-                            result.kind === "list" ? (
-                              <Pressable
-                                key={`existing-list-${result.list.id}`}
-                                onPress={() =>
-                                  addExistingListToList(result.list)
-                                }
-                                style={({ pressed }) => [
-                                  styles.searchResultRow,
-                                  { opacity: pressed ? 0.8 : 1 },
-                                ]}
-                                accessibilityRole="button"
-                                accessibilityLabel={`Add list ${result.list.title} to list`}
-                              >
-                                <View
-                                  style={[
-                                    styles.resultPoster,
-                                    styles.existingListPoster,
-                                    { backgroundColor: colors.icon + "25" },
-                                  ]}
-                                >
-                                  <IconSymbol
-                                    name="list.bullet"
-                                    size={28}
-                                    color={colors.icon}
-                                  />
-                                </View>
-                                <View style={styles.resultInfo}>
-                                  <ThemedText
-                                    style={styles.resultTitle}
-                                    numberOfLines={2}
-                                  >
-                                    {result.list.title}
-                                  </ThemedText>
-                                  <View
-                                    style={[
-                                      styles.typeChip,
-                                      {
-                                        backgroundColor: colors.icon + "25",
-                                      },
-                                    ]}
-                                  >
-                                    <ThemedText
-                                      style={[
-                                        styles.typeChipText,
-                                        { color: colors.tint },
-                                      ]}
-                                    >
-                                      List · {result.list.entries.length} items
-                                    </ThemedText>
-                                  </View>
-                                </View>
-                              </Pressable>
-                            ) : (
-                              <Pressable
-                                key={`existing-entry-${result.entry.id}-${index}`}
-                                onPress={() =>
-                                  addExistingEntryToList(
-                                    result.entry,
-                                    result.list,
-                                  )
-                                }
-                                style={({ pressed }) => [
-                                  styles.searchResultRow,
-                                  { opacity: pressed ? 0.8 : 1 },
-                                ]}
-                                accessibilityRole="button"
-                                accessibilityLabel={`Add ${result.entry.title} to list`}
-                              >
-                                <ThumbnailImage
-                                  imageUrl={result.entry.imageUrl}
-                                  style={styles.resultPoster}
-                                  contentFit="cover"
-                                />
-                                <View style={styles.resultInfo}>
-                                  <ThemedText
-                                    style={styles.resultTitle}
-                                    numberOfLines={2}
-                                  >
-                                    {result.entry.title}
-                                  </ThemedText>
-                                  <View
-                                    style={[
-                                      styles.typeChip,
-                                      {
-                                        backgroundColor: colors.icon + "25",
-                                      },
-                                    ]}
-                                  >
-                                    <ThemedText
-                                      style={[
-                                        styles.typeChipText,
-                                        { color: colors.tint },
-                                      ]}
-                                    >
-                                      {ENTRY_TYPE_LABELS[result.entry.type]} · in{" "}
-                                      {result.list.title}
-                                    </ThemedText>
-                                  </View>
-                                </View>
-                              </Pressable>
-                            ),
-                          )}
-                        </View>
-                      )}
-
-                      {animeResults.length > 0 &&
-                        (!focusedSource || focusedSource === "anime") && (
-                        <View style={styles.searchSection}>
-                          <View style={styles.searchSectionHeaderRow}>
-                            <ThemedText style={styles.searchSectionHeader}>
-                              Anime
-                            </ThemedText>
-                            {!focusedSource &&
-                              searchSources.anime &&
-                              animeResults.length > 5 && (
-                                <Pressable
-                                  onPress={() => setFocusedSource("anime")}
-                                  style={({ pressed }) => [
-                                    styles.sectionMoreButton,
-                                    { opacity: pressed ? 0.7 : 1 },
-                                  ]}
-                                  accessibilityRole="button"
-                                  accessibilityLabel="Show more anime results"
-                                >
-                                  <IconSymbol
-                                    name="chevron.right"
-                                    size={18}
-                                    color={colors.icon}
-                                  />
-                                </Pressable>
-                              )}
-                          </View>
-                          {(focusedSource ? animeResults : animeResults.slice(0, 5)).map((result) => (
-                            <Pressable
-                              key={`anime-${result.id}`}
-                              onPress={() => addAnimeResultToList(result)}
-                              style={({ pressed }) => [
-                                styles.searchResultRow,
-                                { opacity: pressed ? 0.8 : 1 },
-                              ]}
-                              accessibilityRole="button"
-                              accessibilityLabel={`Add ${result.title} to list`}
-                            >
-                              <ThumbnailImage
-                                imageUrl={result.imageUrl}
-                                style={styles.resultPoster}
-                                contentFit="cover"
-                              />
-                              <View style={styles.resultInfo}>
-                                <ThemedText
-                                  style={styles.resultTitle}
-                                  numberOfLines={2}
-                                >
-                                  {result.title}
-                                </ThemedText>
-                                <View
-                                  style={[
-                                    styles.typeChip,
-                                    { backgroundColor: colors.icon + "25" },
-                                  ]}
-                                >
-                                  <ThemedText
-                                    style={[
-                                      styles.typeChipText,
-                                      { color: colors.tint },
-                                    ]}
-                                  >
-                                    Anime
-                                  </ThemedText>
-                                </View>
-                              </View>
-                            </Pressable>
-                          ))}
-                        </View>
-                      )}
-
-                      {mangaResults.length > 0 &&
-                        (!focusedSource || focusedSource === "manga") && (
-                        <View style={styles.searchSection}>
-                          <View style={styles.searchSectionHeaderRow}>
-                            <ThemedText style={styles.searchSectionHeader}>
-                              Manga
-                            </ThemedText>
-                            {!focusedSource &&
-                              searchSources.manga &&
-                              mangaResults.length > 5 && (
-                                <Pressable
-                                  onPress={() => setFocusedSource("manga")}
-                                  style={({ pressed }) => [
-                                    styles.sectionMoreButton,
-                                    { opacity: pressed ? 0.7 : 1 },
-                                  ]}
-                                  accessibilityRole="button"
-                                  accessibilityLabel="Show more manga results"
-                                >
-                                  <IconSymbol
-                                    name="chevron.right"
-                                    size={18}
-                                    color={colors.icon}
-                                  />
-                                </Pressable>
-                              )}
-                          </View>
-                          {(focusedSource ? mangaResults : mangaResults.slice(0, 5)).map((result) => (
-                            <Pressable
-                              key={`manga-${result.id}`}
-                              onPress={() => addMangaResultToList(result)}
-                              style={({ pressed }) => [
-                                styles.searchResultRow,
-                                { opacity: pressed ? 0.8 : 1 },
-                              ]}
-                              accessibilityRole="button"
-                              accessibilityLabel={`Add ${result.title} to list`}
-                            >
-                              <ThumbnailImage
-                                imageUrl={result.imageUrl}
-                                style={styles.resultPoster}
-                                contentFit="cover"
-                              />
-                              <View style={styles.resultInfo}>
-                                <ThemedText
-                                  style={styles.resultTitle}
-                                  numberOfLines={2}
-                                >
-                                  {result.title}
-                                </ThemedText>
-                                <View
-                                  style={[
-                                    styles.typeChip,
-                                    { backgroundColor: colors.icon + "25" },
-                                  ]}
-                                >
-                                  <ThemedText
-                                    style={[
-                                      styles.typeChipText,
-                                      { color: colors.tint },
-                                    ]}
-                                  >
-                                    Manga
-                                  </ThemedText>
-                                </View>
-                              </View>
-                            </Pressable>
-                          ))}
-                        </View>
-                      )}
-
-                      {bookResults.length > 0 &&
-                        (!focusedSource || focusedSource === "books") && (
-                        <View style={styles.searchSection}>
-                          <View style={styles.searchSectionHeaderRow}>
-                            <ThemedText style={styles.searchSectionHeader}>
-                              Books
-                            </ThemedText>
-                            {!focusedSource &&
-                              searchSources.books &&
-                              bookResults.length > 5 && (
-                                <Pressable
-                                  onPress={() => setFocusedSource("books")}
-                                  style={({ pressed }) => [
-                                    styles.sectionMoreButton,
-                                    { opacity: pressed ? 0.7 : 1 },
-                                  ]}
-                                  accessibilityRole="button"
-                                  accessibilityLabel="Show more book results"
-                                >
-                                  <IconSymbol
-                                    name="chevron.right"
-                                    size={18}
-                                    color={colors.icon}
-                                  />
-                                </Pressable>
-                              )}
-                          </View>
-                          {(focusedSource ? bookResults : bookResults.slice(0, 5)).map((result) => (
-                            <Pressable
-                              key={`book-${result.id}`}
-                              onPress={() => addBookResultToList(result)}
-                              style={({ pressed }) => [
-                                styles.searchResultRow,
-                                { opacity: pressed ? 0.8 : 1 },
-                              ]}
-                              accessibilityRole="button"
-                              accessibilityLabel={`Add ${result.title} to list`}
-                            >
-                              <ThumbnailImage
-                                imageUrl={result.imageUrl}
-                                style={styles.resultPoster}
-                                contentFit="cover"
-                              />
-                              <View style={styles.resultInfo}>
-                                <ThemedText
-                                  style={styles.resultTitle}
-                                  numberOfLines={2}
-                                >
-                                  {result.title}
-                                </ThemedText>
-                                {result.subtitle ? (
-                                  <ThemedText
-                                    style={styles.searchSubtitle}
-                                    numberOfLines={1}
-                                  >
-                                    {result.subtitle}
-                                  </ThemedText>
-                                ) : null}
-                                <View
-                                  style={[
-                                    styles.typeChip,
-                                    { backgroundColor: colors.icon + "25" },
-                                  ]}
-                                >
-                                  <ThemedText
-                                    style={[
-                                      styles.typeChipText,
-                                      { color: colors.tint },
-                                    ]}
-                                  >
-                                    Book
-                                  </ThemedText>
-                                </View>
-                              </View>
-                            </Pressable>
-                          ))}
-                        </View>
-                      )}
-
-                      {tmdbResults.length > 0 &&
-                        (!focusedSource || focusedSource === "tvMovie") && (
-                        <View style={styles.searchSection}>
-                          <View style={styles.searchSectionHeaderRow}>
-                            <ThemedText style={styles.searchSectionHeader}>
-                              TV / Movies
-                            </ThemedText>
-                            {!focusedSource &&
-                              searchSources.tvMovie &&
-                              tmdbResults.length > 5 && (
-                                <Pressable
-                                  onPress={() => setFocusedSource("tvMovie")}
-                                  style={({ pressed }) => [
-                                    styles.sectionMoreButton,
-                                    { opacity: pressed ? 0.7 : 1 },
-                                  ]}
-                                  accessibilityRole="button"
-                                  accessibilityLabel="Show more TV and movie results"
-                                >
-                                  <IconSymbol
-                                    name="chevron.right"
-                                    size={18}
-                                    color={colors.icon}
-                                  />
-                                </Pressable>
-                              )}
-                          </View>
-                          {(focusedSource ? tmdbResults : tmdbResults.slice(0, 5)).map((result) => (
-                            <Pressable
-                              key={`tmdb-${result.mediaType}-${result.id}`}
-                              onPress={() => addTmdbResultToList(result)}
-                              style={({ pressed }) => [
-                                styles.searchResultRow,
-                                { opacity: pressed ? 0.8 : 1 },
-                              ]}
-                              accessibilityRole="button"
-                              accessibilityLabel={`Add ${result.title} to list`}
-                            >
-                              <ThumbnailImage
-                                imageUrl={result.imageUrl}
-                                style={styles.resultPoster}
-                                contentFit="cover"
-                              />
-                              <View style={styles.resultInfo}>
-                                <ThemedText
-                                  style={styles.resultTitle}
-                                  numberOfLines={2}
-                                >
-                                  {result.title}
-                                </ThemedText>
-                                <View
-                                  style={[
-                                    styles.typeChip,
-                                    { backgroundColor: colors.icon + "25" },
-                                  ]}
-                                >
-                                  <ThemedText
-                                    style={[
-                                      styles.typeChipText,
-                                      { color: colors.tint },
-                                    ]}
-                                  >
-                                    {result.mediaType === "movie"
-                                      ? "Movie"
-                                      : "TV"}
-                                  </ThemedText>
-                                </View>
-                              </View>
-                            </Pressable>
-                          ))}
-                        </View>
-                      )}
-
-                      {gameResults.length > 0 &&
-                        (!focusedSource || focusedSource === "games") && (
-                        <View style={styles.searchSection}>
-                          <View style={styles.searchSectionHeaderRow}>
-                            <ThemedText style={styles.searchSectionHeader}>
-                              Games
-                            </ThemedText>
-                            {!focusedSource &&
-                              searchSources.games &&
-                              gameResults.length > 5 && (
-                                <Pressable
-                                  onPress={() => setFocusedSource("games")}
-                                  style={({ pressed }) => [
-                                    styles.sectionMoreButton,
-                                    { opacity: pressed ? 0.7 : 1 },
-                                  ]}
-                                  accessibilityRole="button"
-                                  accessibilityLabel="Show more game results"
-                                >
-                                  <IconSymbol
-                                    name="chevron.right"
-                                    size={18}
-                                    color={colors.icon}
-                                  />
-                                </Pressable>
-                              )}
-                          </View>
-                          {(focusedSource ? gameResults : gameResults.slice(0, 5)).map((result) => (
-                            <Pressable
-                              key={`game-${result.id}`}
-                              onPress={() => addGameResultToList(result)}
-                              style={({ pressed }) => [
-                                styles.searchResultRow,
-                                { opacity: pressed ? 0.8 : 1 },
-                              ]}
-                              accessibilityRole="button"
-                              accessibilityLabel={`Add ${result.title} to list`}
-                            >
-                              <ThumbnailImage
-                                imageUrl={result.imageUrl}
-                                style={styles.resultPoster}
-                                contentFit="cover"
-                              />
-                              <View style={styles.resultInfo}>
-                                <ThemedText
-                                  style={styles.resultTitle}
-                                  numberOfLines={2}
-                                >
-                                  {result.title}
-                                </ThemedText>
-                                <View
-                                  style={[
-                                    styles.typeChip,
-                                    { backgroundColor: colors.icon + "25" },
-                                  ]}
-                                >
-                                  <ThemedText
-                                    style={[
-                                      styles.typeChipText,
-                                      { color: colors.tint },
-                                    ]}
-                                  >
-                                    Game
-                                  </ThemedText>
-                                </View>
-                              </View>
-                            </Pressable>
-                          ))}
-                        </View>
-                      )}
-                    </ScrollView>
-                  )}
-                </View>
-              </View>
-            )}
+            <ManualEntryForm
+              initialEntry={editingEntry}
+              submitLabel="Save changes"
+              onSubmit={(draft) => {
+                if (!editingEntry) {
+                  return;
+                }
+                updateEntry(list.id, editingEntry.id, {
+                  title: draft.title,
+                  type: draft.type,
+                  notes: draft.notes,
+                  status: draft.status,
+                  tags: draft.tags,
+                  rating: draft.rating,
+                  progress: draft.progress,
+                  reminderAt: draft.reminderAt,
+                  coverAssetUri: draft.coverAssetUri,
+                  imageUrl: draft.imageUrl ?? editingEntry.imageUrl,
+                  detailPath: draft.detailPath ?? editingEntry.detailPath,
+                  sourceRef: draft.sourceRef ?? editingEntry.sourceRef,
+                  productUrl: draft.productUrl ?? editingEntry.productUrl,
+                  price: draft.price ?? editingEntry.price,
+                });
+                setEditingEntry(null);
+              }}
+            />
           </Pressable>
-          {formatPickerFieldIndex !== null && addItemMode === "custom" && (
-            <Pressable
-              style={styles.formatPickerOverlay}
-              onPress={() => setFormatPickerFieldIndex(null)}
-            >
-              <Pressable
-                style={[
-                  styles.formatPickerCard,
-                  {
-                    backgroundColor: colors.background,
-                    borderColor: colors.icon + "30",
-                  },
-                ]}
-                onPress={(e) => e.stopPropagation()}
-              >
-                <ThemedText
-                  style={[styles.formatPickerTitle, { color: colors.icon }]}
-                >
-                  Value format
-                </ThemedText>
-                <Pressable
-                  onPress={() =>
-                    setCustomFieldFormat(formatPickerFieldIndex, "text")
-                  }
-                  style={[
-                    styles.formatPickerOption,
-                    {
-                      backgroundColor:
-                        customFields[formatPickerFieldIndex]?.format === "text"
-                          ? colors.tint + "20"
-                          : colors.icon + "12",
-                      borderColor: colors.icon + "30",
-                    },
-                  ]}
-                  accessibilityRole="radio"
-                  accessibilityState={{
-                    checked:
-                      customFields[formatPickerFieldIndex]?.format !== "numbers",
-                  }}
-                >
-                  <ThemedText
-                    style={[
-                      styles.formatPickerOptionText,
-                      {
-                        color:
-                          customFields[formatPickerFieldIndex]?.format === "text"
-                            ? colors.tint
-                            : colors.text,
-                      },
-                    ]}
-                  >
-                    Text
-                  </ThemedText>
-                  <ThemedText
-                    style={[styles.formatPickerOptionHint, { color: colors.icon }]}
-                  >
-                    Full text input
-                  </ThemedText>
-                </Pressable>
-                <Pressable
-                  onPress={() =>
-                    setCustomFieldFormat(formatPickerFieldIndex, "numbers")
-                  }
-                  style={[
-                    styles.formatPickerOption,
-                    {
-                      backgroundColor:
-                        customFields[formatPickerFieldIndex]?.format ===
-                        "numbers"
-                          ? colors.tint + "20"
-                          : colors.icon + "12",
-                      borderColor: colors.icon + "30",
-                    },
-                  ]}
-                  accessibilityRole="radio"
-                  accessibilityState={{
-                    checked:
-                      customFields[formatPickerFieldIndex]?.format === "numbers",
-                  }}
-                >
-                  <ThemedText
-                    style={[
-                      styles.formatPickerOptionText,
-                      {
-                        color:
-                          customFields[formatPickerFieldIndex]?.format ===
-                          "numbers"
-                            ? colors.tint
-                            : colors.text,
-                      },
-                    ]}
-                  >
-                    Numbers
-                  </ThemedText>
-                  <ThemedText
-                    style={[styles.formatPickerOptionHint, { color: colors.icon }]}
-                  >
-                    Numbers only
-                  </ThemedText>
-                </Pressable>
-              </Pressable>
-            </Pressable>
-          )}
         </Pressable>
       </Modal>
 
-      <Modal
-        visible={viewMenuVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setViewMenuVisible(false)}
-      >
-        <Pressable
-          style={styles.viewMenuOverlay}
-          onPress={() => setViewMenuVisible(false)}
-        >
+      <Modal visible={moveModalVisible} transparent animationType="fade" onRequestClose={() => setMoveModalVisible(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setMoveModalVisible(false)}>
           <Pressable
+            onPress={(event) => event.stopPropagation()}
             style={[
-              styles.viewMenuDropdown,
+              styles.modalCard,
               {
                 backgroundColor: colors.background,
-                borderColor: colors.icon + "30",
-                top: insets.top + 56,
+                borderColor: colors.icon + '20',
               },
             ]}
-            onPress={() => {}}
           >
-            <Pressable
-              onPress={() => {
-                if (listId) setListViewMode(listId, "list");
-                setViewMenuVisible(false);
-              }}
-              style={({ pressed }) => [
-                styles.viewMenuItem,
-                { opacity: pressed ? 0.7 : 1 },
-              ]}
-            >
-              <ThemedText style={styles.viewMenuText}>List view</ThemedText>
-              <IconSymbol
-                name="list.bullet"
-                size={20}
-                color={colors.icon}
-              />
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                if (listId) setListViewMode(listId, "grid");
-                setViewMenuVisible(false);
-              }}
-              style={({ pressed }) => [
-                styles.viewMenuItem,
-                { opacity: pressed ? 0.7 : 1 },
-              ]}
-            >
-              <ThemedText style={styles.viewMenuText}>Grid view</ThemedText>
-              <IconSymbol
-                name="square.grid.2x2"
-                size={20}
-                color={colors.icon}
-              />
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                if (listId) setListViewMode(listId, "compare");
-                setViewMenuVisible(false);
-              }}
-              style={({ pressed }) => [
-                styles.viewMenuItem,
-                { opacity: pressed ? 0.7 : 1 },
-              ]}
-            >
-              <ThemedText style={styles.viewMenuText}>Compare view</ThemedText>
-              <IconSymbol name="tablecells" size={20} color={colors.icon} />
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                if (listId) setListViewMode(listId, "tier");
-                setViewMenuVisible(false);
-              }}
-              style={({ pressed }) => [
-                styles.viewMenuItem,
-                { opacity: pressed ? 0.7 : 1 },
-              ]}
-            >
-              <ThemedText style={styles.viewMenuText}>Tier list</ThemedText>
-              <IconSymbol
-                name="square.stack.3d.up"
-                size={20}
-                color={colors.icon}
-              />
-            </Pressable>
+            <ThemedText type="subtitle">Move to another list</ThemedText>
+            <View style={styles.sectionContent}>
+              {activeLists
+                .filter((item) => item.id !== list.id && !item.archivedAt)
+                .map((targetList) => (
+                  <Pressable
+                    key={targetList.id}
+                    onPress={() => {
+                      moveEntry(list.id, targetList.id, selectedEntryIds);
+                      setSelectionModeEnabled(false);
+                      setSelectedEntryIds([]);
+                      setMoveModalVisible(false);
+                    }}
+                    style={[
+                      styles.moveRow,
+                      {
+                        borderColor: colors.icon + '20',
+                        backgroundColor: colors.background,
+                      },
+                    ]}
+                  >
+                    <ThemedText type="defaultSemiBold">{targetList.title}</ThemedText>
+                    <ThemedText style={{ color: colors.tint }}>Move</ThemedText>
+                  </Pressable>
+                ))}
+            </View>
           </Pressable>
         </Pressable>
       </Modal>
-
     </>
+  );
+}
+
+function StatCard({ label, value }: { label: string; value: number }) {
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme ?? 'light'];
+
+  return (
+    <View
+      style={[
+        styles.statCard,
+        {
+          borderColor: colors.icon + '20',
+          backgroundColor: colors.background,
+        },
+      ]}
+    >
+      <ThemedText type="defaultSemiBold">{value}</ThemedText>
+      <ThemedText style={{ color: colors.icon }}>{label}</ThemedText>
+    </View>
+  );
+}
+
+function ChipGroup({
+  options,
+  value,
+  onChange,
+}: {
+  options: { id: string; label: string }[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme ?? 'light'];
+
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipGroup}>
+      {options.map((option) => (
+        <Pressable
+          key={option.id}
+          onPress={() => onChange(option.id)}
+          style={[
+            styles.secondaryChip,
+            {
+              backgroundColor: value === option.id ? colors.tint : colors.icon + '10',
+            },
+          ]}
+        >
+          <ThemedText
+            style={{
+              color: value === option.id ? colors.background : colors.text,
+            }}
+          >
+            {option.label}
+          </ThemedText>
+        </Pressable>
+      ))}
+    </ScrollView>
   );
 }
 
@@ -2853,533 +471,119 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  headerButtonsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  headerButton: {
-    padding: 5,
-  },
-  viewMenuOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.3)",
-  },
-  viewMenuDropdown: {
-    position: "absolute",
-    right: 16,
-    minWidth: 180,
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingVertical: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  viewMenuItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  viewMenuText: {
-    fontSize: 16,
-  },
-  placeholder: {
-    flex: 1,
+  content: {
     paddingHorizontal: 20,
-    paddingTop: 24,
-    opacity: 0.6,
-  },
-  listContent: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
-  },
-  gridContent: {
-    paddingHorizontal: 12,
-    paddingTop: 8,
-  },
-  gridRow: {
-    gap: 12,
-    marginBottom: 12,
-    paddingHorizontal: 8,
-  },
-  gridCard: {
-    flex: 1,
-    minWidth: 0,
-  },
-  gridCardImage: {
-    width: "100%",
-    aspectRatio: 2 / 3,
-    borderRadius: 8,
-  },
-  gridCardTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    marginTop: 6,
-    paddingHorizontal: 2,
-  },
-  compareContainer: {
-    flex: 1,
-    paddingHorizontal: 20,
-  },
-  compareScrollContent: {
-    paddingTop: 12,
-    paddingBottom: 12,
-  },
-  compareTable: {
-    borderWidth: 1,
-    borderRadius: 8,
-    overflow: "hidden",
-  },
-  compareTableRow: {
-    flexDirection: "row",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  compareHeaderRow: {
-    borderBottomWidth: 1,
-  },
-  compareCell: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    minWidth: 120,
-    maxWidth: 180,
-  },
-  compareTitleCol: {
-    minWidth: 140,
-    maxWidth: 200,
-  },
-  compareHeaderText: {
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  compareCellText: {
-    fontSize: 14,
-  },
-  tierListScroll: {
-    flex: 1,
-  },
-  tierListContent: {
-    paddingHorizontal: 0,
-    paddingTop: 8,
-  },
-  tierRow: {
-    flexDirection: "row",
-    minHeight: 100,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  tierLabel: {
-    width: 72,
-    minHeight: 100,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 6,
-  },
-  tierLabelText: {
-    fontSize: 14,
-    fontWeight: "700",
-    textAlign: "center",
-  },
-  tierItemsScroll: {
-    flex: 1,
-  },
-  tierItemsContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  tierItem: {
-    width: 56,
-  },
-  tierItemImage: {
-    width: 56,
-    height: 80,
-    borderRadius: 6,
-  },
-  resultRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(128,128,128,0.3)",
-  },
-  resultPoster: {
-    width: 56,
-    height: 80,
-    borderRadius: 6,
-  },
-  existingListPoster: {
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  posterPlaceholder: {
-    backgroundColor: "rgba(128,128,128,0.2)",
-  },
-  resultInfo: {
-    flex: 1,
-    marginLeft: 14,
-  },
-  resultTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    marginBottom: 6,
-  },
-  resultMetaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 4,
-  },
-  typeChip: {
-    alignSelf: "flex-start",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  typeChipText: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  trackingBadge: {
-    fontSize: 12,
-  },
-  resultChevron: {
-    marginLeft: 8,
-  },
-  rightActionContainer: {
-    width: 96,
-    justifyContent: "center",
-    alignItems: "stretch",
-  },
-  deleteAction: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-  },
-  deleteActionText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  checkboxIndicator: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    borderWidth: 1.5,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 10,
-  },
-  detailsButtonZone: {
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-  },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: "rgba(0,0,0,0.4)",
-  },
-  sheet: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingTop: 8,
-  },
-  sheetHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  sheetHeaderButton: {
-    padding: 8,
-    minWidth: 40,
-  },
-  sheetHeaderButtonLeft: {
-    alignItems: "flex-start",
-  },
-  sheetHeaderButtonRight: {
-    alignItems: "flex-end",
-  },
-  sheetTitle: {
-    flex: 1,
-    textAlign: "center",
-  },
-  sheetBody: {
-    padding: 20,
-    flex: 1,
-  },
-  sheetBodyContent: {
-    paddingBottom: 4,
-  },
-  titleInput: {
-    fontSize: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 16,
-  },
-  notesInput: {
-    fontSize: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    minHeight: 120,
-    marginBottom: 16,
-  },
-  customFieldRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 12,
-  },
-  customFieldTitleInput: {
-    flex: 1,
-    fontSize: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-  },
-  customFieldValueBox: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: 10,
-    borderWidth: 1,
-    paddingRight: 4,
-  },
-  customFieldValueInput: {
-    flex: 1,
-    fontSize: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  customFieldFormatButton: {
-    padding: 6,
-  },
-  customFieldTrash: {
-    padding: 8,
-  },
-  formatPickerOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.4)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  formatPickerCard: {
-    marginHorizontal: 32,
-    padding: 20,
-    borderRadius: 16,
-    borderWidth: 1,
-    minWidth: 220,
-  },
-  formatPickerTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    marginBottom: 12,
-  },
-  formatPickerOption: {
-    padding: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 10,
-  },
-  formatPickerOptionText: {
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  formatPickerOptionHint: {
-    fontSize: 13,
-    marginTop: 2,
-  },
-  addFieldBar: {
-    alignSelf: "stretch",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 14,
-    borderRadius: 12,
-    marginTop: 12,
-  },
-  modeToggleRow: {
-    flexDirection: "row",
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    gap: 8,
-  },
-  modeToggleButton: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 999,
-    alignItems: "center",
-  },
-  modeToggleText: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  searchRowInline: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 16,
-  },
-  displayModeRow: {
-    flexDirection: "row",
-    paddingHorizontal: 20,
-    paddingTop: 10,
-    gap: 8,
-  },
-  displayModeBubble: {
-    flex: 1,
-    paddingVertical: 8,
-    borderRadius: 999,
-    alignItems: "center",
-  },
-  displayModeText: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  searchBar: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 12,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 16,
-    paddingVertical: 0,
-  },
-  filterButton: {
-    marginLeft: 8,
-    padding: 4,
-  },
-  searchResultsArea: {
-    flex: 1,
-  },
-  searchSectionsContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 8,
-  },
-  searchSectionBackRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  backToAllButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 4,
-  },
-  backToAllText: {
-    fontSize: 13,
-    fontWeight: "600",
-    marginLeft: 4,
-  },
-  searchSection: {
-    marginBottom: 16,
-  },
-  searchSectionHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 6,
-  },
-  searchSectionHeader: {
-    fontSize: 13,
-    fontWeight: "600",
-    opacity: 0.7,
-  },
-  sectionMoreButton: {
-    paddingHorizontal: 4,
-    paddingVertical: 2,
+    gap: 18,
   },
   centered: {
     flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  header: {
+    gap: 14,
+  },
+  headerText: {
+    gap: 6,
+  },
+  statRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  statCard: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 14,
+    gap: 4,
+  },
+  toolbar: {
+    gap: 10,
+  },
+  chipGroup: {
     gap: 8,
   },
-  errorText: {
-    color: "#ff4d4f",
+  secondaryChip: {
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
   },
-  searchResultRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(128,128,128,0.3)",
+  primaryButton: {
+    alignSelf: 'flex-start',
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
-  searchSubtitle: {
-    fontSize: 13,
-    opacity: 0.7,
-    marginTop: 2,
+  primaryButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
   },
-  inlineFilterDropdown: {
-    marginTop: 8,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(128,128,128,0.3)",
-  },
-  filterTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    marginBottom: 10,
-  },
-  filterRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 8,
-  },
-  filterCheckbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 6,
-    borderWidth: 1.5,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 10,
-  },
-  filterLabel: {
-    fontSize: 14,
-  },
-  filterActionsRow: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    marginTop: 8,
+  bulkHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     gap: 12,
   },
-  filterCancelButton: {
-    paddingHorizontal: 8,
-    paddingVertical: 6,
+  bulkActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
   },
-  filterCancelText: {
-    fontSize: 14,
-    fontWeight: "500",
-    opacity: 0.8,
+  bulkButton: {
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
-  filterApplyButton: {
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    alignItems: "center",
+  list: {
+    gap: 10,
   },
-  filterApplyText: {
-    fontSize: 15,
-    fontWeight: "600",
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  gridItem: {
+    width: '48%',
+  },
+  emptyText: {
+    opacity: 0.7,
+    lineHeight: 22,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(8, 12, 20, 0.45)',
+  },
+  modalSheet: {
+    maxHeight: '92%',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalCard: {
+    marginHorizontal: 20,
+    marginBottom: 40,
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: 20,
+    gap: 14,
+  },
+  sectionContent: {
+    gap: 10,
+  },
+  moveRow: {
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 14,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
 });
