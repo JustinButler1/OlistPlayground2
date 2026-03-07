@@ -6,6 +6,7 @@ import {
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import "react-native-reanimated";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { ThemePalette } from "@/constants/theme";
 import { ListsProvider } from "@/contexts/lists-context";
@@ -43,25 +44,27 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
 
   return (
-    <ThemeProvider
-      value={colorScheme === "dark" ? DarkThemeCustom : LightTheme}
-    >
-      <ListsProvider>
-      <Stack screenOptions={{ headerBackButtonDisplayMode: "minimal" }}>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="anime/[id]" options={{ headerShown: true }} />
-        <Stack.Screen name="list/[id]" options={{ headerShown: true }} />
-        <Stack.Screen
-          name="modal"
-          options={{ presentation: "modal", title: "Modal" }}
-        />
-        <Stack.Screen
-          name="product-import"
-          options={{ title: "Import Product" }}
-        />
-      </Stack>
-      <StatusBar style="auto" />
-      </ListsProvider>
-    </ThemeProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeProvider
+        value={colorScheme === "dark" ? DarkThemeCustom : LightTheme}
+      >
+        <ListsProvider>
+          <Stack screenOptions={{ headerBackButtonDisplayMode: "minimal" }}>
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen name="anime/[id]" options={{ headerShown: true }} />
+            <Stack.Screen name="list/[id]" options={{ headerShown: true }} />
+            <Stack.Screen
+              name="modal"
+              options={{ presentation: "modal", title: "Modal" }}
+            />
+            <Stack.Screen
+              name="product-import"
+              options={{ title: "Import Product" }}
+            />
+          </Stack>
+          <StatusBar style="auto" />
+        </ListsProvider>
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }

@@ -1,6 +1,9 @@
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Alert,
+  Animated,
+  Platform,
   ActivityIndicator,
   Dimensions,
   FlatList,
@@ -11,6 +14,7 @@ import {
   View,
   ScrollView,
 } from "react-native";
+import { Swipeable } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ProductLinkImport } from "@/components/product-link-import";
@@ -396,15 +400,29 @@ function getDisplayEntry(
 
 export default function ListDetailScreen() {
   const { id, title } = useLocalSearchParams<{ id: string; title?: string }>();
-  const { lists, addEntryToList } = useLists();
+  const {
+    lists,
+    addEntryToList,
+    getCheckedByListId,
+    toggleEntryChecked,
+    getListViewMode,
+    setListViewMode,
+    deleteEntryFromList,
+  } = useLists();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "light"];
   const router = useRouter();
 
   const list = id ? lists.find((l) => l.id === id) : null;
+  const listId = list?.id ?? null;
   const headerTitle = title ?? list?.title ?? "List";
   const entries = list?.entries ?? [];
+  const checkedById = useMemo(
+    () => (listId ? getCheckedByListId(listId) : {}),
+    [getCheckedByListId, listId],
+  );
+  const listViewMode = listId ? getListViewMode(listId) : "list";
 
   const [addItemSheetVisible, setAddItemSheetVisible] = useState(false);
   const [addItemMode, setAddItemMode] = useState<
@@ -446,13 +464,9 @@ export default function ListDetailScreen() {
   const [displaySimple, setDisplaySimple] = useState(false);
   const [displayCheckbox, setDisplayCheckbox] = useState(false);
   const [displayDetails, setDisplayDetails] = useState(true);
-  const [checkedById, setCheckedById] = useState<Record<string, boolean>>({});
   const [focusedSource, setFocusedSource] = useState<
     "anime" | "manga" | "books" | "tvMovie" | "games" | "existing" | null
   >(null);
-  const [listViewMode, setListViewMode] = useState<
-    "list" | "grid" | "compare" | "tier"
-  >("list");
   const [viewMenuVisible, setViewMenuVisible] = useState(false);
 
   const openAddItemSheet = useCallback(() => {
@@ -999,6 +1013,59 @@ export default function ListDetailScreen() {
     [router, lists],
   );
 
+  const confirmDeleteEntry = useCallback(
+    (entry: ListEntry) => {
+      if (!listId) return;
+
+      const runDelete = () => deleteEntryFromList(listId, entry.id);
+
+      if (Platform.OS === "web" && typeof window !== "undefined") {
+        if (window.confirm(`Delete "${entry.title}" from this list? This cannot be undone.`)) {
+          runDelete();
+        }
+        return;
+      }
+
+      Alert.alert(
+        "Delete item?",
+        `Delete "${entry.title}" from this list? This cannot be undone.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Delete", style: "destructive", onPress: runDelete },
+        ],
+      );
+    },
+    [deleteEntryFromList, listId],
+  );
+
+  const renderDeleteAction = useCallback(
+    (progress: Animated.AnimatedInterpolation<number>, onDelete: () => void, label: string) => {
+      const opacity = progress.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0, 1],
+        extrapolate: "clamp",
+      });
+
+      return (
+        <Animated.View style={[styles.rightActionContainer, { opacity }]}>
+          <Pressable
+            onPress={onDelete}
+            style={({ pressed }) => [
+              styles.deleteAction,
+              { backgroundColor: "#C62828", opacity: pressed ? 0.85 : 1 },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={label}
+          >
+            <IconSymbol name="trash" size={18} color="#fff" />
+            <ThemedText style={styles.deleteActionText}>Delete</ThemedText>
+          </Pressable>
+        </Animated.View>
+      );
+    },
+    [],
+  );
+
   const renderItem = useCallback(
     ({ item }: { item: ListEntry }) => {
       const displayEntry = getDisplayEntry(lists, item);
@@ -1015,10 +1082,8 @@ export default function ListDetailScreen() {
         (item.linkedEntryId && !!findEntryById(lists, item.linkedEntryId)?.entry.detailPath);
 
       const toggleChecked = () => {
-        setCheckedById((prev) => ({
-          ...prev,
-          [item.id]: !prev[item.id],
-        }));
+        if (!listId) return;
+        toggleEntryChecked(listId, item.id);
       };
 
       const onRowPress = () => {
@@ -1030,117 +1095,125 @@ export default function ListDetailScreen() {
       };
 
       return (
-        <Pressable
-          onPress={onRowPress}
-          style={({ pressed }) => [
-            styles.resultRow,
-            checked && { backgroundColor: colors.tint + "12" },
-            { opacity: pressed ? 0.8 : 1 },
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel={hasDetails ? `Open ${displayEntry.title}` : displayEntry.title}
+        <Swipeable
+          overshootRight={false}
+          rightThreshold={40}
+          renderRightActions={(progress) =>
+            renderDeleteAction(progress, () => confirmDeleteEntry(item), `Delete ${displayEntry.title}`)
+          }
         >
-          {isCheckbox ? (
-            <View
-              style={[
-                styles.checkboxIndicator,
-                {
-                  borderColor: colors.tint,
-                  backgroundColor: checked ? colors.tint : "transparent",
-                },
-              ]}
-            >
-              {checked ? (
-                <IconSymbol
-                  name="checkmark"
-                  size={14}
-                  color={colors.background}
-                />
-              ) : null}
-            </View>
-          ) : null}
-          <ThumbnailImage
-            imageUrl={displayEntry.imageUrl}
-            style={styles.resultPoster}
-            contentFit="cover"
-          />
-          <View style={styles.resultInfo}>
-            <ThemedText style={styles.resultTitle} numberOfLines={2}>
-              {displayEntry.title}
-            </ThemedText>
-            {!isSimple ? (
-              <View style={styles.resultMetaRow}>
-                {(item.linkedEntryId ||
-                  item.linkedListId ||
-                  item.type === "link" ||
-                  (item.detailPath && !item.detailPath.startsWith("list-entry/"))) ? (
-                  <View
-                    style={[
-                      styles.typeChip,
-                      { backgroundColor: colors.icon + "25" },
-                    ]}
-                  >
-                    <ThemedText
-                      style={[styles.typeChipText, { color: colors.tint }]}
-                    >
-                      {ENTRY_TYPE_LABELS[displayEntry.type]}
-                    </ThemedText>
-                  </View>
+          <Pressable
+            onPress={onRowPress}
+            style={({ pressed }) => [
+              styles.resultRow,
+              checked && { backgroundColor: colors.tint + "12" },
+              { opacity: pressed ? 0.8 : 1 },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={hasDetails ? `Open ${displayEntry.title}` : displayEntry.title}
+          >
+            {isCheckbox ? (
+              <View
+                style={[
+                  styles.checkboxIndicator,
+                  {
+                    borderColor: colors.tint,
+                    backgroundColor: checked ? colors.tint : "transparent",
+                  },
+                ]}
+              >
+                {checked ? (
+                  <IconSymbol
+                    name="checkmark"
+                    size={14}
+                    color={colors.background}
+                  />
                 ) : null}
-                {displayEntry.type === "link" && displayEntry.price ? (
-                  <ThemedText
-                    style={[styles.trackingBadge, { color: colors.tint, fontWeight: "600" }]}
-                  >
-                    {displayEntry.price}
-                  </ThemedText>
-                ) : null}
-                {list?.preset === "tracking" &&
-                  (displayEntry.totalEpisodes != null ||
-                    displayEntry.totalChapters != null ||
-                    displayEntry.totalVolumes != null) && (
-                    <ThemedText
-                      style={[styles.trackingBadge, { color: colors.icon }]}
-                    >
-                      {displayEntry.totalEpisodes != null
-                        ? `0/${displayEntry.totalEpisodes} ep`
-                        : displayEntry.totalChapters != null
-                        ? `0/${displayEntry.totalChapters} ch`
-                        : displayEntry.totalVolumes != null
-                        ? `0/${displayEntry.totalVolumes} vol`
-                        : null}
-                    </ThemedText>
-                  )}
               </View>
             ) : null}
-          </View>
-          {hasDetails && hasPath ? (
-            variant === "checkbox-details" ? (
-              <Pressable
-                onPress={() => openEntry(item)}
-                style={({ pressed }) => [
-                  styles.detailsButtonZone,
-                  { opacity: pressed ? 0.7 : 1 },
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel={`Open details for ${item.title}`}
-              >
+            <ThumbnailImage
+              imageUrl={displayEntry.imageUrl}
+              style={styles.resultPoster}
+              contentFit="cover"
+            />
+            <View style={styles.resultInfo}>
+              <ThemedText style={styles.resultTitle} numberOfLines={2}>
+                {displayEntry.title}
+              </ThemedText>
+              {!isSimple ? (
+                <View style={styles.resultMetaRow}>
+                  {(item.linkedEntryId ||
+                    item.linkedListId ||
+                    item.type === "link" ||
+                    (item.detailPath && !item.detailPath.startsWith("list-entry/"))) ? (
+                    <View
+                      style={[
+                        styles.typeChip,
+                        { backgroundColor: colors.icon + "25" },
+                      ]}
+                    >
+                      <ThemedText
+                        style={[styles.typeChipText, { color: colors.tint }]}
+                      >
+                        {ENTRY_TYPE_LABELS[displayEntry.type]}
+                      </ThemedText>
+                    </View>
+                  ) : null}
+                  {displayEntry.type === "link" && displayEntry.price ? (
+                    <ThemedText
+                      style={[styles.trackingBadge, { color: colors.tint, fontWeight: "600" }]}
+                    >
+                      {displayEntry.price}
+                    </ThemedText>
+                  ) : null}
+                  {list?.preset === "tracking" &&
+                    (displayEntry.totalEpisodes != null ||
+                      displayEntry.totalChapters != null ||
+                      displayEntry.totalVolumes != null) && (
+                      <ThemedText
+                        style={[styles.trackingBadge, { color: colors.icon }]}
+                      >
+                        {displayEntry.totalEpisodes != null
+                          ? `0/${displayEntry.totalEpisodes} ep`
+                          : displayEntry.totalChapters != null
+                          ? `0/${displayEntry.totalChapters} ch`
+                          : displayEntry.totalVolumes != null
+                          ? `0/${displayEntry.totalVolumes} vol`
+                          : null}
+                      </ThemedText>
+                    )}
+                </View>
+              ) : null}
+            </View>
+            {hasDetails && hasPath ? (
+              variant === "checkbox-details" ? (
+                <Pressable
+                  onPress={() => openEntry(item)}
+                  style={({ pressed }) => [
+                    styles.detailsButtonZone,
+                    { opacity: pressed ? 0.7 : 1 },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open details for ${item.title}`}
+                >
+                  <IconSymbol
+                    name="chevron.right"
+                    size={24}
+                    color={colors.icon}
+                    style={styles.resultChevron}
+                  />
+                </Pressable>
+              ) : (
                 <IconSymbol
                   name="chevron.right"
                   size={24}
                   color={colors.icon}
                   style={styles.resultChevron}
                 />
-              </Pressable>
-            ) : (
-              <IconSymbol
-                name="chevron.right"
-                size={24}
-                color={colors.icon}
-                style={styles.resultChevron}
-              />
-            )
-          ) : null}
-        </Pressable>
+              )
+            ) : null}
+          </Pressable>
+        </Swipeable>
       );
     },
     [
@@ -1148,8 +1221,12 @@ export default function ListDetailScreen() {
       colors.background,
       colors.icon,
       colors.tint,
+      listId,
       list?.preset,
+      confirmDeleteEntry,
       openEntry,
+      renderDeleteAction,
+      toggleEntryChecked,
     ],
   );
 
@@ -2702,7 +2779,7 @@ export default function ListDetailScreen() {
           >
             <Pressable
               onPress={() => {
-                setListViewMode("list");
+                if (listId) setListViewMode(listId, "list");
                 setViewMenuVisible(false);
               }}
               style={({ pressed }) => [
@@ -2719,7 +2796,7 @@ export default function ListDetailScreen() {
             </Pressable>
             <Pressable
               onPress={() => {
-                setListViewMode("grid");
+                if (listId) setListViewMode(listId, "grid");
                 setViewMenuVisible(false);
               }}
               style={({ pressed }) => [
@@ -2736,7 +2813,7 @@ export default function ListDetailScreen() {
             </Pressable>
             <Pressable
               onPress={() => {
-                setListViewMode("compare");
+                if (listId) setListViewMode(listId, "compare");
                 setViewMenuVisible(false);
               }}
               style={({ pressed }) => [
@@ -2749,7 +2826,7 @@ export default function ListDetailScreen() {
             </Pressable>
             <Pressable
               onPress={() => {
-                setListViewMode("tier");
+                if (listId) setListViewMode(listId, "tier");
                 setViewMenuVisible(false);
               }}
               style={({ pressed }) => [
@@ -2972,6 +3049,22 @@ const styles = StyleSheet.create({
   },
   resultChevron: {
     marginLeft: 8,
+  },
+  rightActionContainer: {
+    width: 96,
+    justifyContent: "center",
+    alignItems: "stretch",
+  },
+  deleteAction: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  deleteActionText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
   },
   checkboxIndicator: {
     width: 22,

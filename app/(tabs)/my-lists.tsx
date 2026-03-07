@@ -2,6 +2,9 @@ import { Image } from 'expo-image';
 import { useNavigation, useRouter } from 'expo-router';
 import { useCallback, useLayoutEffect, useState } from 'react';
 import {
+  Alert,
+  Animated,
+  Platform,
   Dimensions,
   FlatList,
   Modal,
@@ -10,6 +13,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
@@ -26,7 +30,7 @@ export interface ListItem {
 }
 
 export default function MyListsScreen() {
-  const { mainLists, createList } = useLists();
+  const { mainLists, createList, deleteList } = useLists();
   const items: ListItem[] = mainLists.map((l) => ({ id: l.id, title: l.title }));
   const [sheetVisible, setSheetVisible] = useState(false);
   const [titleInput, setTitleInput] = useState('');
@@ -65,36 +69,95 @@ export default function MyListsScreen() {
     [router]
   );
 
+  const confirmDeleteList = useCallback(
+    (item: ListItem) => {
+      const runDelete = () => deleteList(item.id);
+
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        if (window.confirm(`Delete "${item.title}"? This cannot be undone.`)) {
+          runDelete();
+        }
+        return;
+      }
+
+      Alert.alert(
+        'Delete list?',
+        `Delete "${item.title}" and its items? This cannot be undone.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete', style: 'destructive', onPress: runDelete },
+        ]
+      );
+    },
+    [deleteList]
+  );
+
+  const renderDeleteAction = useCallback(
+    (progress: Animated.AnimatedInterpolation<number>, onDelete: () => void, label: string) => {
+      const opacity = progress.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0, 1],
+        extrapolate: 'clamp',
+      });
+
+      return (
+        <Animated.View style={[styles.rightActionContainer, { opacity }]}>
+          <Pressable
+            onPress={onDelete}
+            style={({ pressed }) => [
+              styles.deleteAction,
+              { backgroundColor: '#C62828', opacity: pressed ? 0.85 : 1 },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={label}
+          >
+            <IconSymbol name="trash" size={18} color="#fff" />
+            <ThemedText style={styles.deleteActionText}>Delete</ThemedText>
+          </Pressable>
+        </Animated.View>
+      );
+    },
+    []
+  );
+
   const renderItem = useCallback(
     ({ item }: { item: ListItem }) => (
-      <Pressable
-        onPress={() => openListDetail(item)}
-        style={({ pressed }) => [
-          styles.resultRow,
-          { opacity: pressed ? 0.8 : 1 },
-        ]}
-        accessibilityRole="button"
-        accessibilityLabel={`Open ${item.title}`}
+      <Swipeable
+        overshootRight={false}
+        rightThreshold={40}
+        renderRightActions={(progress) =>
+          renderDeleteAction(progress, () => confirmDeleteList(item), `Delete ${item.title}`)
+        }
       >
-        <Image
-          source={require('../../assets/images/placeholder-thumbnail.png')}
-          style={styles.resultPoster}
-          contentFit="cover"
-        />
-        <View style={styles.resultInfo}>
-          <ThemedText style={styles.resultTitle} numberOfLines={2}>
-            {item.title}
-          </ThemedText>
-        </View>
-        <IconSymbol
-          name="chevron.right"
-          size={24}
-          color={colors.icon}
-          style={styles.resultChevron}
-        />
-      </Pressable>
+        <Pressable
+          onPress={() => openListDetail(item)}
+          style={({ pressed }) => [
+            styles.resultRow,
+            { opacity: pressed ? 0.8 : 1 },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel={`Open ${item.title}`}
+        >
+          <Image
+            source={require('../../assets/images/placeholder-thumbnail.png')}
+            style={styles.resultPoster}
+            contentFit="cover"
+          />
+          <View style={styles.resultInfo}>
+            <ThemedText style={styles.resultTitle} numberOfLines={2}>
+              {item.title}
+            </ThemedText>
+          </View>
+          <IconSymbol
+            name="chevron.right"
+            size={24}
+            color={colors.icon}
+            style={styles.resultChevron}
+          />
+        </Pressable>
+      </Swipeable>
     ),
-    [colors.icon, openListDetail]
+    [colors.icon, confirmDeleteList, openListDetail, renderDeleteAction]
   );
 
   const keyExtractor = useCallback((item: ListItem) => item.id, []);
@@ -298,6 +361,22 @@ const styles = StyleSheet.create({
   },
   resultChevron: {
     marginLeft: 8,
+  },
+  rightActionContainer: {
+    width: 96,
+    justifyContent: 'center',
+    alignItems: 'stretch',
+  },
+  deleteAction: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  deleteActionText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
   },
   modalOverlay: {
     flex: 1,
