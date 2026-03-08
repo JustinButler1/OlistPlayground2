@@ -3,16 +3,18 @@ import { useMemo } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { RatingStars } from '@/components/tracker/RatingStars';
 import { ThumbnailImage } from '@/components/thumbnail-image';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useListsQuery } from '@/contexts/lists-context';
+import { getEffectiveEntryRating } from '@/lib/tracker-metadata';
 import { formatProgressLabel } from '@/lib/tracker-selectors';
 
 export default function ListEntryDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
-  const { activeLists } = useListsQuery();
+  const { activeLists, itemUserDataByKey } = useListsQuery();
 
   const result = useMemo(() => {
     if (!id) {
@@ -52,13 +54,19 @@ export default function ListEntryDetailScreen() {
             <ThemedText type="title">{result.entry.title}</ThemedText>
             <ThemedText style={styles.metaText}>{result.list.title}</ThemedText>
             <ThemedText style={styles.metaText}>Status: {result.entry.status}</ThemedText>
-            {formatProgressLabel(result.entry) ? (
+            {formatProgressLabel(result.entry, itemUserDataByKey) ? (
               <ThemedText style={styles.metaText}>
-                Progress: {formatProgressLabel(result.entry)}
+                Progress: {formatProgressLabel(result.entry, itemUserDataByKey)}
               </ThemedText>
             ) : null}
-            {typeof result.entry.rating === 'number' ? (
-              <ThemedText style={styles.metaText}>Rating: {result.entry.rating.toFixed(1)}</ThemedText>
+            {getEffectiveEntryRating(result.entry, itemUserDataByKey) ? (
+              <View style={styles.ratingRow}>
+                <ThemedText style={styles.metaText}>Rating:</ThemedText>
+                <RatingStars
+                  value={getEffectiveEntryRating(result.entry, itemUserDataByKey)}
+                  showValue
+                />
+              </View>
             ) : null}
             {result.entry.tags.length ? (
               <ThemedText style={styles.metaText}>Tags: {result.entry.tags.join(', ')}</ThemedText>
@@ -106,5 +114,10 @@ const styles = StyleSheet.create({
   },
   metaText: {
     opacity: 0.75,
+  },
+  ratingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
 });

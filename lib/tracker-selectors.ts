@@ -1,10 +1,16 @@
 import type {
   EntryStatus,
+  ItemUserData,
   ListEntry,
   ListFilterMode,
   ListPreferences,
   TrackerList,
 } from '@/data/mock-lists';
+import {
+  formatProgressLabel as formatTrackerProgressLabel,
+  getEffectiveEntryProgress,
+  getEffectiveEntryRating,
+} from '@/lib/tracker-metadata';
 
 export interface EntryWithList {
   entry: ListEntry;
@@ -22,8 +28,16 @@ function compareByUpdatedAtDesc(a: ListEntry, b: ListEntry): number {
   return b.updatedAt - a.updatedAt;
 }
 
-function compareByRatingDesc(a: ListEntry, b: ListEntry): number {
-  return (b.rating ?? -1) - (a.rating ?? -1) || compareByUpdatedAtDesc(a, b);
+function compareByRatingDesc(
+  a: ListEntry,
+  b: ListEntry,
+  itemUserDataByKey?: Record<string, ItemUserData>
+): number {
+  return (
+    (getEffectiveEntryRating(b, itemUserDataByKey) ?? -1) -
+      (getEffectiveEntryRating(a, itemUserDataByKey) ?? -1) ||
+    compareByUpdatedAtDesc(a, b)
+  );
 }
 
 function compareByTitleAsc(a: ListEntry, b: ListEntry): number {
@@ -42,7 +56,11 @@ export function filterEntryByMode(entry: ListEntry, filterMode: ListFilterMode):
   return !entry.archivedAt && entry.status === filterMode;
 }
 
-export function sortEntries(entries: ListEntry[], preferences: ListPreferences): ListEntry[] {
+export function sortEntries(
+  entries: ListEntry[],
+  preferences: ListPreferences,
+  itemUserDataByKey?: Record<string, ItemUserData>
+): ListEntry[] {
   const visibleEntries = entries.filter((entry) =>
     filterEntryByMode(entry, preferences.filterMode)
   );
@@ -56,7 +74,7 @@ export function sortEntries(entries: ListEntry[], preferences: ListPreferences):
     case 'title-asc':
       return nextEntries.sort(compareByTitleAsc);
     case 'rating-desc':
-      return nextEntries.sort(compareByRatingDesc);
+      return nextEntries.sort((a, b) => compareByRatingDesc(a, b, itemUserDataByKey));
     case 'status':
       return nextEntries.sort(compareByStatus);
     case 'updated-desc':
@@ -171,26 +189,9 @@ export function findEntryLocation(lists: TrackerList[], entryId: string): EntryW
   return null;
 }
 
-export function formatProgressLabel(entry: ListEntry): string | null {
-  if (!entry.progress) {
-    return null;
-  }
-
-  const { current, total, unit } = entry.progress;
-  const unitLabel =
-    unit === 'episode'
-      ? 'ep'
-      : unit === 'chapter'
-      ? 'ch'
-      : unit === 'volume'
-      ? 'vol'
-      : unit === 'percent'
-      ? '%'
-      : 'item';
-
-  if (unit === 'percent') {
-    return `${current}%`;
-  }
-
-  return total ? `${current}/${total} ${unitLabel}` : `${current} ${unitLabel}`;
+export function formatProgressLabel(
+  entry: ListEntry,
+  itemUserDataByKey?: Record<string, ItemUserData>
+): string | null {
+  return formatTrackerProgressLabel(getEffectiveEntryProgress(entry, itemUserDataByKey));
 }

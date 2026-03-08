@@ -1,4 +1,5 @@
 import type { CatalogAdapter, CatalogSearchItem } from '@/services/catalog/types';
+import { normalizeRating } from '@/lib/tracker-metadata';
 
 const TMDB_SEARCH_MULTI = 'https://api.themoviedb.org/3/search/multi';
 const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p/w342';
@@ -61,7 +62,9 @@ async function searchTmdb(query: string): Promise<CatalogSearchItem[]> {
           externalId: String(item.id),
           detailPath: `tv-movie/${type}/${item.id}`,
         },
-        rating: typeof item.vote_average === 'number' ? item.vote_average : undefined,
+        rating: normalizeRating(
+          typeof item.vote_average === 'number' ? item.vote_average : undefined
+        ),
       } satisfies CatalogSearchItem;
     });
 }

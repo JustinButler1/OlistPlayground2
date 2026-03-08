@@ -11,13 +11,18 @@ import React, {
 } from 'react';
 
 import {
+  BUILT_IN_LIST_TEMPLATES,
   cloneEntry,
+  createEmptyItemUserData,
+  createListConfig,
   createListFromTemplate,
   DEFAULT_LIST_PREFERENCES,
-  LIST_TEMPLATES,
+  derivePresetFromConfig,
   type EntryProgress,
   type EntrySourceRef,
   type EntryStatus,
+  type ItemUserData,
+  type ListConfig,
   type ListEntry,
   type ListPreset,
   type ListPreferences,
@@ -29,6 +34,7 @@ import {
   clearListsState,
   cloneListsState,
   createInitialListsState,
+  createPowerUserMockListsState,
   loadListsState,
   parseImportedListsState,
   saveListsState,
@@ -45,6 +51,10 @@ import {
   getRecentlyUpdatedEntries,
   getUpcomingReminderEntries,
 } from '@/lib/tracker-selectors';
+import {
+  normalizeProgress,
+  normalizeRating,
+} from '@/lib/tracker-metadata';
 
 export interface EntryDraft
   extends Partial<
@@ -65,6 +75,7 @@ interface ListsQueryValue {
   recentLists: TrackerList[];
   archivedLists: TrackerList[];
   listTemplates: ListTemplate[];
+  itemUserDataByKey: Record<string, ItemUserData>;
   recentSearches: string[];
   recentListIds: string[];
   continueTracking: Array<{ entry: ListEntry; list: TrackerList }>;
@@ -77,14 +88,41 @@ interface ListsQueryValue {
 interface ListActionsValue {
   createList: (
     title: string,
-    preset?: ListPreset,
-    options?: Partial<Pick<TrackerList, 'description' | 'pinned' | 'templateId'>>
+    presetOrOptions?:
+      | ListPreset
+      | {
+          config?: Partial<ListConfig>;
+          description?: string;
+          pinned?: boolean;
+          preset?: ListPreset;
+          templateId?: string;
+          tags?: string[];
+          parentListId?: string;
+        },
+    options?: Partial<
+      Pick<TrackerList, 'description' | 'pinned' | 'templateId' | 'tags' | 'parentListId'>
+    >
   ) => string | null;
-  createListFromTemplate: (templateId: string) => string | null;
+  createListFromTemplate: (
+    templateId: string,
+    overrides?: Partial<
+      Pick<TrackerList, 'title' | 'description' | 'pinned' | 'tags' | 'parentListId'>
+    >
+  ) => string | null;
   updateList: (
     listId: string,
-    updates: Partial<Pick<TrackerList, 'title' | 'description' | 'pinned'>>
+    updates: Partial<
+      Pick<
+        TrackerList,
+        'title' | 'description' | 'pinned' | 'config' | 'templateId' | 'tags' | 'parentListId'
+      >
+    >
   ) => void;
+  saveListAsTemplate: (
+    listId: string,
+    template: Pick<ListTemplate, 'title' | 'description'>
+  ) => string | null;
+  deleteTemplate: (templateId: string) => void;
   archiveList: (listId: string) => void;
   restoreArchivedList: (listId: string) => void;
   deleteList: (listId: string) => void;
@@ -92,8 +130,11 @@ interface ListActionsValue {
   setListPreferences: (listId: string, updates: Partial<ListPreferences>) => void;
   markListOpened: (listId: string) => void;
   recordRecentSearch: (query: string) => void;
+  convertTagToSublist: (listId: string, tag: string) => string | null;
+  convertSublistToTag: (sublistId: string) => string | null;
   exportLists: () => string;
   importLists: (raw: string) => void;
+  loadMockData: () => void;
   resetAllLists: () => void;
 }
 
@@ -109,10 +150,15 @@ interface EntryActionsValue {
   archiveEntries: (listId: string, entryIds: string[]) => void;
 }
 
+interface ItemUserDataActionsValue {
+  setItemUserData: (itemKey: string, value: ItemUserData) => void;
+}
+
 interface ListsContextValue {
   query: ListsQueryValue;
   listActions: ListActionsValue;
   entryActions: EntryActionsValue;
+  itemUserDataActions: ItemUserDataActionsValue;
 }
 
 const ListsContext = createContext<ListsContextValue | null>(null);
@@ -125,8 +171,24 @@ function createEntryId(): string {
   return `entry-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+function createTemplateId(): string {
+  return `template-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
 function touchRecentListIds(currentIds: string[], listId: string): string[] {
   return [listId, ...currentIds.filter((id) => id !== listId)].slice(0, 10);
+}
+
+function parseItemKey(itemKey: string): { source: string; externalId: string } | null {
+  const separatorIndex = itemKey.indexOf(':');
+  if (separatorIndex <= 0 || separatorIndex === itemKey.length - 1) {
+    return null;
+  }
+
+  return {
+    source: itemKey.slice(0, separatorIndex),
+    externalId: itemKey.slice(separatorIndex + 1),
+  };
 }
 
 function createEntryFromDraft(draft: EntryDraft): ListEntry {
@@ -144,19 +206,28 @@ function createEntryFromDraft(draft: EntryDraft): ListEntry {
     detailPath: draft.detailPath,
     notes: draft.notes,
     customFields: draft.customFields,
+    displayVariant: draft.displayVariant,
+    totalEpisodes: draft.totalEpisodes,
+    totalChapters: draft.totalChapters,
+    totalVolumes: draft.totalVolumes,
+    linkedEntryId: draft.linkedEntryId,
+    linkedListId: draft.linkedListId,
     status: draft.status ?? 'planned',
-    rating: draft.rating,
+    rating: normalizeRating(draft.rating),
     tags: draft.tags ?? [],
-    progress: draft.progress
-      ? {
-          ...draft.progress,
-          updatedAt: draft.progress.updatedAt ?? timestamp,
-        }
-      : undefined,
+    progress: normalizeProgress(
+      draft.progress
+        ? {
+            ...draft.progress,
+            updatedAt: draft.progress.updatedAt ?? timestamp,
+          }
+        : undefined
+    ),
     sourceRef:
       draft.sourceRef ??
       ({
-        source: draft.type === 'game' ? 'custom' : draft.type,
+        source:
+          draft.type === 'game' || draft.type === 'list' ? 'custom' : draft.type,
         externalId: draft.detailPath?.split('/').pop(),
         detailPath: draft.detailPath,
         canonicalUrl,
@@ -189,6 +260,71 @@ function updateListEntries(
 
 function hasOwn<T extends object>(value: T, key: keyof any): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function normalizeTags(tags?: string[]): string[] {
+  if (!tags) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      tags
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function addTag(tags: string[], tag: string): string[] {
+  return normalizeTags([...tags, tag]);
+}
+
+function removeTag(tags: string[], tag: string): string[] {
+  return normalizeTags(tags.filter((value) => value !== tag));
+}
+
+function createLinkedListEntry(title: string, linkedListId: string, tags: string[] = []): ListEntry {
+  return createEntryFromDraft({
+    title,
+    type: 'list',
+    detailPath: `list/${linkedListId}`,
+    linkedListId,
+    tags,
+    sourceRef: {
+      source: 'custom',
+      detailPath: `list/${linkedListId}`,
+    },
+  });
+}
+
+function normalizeItemUserDataDraft(value: ItemUserData): ItemUserData {
+  return {
+    tags: value.tags
+      .map((tag) => tag.trim())
+      .filter(Boolean),
+    notes: value.notes?.trim() || undefined,
+    rating: normalizeRating(value.rating),
+    progress: normalizeProgress(value.progress),
+    customFields: value.customFields
+      .map((field) => ({
+        title: field.title.trim(),
+        value: field.value.trim(),
+        format: field.format === 'numbers' ? ('numbers' as const) : ('text' as const),
+      }))
+      .filter((field) => field.title || field.value),
+    updatedAt: Date.now(),
+  };
+}
+
+function isEmptyItemUserData(value: ItemUserData): boolean {
+  return (
+    value.tags.length === 0 &&
+    !value.notes &&
+    value.rating === undefined &&
+    value.progress === undefined &&
+    value.customFields.length === 0
+  );
 }
 
 export function ListsProvider({ children }: { children: React.ReactNode }) {
@@ -272,12 +408,34 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const createListAction = useCallback<ListActionsValue['createList']>(
-    (title, preset = 'tracking', options) => {
+    (title, presetOrOptions = 'tracking', options) => {
       const trimmedTitle = title.trim();
       if (!trimmedTitle) {
         return null;
       }
 
+      const legacyPreset =
+        typeof presetOrOptions === 'string' ? presetOrOptions : presetOrOptions.preset;
+      const config = createListConfig(
+        typeof presetOrOptions === 'string'
+          ? legacyPreset === 'tracking'
+            ? {
+                addons: ['status', 'progress', 'rating', 'tags', 'notes', 'reminders', 'cover'],
+                defaultEntryType: 'custom',
+              }
+            : undefined
+          : presetOrOptions.config
+      );
+      const normalizedOptions =
+        typeof presetOrOptions === 'string'
+          ? options
+          : {
+              description: presetOrOptions.description,
+              pinned: presetOrOptions.pinned,
+              templateId: presetOrOptions.templateId,
+              tags: presetOrOptions.tags,
+              parentListId: presetOrOptions.parentListId,
+            };
       const listId = createListId();
 
       runStateUpdate((current) => {
@@ -285,14 +443,17 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
         current.lists.unshift({
           id: listId,
           title: trimmedTitle,
-          description: options?.description,
-          preset,
+          description: normalizedOptions?.description,
+          tags: normalizeTags(normalizedOptions?.tags),
+          preset: legacyPreset ?? derivePresetFromConfig(config),
+          config,
           entries: [],
           preferences: DEFAULT_LIST_PREFERENCES,
-          pinned: options?.pinned ?? false,
+          pinned: normalizedOptions?.pinned ?? false,
           createdAt: timestamp,
           updatedAt: timestamp,
-          templateId: options?.templateId,
+          templateId: normalizedOptions?.templateId,
+          parentListId: normalizedOptions?.parentListId,
         });
         current.recentListIds = touchRecentListIds(current.recentListIds, listId);
         return current;
@@ -304,15 +465,34 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
   );
 
   const createListFromTemplateAction = useCallback<ListActionsValue['createListFromTemplate']>(
-    (templateId) => {
-      const template = LIST_TEMPLATES.find((item) => item.id === templateId);
+    (templateId, overrides) => {
+      const template = [...BUILT_IN_LIST_TEMPLATES, ...stateRef.current.savedTemplates].find(
+        (item) => item.id === templateId
+      );
       if (!template) {
         return null;
       }
 
       const list = createListFromTemplate(template);
+      const normalizedTitle = overrides?.title?.trim();
+      const normalizedDescription = overrides?.description?.trim();
+      const normalizedTags = normalizeTags(overrides?.tags);
+
       runStateUpdate((current) => {
         current.lists.unshift(list);
+        current.lists = current.lists.map((item) =>
+          item.id === list.id
+            ? {
+                ...item,
+                title: normalizedTitle || item.title,
+                description: normalizedDescription || item.description,
+                pinned: overrides?.pinned ?? item.pinned,
+                tags: normalizedTags.length ? normalizedTags : item.tags,
+                parentListId: overrides?.parentListId ?? item.parentListId,
+                updatedAt: Date.now(),
+              }
+            : item
+        );
         current.recentListIds = touchRecentListIds(current.recentListIds, list.id);
         return current;
       });
@@ -329,10 +509,56 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
             ? {
                 ...list,
                 ...updates,
+                ...(hasOwn(updates, 'tags') ? { tags: normalizeTags(updates.tags) } : {}),
+                ...(updates.config ? { config: createListConfig(updates.config) } : {}),
+                ...(updates.config
+                  ? { preset: derivePresetFromConfig(createListConfig(updates.config)) }
+                  : {}),
                 updatedAt: Date.now(),
               }
             : list
         );
+        return current;
+      });
+    },
+    [runStateUpdate]
+  );
+
+  const saveListAsTemplate = useCallback<ListActionsValue['saveListAsTemplate']>(
+    (listId, template) => {
+      const sourceList = stateRef.current.lists.find((item) => item.id === listId);
+      if (!sourceList) {
+        return null;
+      }
+
+      const templateId = createTemplateId();
+      runStateUpdate((current) => {
+        const currentList = current.lists.find((item) => item.id === listId);
+        if (!currentList) {
+          return current;
+        }
+
+        current.savedTemplates.unshift({
+          id: templateId,
+          title: template.title.trim(),
+          description: template.description.trim(),
+          source: 'user',
+          preset: currentList.preset,
+          config: createListConfig(currentList.config),
+          starterEntries: [],
+        });
+        return current;
+      });
+
+      return templateId;
+    },
+    [runStateUpdate]
+  );
+
+  const deleteTemplate = useCallback<ListActionsValue['deleteTemplate']>(
+    (templateId) => {
+      runStateUpdate((current) => {
+        current.savedTemplates = current.savedTemplates.filter((template) => template.id !== templateId);
         return current;
       });
     },
@@ -469,6 +695,176 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
     [runStateUpdate]
   );
 
+  const convertTagToSublist = useCallback<ListActionsValue['convertTagToSublist']>(
+    (listId, tag) => {
+      const normalizedTag = tag.trim();
+      if (!normalizedTag) {
+        return null;
+      }
+
+      const sourceList = stateRef.current.lists.find((item) => item.id === listId);
+      if (!sourceList) {
+        return null;
+      }
+
+      const matchingEntries = sourceList.entries.filter((entry) => entry.tags.includes(normalizedTag));
+      if (!matchingEntries.length) {
+        return null;
+      }
+
+      const sublistId = createListId();
+      const sublistEntry = createLinkedListEntry(normalizedTag, sublistId, [normalizedTag]);
+
+      runStateUpdate((current) => {
+        const parentList = current.lists.find((item) => item.id === listId);
+        if (!parentList) {
+          return current;
+        }
+
+        const timestamp = Date.now();
+        const matchingEntryIds = new Set(
+          parentList.entries
+            .filter((entry) => entry.tags.includes(normalizedTag))
+            .map((entry) => entry.id)
+        );
+
+        if (!matchingEntryIds.size) {
+          return current;
+        }
+
+        const movedEntries = parentList.entries
+          .filter((entry) => matchingEntryIds.has(entry.id))
+          .map((entry) => ({
+            ...cloneEntry(entry),
+            tags: removeTag(entry.tags, normalizedTag),
+            updatedAt: timestamp,
+          }));
+        const movedChildListIds = new Set(
+          movedEntries
+            .map((entry) => entry.linkedListId)
+            .filter((linkedListId): linkedListId is string => !!linkedListId)
+        );
+        const insertIndex = parentList.entries.findIndex((entry) => matchingEntryIds.has(entry.id));
+        const nextSublist: TrackerList = {
+          id: sublistId,
+          title: normalizedTag,
+          description: undefined,
+          tags: [normalizedTag],
+          preset: derivePresetFromConfig(parentList.config),
+          config: createListConfig(parentList.config),
+          entries: movedEntries,
+          preferences: DEFAULT_LIST_PREFERENCES,
+          pinned: false,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          templateId: undefined,
+          parentListId: listId,
+        };
+
+        current.lists = current.lists.map((list) => {
+          if (list.id === listId) {
+            return updateListEntries(list, (entries) => {
+              const remainingEntries = entries.filter((entry) => !matchingEntryIds.has(entry.id));
+              const nextEntries = [...remainingEntries];
+              nextEntries.splice(insertIndex >= 0 ? insertIndex : 0, 0, sublistEntry);
+              return nextEntries;
+            });
+          }
+
+          if (movedChildListIds.has(list.id)) {
+            return {
+              ...list,
+              parentListId: sublistId,
+              tags: addTag(list.tags, normalizedTag),
+              updatedAt: timestamp,
+            };
+          }
+
+          return list;
+        });
+        current.lists.unshift(nextSublist);
+        current.recentListIds = touchRecentListIds(current.recentListIds, listId);
+        return current;
+      });
+
+      return sublistId;
+    },
+    [runStateUpdate]
+  );
+
+  const convertSublistToTag = useCallback<ListActionsValue['convertSublistToTag']>(
+    (sublistId) => {
+      const sourceList = stateRef.current.lists.find((item) => item.id === sublistId);
+      const parentListId = sourceList?.parentListId;
+      const normalizedTag = sourceList?.title.trim() ?? '';
+
+      if (!sourceList || !parentListId || !normalizedTag) {
+        return null;
+      }
+
+      runStateUpdate((current) => {
+        const sublist = current.lists.find((item) => item.id === sublistId);
+        if (!sublist?.parentListId) {
+          return current;
+        }
+
+        const parentId = sublist.parentListId;
+        const timestamp = Date.now();
+        const movedEntries = sublist.entries.map((entry) => ({
+          ...cloneEntry(entry),
+          tags: addTag(entry.tags, normalizedTag),
+          updatedAt: timestamp,
+        }));
+        const linkedChildListIds = new Set(
+          movedEntries
+            .map((entry) => entry.linkedListId)
+            .filter((linkedListId): linkedListId is string => !!linkedListId)
+        );
+
+        current.lists = current.lists
+          .filter((list) => list.id !== sublistId)
+          .map((list) => {
+            if (list.id === parentId) {
+              return updateListEntries(list, (entries) => {
+                const linkedEntryIndex = entries.findIndex(
+                  (entry) => entry.linkedListId === sublistId || entry.detailPath === `list/${sublistId}`
+                );
+                const remainingEntries = entries.filter(
+                  (entry) => !(entry.linkedListId === sublistId || entry.detailPath === `list/${sublistId}`)
+                );
+                const nextEntries = [...remainingEntries];
+                nextEntries.splice(
+                  linkedEntryIndex >= 0 ? linkedEntryIndex : remainingEntries.length,
+                  0,
+                  ...movedEntries
+                );
+                return nextEntries;
+              });
+            }
+
+            if (linkedChildListIds.has(list.id)) {
+              return {
+                ...list,
+                parentListId: parentId,
+                tags: addTag(list.tags, normalizedTag),
+                updatedAt: timestamp,
+              };
+            }
+
+            return list;
+          });
+        current.recentListIds = touchRecentListIds(
+          current.recentListIds.filter((id) => id !== sublistId),
+          parentId
+        );
+        return current;
+      });
+
+      return normalizedTag;
+    },
+    [runStateUpdate]
+  );
+
   const exportLists = useCallback<ListActionsValue['exportLists']>(() => {
     return serializeListsState(stateRef.current);
   }, []);
@@ -480,6 +876,10 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
     },
     []
   );
+
+  const loadMockData = useCallback<ListActionsValue['loadMockData']>(() => {
+    setState(createPowerUserMockListsState());
+  }, []);
 
   const resetAllLists = useCallback<ListActionsValue['resetAllLists']>(() => {
     const nextState = createInitialListsState();
@@ -537,18 +937,22 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                           ? { customFields: updates.customFields }
                           : {}),
                         ...(hasOwn(updates, 'status') ? { status: updates.status } : {}),
-                        ...(hasOwn(updates, 'rating') ? { rating: updates.rating } : {}),
+                        ...(hasOwn(updates, 'rating')
+                          ? { rating: normalizeRating(updates.rating) }
+                          : {}),
                         ...(hasOwn(updates, 'tags')
                           ? { tags: updates.tags ? [...updates.tags] : [] }
                           : {}),
                         ...(hasOwn(updates, 'progress')
                           ? {
-                              progress: updates.progress
-                                ? {
-                                    ...updates.progress,
-                                    updatedAt: updates.progress.updatedAt ?? Date.now(),
-                                  }
-                                : undefined,
+                              progress: normalizeProgress(
+                                updates.progress
+                                  ? {
+                                      ...updates.progress,
+                                      updatedAt: updates.progress.updatedAt ?? Date.now(),
+                                    }
+                                  : undefined
+                              ),
                             }
                           : {}),
                         ...(hasOwn(updates, 'sourceRef')
@@ -664,12 +1068,18 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
   const setEntryProgress = useCallback<EntryActionsValue['setEntryProgress']>(
     (listId, entryId, progress) => {
       if (progress) {
+        const normalized = normalizeProgress({
+          ...progress,
+          updatedAt: progress.updatedAt ?? Date.now(),
+        });
+        if (!normalized) {
+          return;
+        }
+
         updateEntry(listId, entryId, {
-          progress: {
-            ...progress,
-            updatedAt: progress.updatedAt ?? Date.now(),
-          },
-          status: progress.current > 0 ? 'active' : undefined,
+          progress: normalized,
+          status:
+            normalized.current !== undefined && normalized.current > 0 ? 'active' : undefined,
         });
         return;
       }
@@ -746,6 +1156,90 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
     [runStateUpdate]
   );
 
+  const setItemUserData = useCallback<ItemUserDataActionsValue['setItemUserData']>(
+    (itemKey, value) => {
+      const trimmedKey = itemKey.trim();
+      if (!trimmedKey) {
+        return;
+      }
+
+      runStateUpdate((current) => {
+        const normalized = normalizeItemUserDataDraft(value);
+        const parsedItemKey = parseItemKey(trimmedKey);
+
+        if (parsedItemKey) {
+          current.lists = current.lists.map((list) =>
+            updateListEntries(list, (entries) =>
+              {
+                let didChange = false;
+                const nextEntries = entries.map((entry) => {
+                  if (
+                    entry.sourceRef.source !== parsedItemKey.source ||
+                    entry.sourceRef.externalId !== parsedItemKey.externalId
+                  ) {
+                    return entry;
+                  }
+
+                  const nextProgress =
+                    normalized.progress !== undefined
+                      ? normalizeProgress({
+                          ...(entry.progress ?? {}),
+                          ...normalized.progress,
+                          total: normalized.progress.total ?? entry.progress?.total,
+                          unit: normalized.progress.unit ?? entry.progress?.unit ?? 'item',
+                          label: normalized.progress.label ?? entry.progress?.label,
+                          updatedAt: normalized.progress.updatedAt ?? Date.now(),
+                        })
+                      : entry.progress
+                      ? normalizeProgress({
+                          ...entry.progress,
+                          current: undefined,
+                          updatedAt: Date.now(),
+                        })
+                      : undefined;
+
+                  const nextStatus =
+                    normalized.progress?.current !== undefined &&
+                    normalized.progress.current > 0 &&
+                    entry.status === 'planned'
+                      ? 'active'
+                      : entry.status;
+
+                  const progressChanged =
+                    JSON.stringify(nextProgress ?? null) !== JSON.stringify(entry.progress ?? null);
+                  const statusChanged = nextStatus !== entry.status;
+
+                  if (!progressChanged && !statusChanged) {
+                    return entry;
+                  }
+
+                  didChange = true;
+                  return {
+                    ...entry,
+                    progress: nextProgress,
+                    status: nextStatus,
+                    updatedAt: Date.now(),
+                  };
+                });
+
+                return didChange ? nextEntries : entries;
+              }
+            )
+          );
+        }
+
+        if (isEmptyItemUserData(normalized)) {
+          delete current.itemUserDataByKey[trimmedKey];
+          return current;
+        }
+
+        current.itemUserDataByKey[trimmedKey] = normalized;
+        return current;
+      });
+    },
+    [runStateUpdate]
+  );
+
   const query = useMemo<ListsQueryValue>(() => {
     const activeLists = state.lists.filter((list) => !list.deletedAt);
 
@@ -756,7 +1250,8 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
       pinnedLists: getPinnedLists(activeLists),
       recentLists: getRecentLists(activeLists.filter((list) => !list.archivedAt), state.recentListIds),
       archivedLists: getArchivedLists(activeLists),
-      listTemplates: LIST_TEMPLATES,
+      listTemplates: [...BUILT_IN_LIST_TEMPLATES, ...state.savedTemplates],
+      itemUserDataByKey: state.itemUserDataByKey,
       recentSearches: state.recentSearches,
       recentListIds: state.recentListIds,
       continueTracking: getContinueTrackingEntries(activeLists),
@@ -772,6 +1267,8 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
       createList: createListAction,
       createListFromTemplate: createListFromTemplateAction,
       updateList,
+      saveListAsTemplate,
+      deleteTemplate,
       archiveList,
       restoreArchivedList,
       deleteList,
@@ -779,22 +1276,30 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
       setListPreferences,
       markListOpened,
       recordRecentSearch,
+      convertTagToSublist,
+      convertSublistToTag,
       exportLists,
       importLists,
+      loadMockData,
       resetAllLists,
     }),
     [
       archiveList,
       createListAction,
       createListFromTemplateAction,
+      convertSublistToTag,
+      convertTagToSublist,
+      deleteTemplate,
       deleteList,
       exportLists,
       importLists,
+      loadMockData,
       markListOpened,
       recordRecentSearch,
       resetAllLists,
       restoreArchivedList,
       restoreList,
+      saveListAsTemplate,
       setListPreferences,
       updateList,
     ]
@@ -825,13 +1330,21 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
     ]
   );
 
+  const itemUserDataActions = useMemo<ItemUserDataActionsValue>(
+    () => ({
+      setItemUserData,
+    }),
+    [setItemUserData]
+  );
+
   const value = useMemo<ListsContextValue>(
     () => ({
       query,
       listActions,
       entryActions,
+      itemUserDataActions,
     }),
-    [entryActions, listActions, query]
+    [entryActions, itemUserDataActions, listActions, query]
   );
 
   return <ListsContext.Provider value={value}>{children}</ListsContext.Provider>;
@@ -855,6 +1368,20 @@ export function useListActions(): ListActionsValue {
 
 export function useEntryActions(): EntryActionsValue {
   return useListsContext().entryActions;
+}
+
+export function useItemUserDataActions(): ItemUserDataActionsValue {
+  return useListsContext().itemUserDataActions;
+}
+
+export function useItemUserData(itemKey: string) {
+  const { itemUserDataByKey } = useListsQuery();
+  const { setItemUserData } = useItemUserDataActions();
+
+  return {
+    itemUserData: itemUserDataByKey[itemKey] ?? createEmptyItemUserData(),
+    setItemUserData: (value: ItemUserData) => setItemUserData(itemKey, value),
+  };
 }
 
 export function useListPreferences(listId: string) {

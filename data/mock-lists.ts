@@ -11,10 +11,24 @@ export type EntrySourceType =
   | 'tv'
   | 'link'
   | 'custom';
-export type ListEntryType = EntrySourceType | 'game';
+export type ListEntryType = EntrySourceType | 'game' | 'list';
 export type ListPreset = 'blank' | 'tracking';
-export type ListViewMode = 'list' | 'grid';
+export type ListViewMode = 'list' | 'grid' | 'compare' | 'tier';
 export type ListSortMode = 'updated-desc' | 'title-asc' | 'rating-desc' | 'status';
+export type ListAddonId =
+  | 'status'
+  | 'progress'
+  | 'rating'
+  | 'tags'
+  | 'notes'
+  | 'reminders'
+  | 'cover'
+  | 'links'
+  | 'custom-fields'
+  | 'sublists'
+  | 'compare'
+  | 'tier';
+export type ListFieldKind = 'text' | 'number' | 'url';
 export type ListFilterMode =
   | 'all'
   | 'active'
@@ -26,9 +40,10 @@ export type ListFilterMode =
 export type ListGroupMode = 'none' | 'status' | 'tag';
 
 export interface EntryProgress {
-  current: number;
+  current?: number;
   total?: number;
   unit: EntryProgressUnit;
+  label?: string;
   updatedAt: number;
 }
 
@@ -45,6 +60,27 @@ export interface CustomField {
   format?: 'text' | 'numbers';
 }
 
+export interface ListFieldDefinition {
+  id: string;
+  label: string;
+  kind: ListFieldKind;
+}
+
+export interface ListConfig {
+  addons: ListAddonId[];
+  fieldDefinitions: ListFieldDefinition[];
+  defaultEntryType: Exclude<ListEntryType, 'game' | 'list'> | 'custom';
+}
+
+export interface ItemUserData {
+  tags: string[];
+  notes?: string;
+  rating?: number;
+  progress?: EntryProgress;
+  customFields: CustomField[];
+  updatedAt: number;
+}
+
 export interface ListEntry {
   id: string;
   title: string;
@@ -53,6 +89,12 @@ export interface ListEntry {
   detailPath?: string;
   notes?: string;
   customFields?: CustomField[];
+  displayVariant?: 'simple' | 'checkbox' | 'details' | 'checkbox-details';
+  totalEpisodes?: number;
+  totalChapters?: number;
+  totalVolumes?: number;
+  linkedEntryId?: string;
+  linkedListId?: string;
   status: EntryStatus;
   rating?: number;
   tags: string[];
@@ -79,13 +121,16 @@ export interface TrackerList {
   id: string;
   title: string;
   description?: string;
+  tags: string[];
   preset: ListPreset;
+  config: ListConfig;
   entries: ListEntry[];
   preferences: ListPreferences;
   pinned: boolean;
   createdAt: number;
   updatedAt: number;
   templateId?: string;
+  parentListId?: string;
   archivedAt?: number;
   deletedAt?: number;
 }
@@ -96,8 +141,9 @@ export interface ListTemplate {
   id: string;
   title: string;
   description: string;
+  source: 'built-in' | 'user';
   preset: ListPreset;
-  suggestedTags: string[];
+  config: ListConfig;
   starterEntries: Array<
     Omit<ListEntry, 'id' | 'addedAt' | 'updatedAt' | 'status' | 'tags' | 'sourceRef'>
     & {
@@ -116,13 +162,75 @@ export const DEFAULT_LIST_PREFERENCES: ListPreferences = {
   showCompleted: true,
 };
 
+export function createListPreferences(
+  overrides: Partial<ListPreferences> = {}
+): ListPreferences {
+  return {
+    ...DEFAULT_LIST_PREFERENCES,
+    ...overrides,
+  };
+}
+
+export const DEFAULT_LIST_CONFIG: ListConfig = {
+  addons: ['notes', 'tags'],
+  fieldDefinitions: [],
+  defaultEntryType: 'custom',
+};
+
+export const TRACKING_LIST_CONFIG: ListConfig = {
+  addons: ['status', 'progress', 'rating', 'tags', 'notes', 'reminders', 'cover'],
+  fieldDefinitions: [],
+  defaultEntryType: 'custom',
+};
+
+function createListFieldDefinition(
+  id: string,
+  label: string,
+  kind: ListFieldKind
+): ListFieldDefinition {
+  return {
+    id,
+    label,
+    kind,
+  };
+}
+
+export function createListConfig(overrides: Partial<ListConfig> = {}): ListConfig {
+  return {
+    addons: [...(overrides.addons ?? DEFAULT_LIST_CONFIG.addons)],
+    fieldDefinitions: (overrides.fieldDefinitions ?? []).map((field) => ({
+      ...field,
+    })),
+    defaultEntryType: overrides.defaultEntryType ?? DEFAULT_LIST_CONFIG.defaultEntryType,
+  };
+}
+
+export function derivePresetFromConfig(config: ListConfig): ListPreset {
+  return config.addons.includes('progress') ? 'tracking' : 'blank';
+}
+
+export function createEmptyItemUserData(): ItemUserData {
+  return {
+    tags: [],
+    progress: undefined,
+    customFields: [],
+    updatedAt: Date.now(),
+  };
+}
+
+export function getItemUserDataKey(source: EntrySourceType, externalId: string): string {
+  return `${source}:${externalId}`;
+}
+
 function createSeedEntry(
   id: string,
   title: string,
   type: ListEntryType,
   options: Partial<ListEntry> = {}
 ): ListEntry {
-  const source = options.sourceRef?.source ?? (type === 'game' ? 'custom' : type);
+  const source =
+    options.sourceRef?.source ??
+    (type === 'game' || type === 'list' ? 'custom' : type);
   const progressUpdatedAt =
     options.progress?.updatedAt ?? options.updatedAt ?? options.addedAt ?? NOW;
 
@@ -144,6 +252,12 @@ function createSeedEntry(
     detailPath: options.detailPath,
     notes: options.notes,
     customFields: options.customFields,
+    displayVariant: options.displayVariant,
+    totalEpisodes: options.totalEpisodes,
+    totalChapters: options.totalChapters,
+    totalVolumes: options.totalVolumes,
+    linkedEntryId: options.linkedEntryId,
+    linkedListId: options.linkedListId,
     rating: options.rating,
     progress: options.progress
       ? {
@@ -165,359 +279,1104 @@ function createSeedList(
   entries: ListEntry[],
   options: Partial<TrackerList> = {}
 ): TrackerList {
+  const config = createListConfig(options.config ?? (options.preset === 'tracking'
+    ? TRACKING_LIST_CONFIG
+    : DEFAULT_LIST_CONFIG));
+
   return {
     id,
     title,
     description: options.description,
-    preset: options.preset ?? 'tracking',
+    tags: options.tags ? [...options.tags] : [],
+    preset: options.preset ?? derivePresetFromConfig(config),
+    config,
     entries,
     preferences: options.preferences ?? DEFAULT_LIST_PREFERENCES,
     pinned: options.pinned ?? false,
     createdAt: options.createdAt ?? NOW,
     updatedAt: options.updatedAt ?? NOW,
     templateId: options.templateId,
+    parentListId: options.parentListId,
     archivedAt: options.archivedAt,
     deletedAt: options.deletedAt,
   };
 }
 
-export const LIST_TEMPLATES: ListTemplate[] = [
+export const BUILT_IN_LIST_TEMPLATES: ListTemplate[] = [
   {
-    id: 'template-watch',
-    title: 'Watch Rotation',
-    description: 'Keep one active show, one planned movie, and one comfort rewatch in view.',
+    id: 'template-books',
+    title: 'Book Tracking',
+    description: 'Progress, ratings, reminders, and a few book-specific fields.',
+    source: 'built-in',
     preset: 'tracking',
-    suggestedTags: ['night', 'weekend', 'comfort'],
-    starterEntries: [
-      {
-        title: "Frieren: Beyond Journey's End",
-        type: 'anime',
-        imageUrl: 'https://cdn.myanimelist.net/images/anime/1015/138006.jpg',
-        detailPath: 'anime/52991',
-        progress: { current: 12, total: 28, unit: 'episode', updatedAt: NOW - DAY_MS },
-        status: 'active',
-        rating: 9,
-        tags: ['comfort'],
-      },
-      {
-        title: 'Dune: Part Two',
-        type: 'movie',
-        imageUrl: 'https://image.tmdb.org/t/p/w342/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg',
-        detailPath: 'tv-movie/movie/693134',
-        status: 'planned',
-        tags: ['imax'],
-      },
-      {
-        title: 'Only Murders in the Building',
-        type: 'tv',
-        imageUrl: 'https://image.tmdb.org/t/p/w342/pq5L9p9xanF7YgU1kR1Y5FusK9M.jpg',
-        detailPath: 'tv-movie/tv/107113',
-        status: 'paused',
-        tags: ['comedy'],
-      },
-    ],
+    config: createListConfig({
+      addons: ['status', 'progress', 'rating', 'tags', 'notes', 'reminders', 'cover', 'custom-fields'],
+      fieldDefinitions: [
+        createListFieldDefinition('book-author', 'Author', 'text'),
+        createListFieldDefinition('book-format', 'Format', 'text'),
+        createListFieldDefinition('book-pages', 'Pages', 'number'),
+      ],
+      defaultEntryType: 'book',
+    }),
+    starterEntries: [],
   },
   {
-    id: 'template-reading',
-    title: 'Reading Stack',
-    description: 'Balance an active manga, a non-fiction read, and a finished shelf.',
-    preset: 'tracking',
-    suggestedTags: ['morning', 'deep-work', 'loan'],
-    starterEntries: [
-      {
-        title: 'Blue Period',
-        type: 'manga',
-        imageUrl: 'https://cdn.myanimelist.net/images/manga/1/229262.jpg',
-        detailPath: 'manga/107931',
-        progress: { current: 38, total: 65, unit: 'chapter', updatedAt: NOW - 2 * DAY_MS },
-        status: 'active',
-        tags: ['morning'],
-      },
-      {
-        title: 'Atomic Habits',
-        type: 'book',
-        detailPath: 'books/works--OL17930368W',
-        status: 'planned',
-        tags: ['deep-work'],
-      },
-    ],
-  },
-  {
-    id: 'template-links',
-    title: 'Buy Later',
-    description: 'A lightweight list for gear, books, and links before you are ready to purchase.',
+    id: 'template-recipes',
+    title: 'Recipes',
+    description: 'Ingredient and prep metadata without forcing a separate recipe mode.',
+    source: 'built-in',
     preset: 'blank',
-    suggestedTags: ['sale', 'wishlist', 'gift'],
-    starterEntries: [
-      {
-        title: 'Mechanical keyboard switch sampler',
-        type: 'link',
-        imageUrl:
-          'https://images.unsplash.com/photo-1511467687858-23d96c32e4ae?auto=format&fit=crop&w=600&q=80',
-        status: 'planned',
-        price: '$18.00',
-        productUrl: 'https://example.com/keyboard-switch-sampler',
-        sourceRef: {
-          source: 'link',
-          canonicalUrl: 'https://example.com/keyboard-switch-sampler',
-        },
-        tags: ['sale'],
-      },
-    ],
+    config: createListConfig({
+      addons: ['tags', 'notes', 'cover', 'links', 'custom-fields'],
+      fieldDefinitions: [
+        createListFieldDefinition('recipe-servings', 'Servings', 'number'),
+        createListFieldDefinition('recipe-cook-time', 'Cook Time', 'number'),
+        createListFieldDefinition('recipe-source', 'Source URL', 'url'),
+      ],
+      defaultEntryType: 'custom',
+    }),
+    starterEntries: [],
+  },
+  {
+    id: 'template-projects',
+    title: 'Project Planning',
+    description: 'Statuses, reminders, sublists, and custom fields for flexible planning.',
+    source: 'built-in',
+    preset: 'blank',
+    config: createListConfig({
+      addons: ['status', 'tags', 'notes', 'reminders', 'sublists', 'custom-fields'],
+      fieldDefinitions: [
+        createListFieldDefinition('project-owner', 'Owner', 'text'),
+        createListFieldDefinition('project-due', 'Due Date', 'text'),
+        createListFieldDefinition('project-link', 'Reference URL', 'url'),
+      ],
+      defaultEntryType: 'custom',
+    }),
+    starterEntries: [],
+  },
+  {
+    id: 'template-tier',
+    title: 'Tier List',
+    description: 'A generic list with sublists and tier view enabled.',
+    source: 'built-in',
+    preset: 'blank',
+    config: createListConfig({
+      addons: ['sublists', 'tier', 'cover'],
+      fieldDefinitions: [],
+      defaultEntryType: 'custom',
+    }),
+    starterEntries: [],
   },
 ];
 
-export const DEFAULT_LISTS: TrackerList[] = [
-  createSeedList(
-    'list-watchlist',
-    'Continue Watching',
+export const LIST_TEMPLATES = BUILT_IN_LIST_TEMPLATES;
+
+export function deriveListConfigFromLegacy(options: {
+  preset?: ListPreset;
+  entries?: Pick<
+    ListEntry,
+    | 'customFields'
+    | 'detailPath'
+    | 'linkedListId'
+    | 'notes'
+    | 'productUrl'
+    | 'rating'
+    | 'reminderAt'
+    | 'status'
+    | 'tags'
+    | 'type'
+    | 'progress'
+  >[];
+}): ListConfig {
+  const addons = new Set<ListAddonId>(DEFAULT_LIST_CONFIG.addons);
+  const entries = options.entries ?? [];
+
+  if (options.preset === 'tracking') {
+    addons.add('status');
+    addons.add('progress');
+    addons.add('rating');
+    addons.add('cover');
+  }
+
+  entries.forEach((entry) => {
+    if (entry.status && entry.status !== 'planned') {
+      addons.add('status');
+    }
+    if (entry.progress) {
+      addons.add('progress');
+    }
+    if (typeof entry.rating === 'number') {
+      addons.add('rating');
+    }
+    if (entry.tags?.length) {
+      addons.add('tags');
+    }
+    if (entry.notes) {
+      addons.add('notes');
+    }
+    if (entry.reminderAt) {
+      addons.add('reminders');
+    }
+    if (entry.productUrl || entry.type === 'link') {
+      addons.add('links');
+    }
+    if (entry.customFields?.length) {
+      addons.add('custom-fields');
+      addons.add('compare');
+    }
+    if (entry.linkedListId || entry.detailPath?.startsWith('list/')) {
+      addons.add('sublists');
+    }
+  });
+
+  if (entries.some((entry) => entry.linkedListId)) {
+    addons.add('tier');
+  }
+
+  const defaultEntryType =
+    options.preset === 'tracking'
+      ? 'custom'
+      : ((entries.find((entry) => entry.type !== 'list' && entry.type !== 'game')?.type ??
+          'custom') as ListConfig['defaultEntryType']);
+
+  return createListConfig({
+    addons: [...addons],
+    defaultEntryType,
+  });
+}
+
+export interface MockListsSeed {
+  lists: TrackerList[];
+  deletedLists: TrackerList[];
+  savedTemplates: ListTemplate[];
+  itemUserDataByKey: Record<string, ItemUserData>;
+  recentSearches: string[];
+  recentListIds: string[];
+}
+
+function bookKeyToDetailPath(key: string): string {
+  return `books/${key.replace(/^\//, '').replace(/\//g, '--')}`;
+}
+
+export function createPowerUserMockSeed(): MockListsSeed {
+  const tmdbPoster = (path: string) => `https://image.tmdb.org/t/p/w342${path}`;
+  const createUserData = (
+    tags: string[],
+    notes: string,
+    rating?: number,
+    customFields: CustomField[] = []
+  ): ItemUserData => ({
+    tags,
+    notes,
+    rating,
+    customFields,
+    updatedAt: NOW - DAY_MS,
+  });
+
+  const watchQueueId = 'list-mock-watch-queue';
+  const readingStackId = 'list-mock-reading-stack';
+  const wishlistId = 'list-mock-wishlist';
+  const homeProjectsId = 'list-mock-home-projects';
+  const pantryResetId = 'list-mock-pantry-reset';
+  const galleryWallId = 'list-mock-gallery-wall';
+  const takeoutTierId = 'list-mock-takeout-tier';
+  const takeoutSTierId = 'list-mock-takeout-s';
+  const takeoutATierId = 'list-mock-takeout-a';
+  const takeoutBTierId = 'list-mock-takeout-b';
+  const takeoutCTierId = 'list-mock-takeout-c';
+  const archivedReadingChallengeId = 'list-mock-reading-challenge-2025';
+  const deletedGiftIdeasId = 'list-mock-gift-ideas-2025';
+
+  const watchQueue = createSeedList(
+    watchQueueId,
+    'Watch Queue',
     [
-      createSeedEntry('seed-watch-1', "Frieren: Beyond Journey's End", 'anime', {
-        imageUrl: 'https://cdn.myanimelist.net/images/anime/1015/138006.jpg',
+      createSeedEntry('entry-mock-frieren', 'Sousou no Frieren', 'anime', {
+        imageUrl: 'https://myanimelist.net/images/anime/1015/138006.jpg',
         detailPath: 'anime/52991',
+        totalEpisodes: 28,
         status: 'active',
-        rating: 9,
-        tags: ['comfort', 'weekly'],
+        rating: 10,
+        tags: ['fantasy', 'weekly'],
         progress: {
-          current: 12,
+          current: 21,
           total: 28,
           unit: 'episode',
           updatedAt: NOW - DAY_MS,
         },
-        reminderAt: NOW + DAY_MS,
-        addedAt: NOW - 8 * DAY_MS,
+        notes: 'Saving the final arc for a quiet Sunday binge.',
+        reminderAt: NOW + DAY_MS * 2,
+        sourceRef: {
+          source: 'anime',
+          externalId: '52991',
+          detailPath: 'anime/52991',
+        },
+        addedAt: NOW - DAY_MS * 28,
         updatedAt: NOW - DAY_MS,
       }),
-      createSeedEntry('seed-watch-2', 'Dune: Part Two', 'movie', {
-        imageUrl: 'https://image.tmdb.org/t/p/w342/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg',
-        detailPath: 'tv-movie/movie/693134',
-        status: 'planned',
-        tags: ['weekend'],
-        addedAt: NOW - 6 * DAY_MS,
-        updatedAt: NOW - 2 * DAY_MS,
-      }),
-      createSeedEntry('seed-watch-3', 'The Bear', 'tv', {
-        imageUrl: 'https://image.tmdb.org/t/p/w342/nmVOQpyT5ztQcyy3dG6VfQm7N3K.jpg',
-        detailPath: 'tv-movie/tv/136315',
+      createSeedEntry('entry-mock-blue-lock', 'Blue Lock', 'anime', {
+        imageUrl: 'https://myanimelist.net/images/anime/1258/126929.jpg',
+        detailPath: 'anime/49596',
+        totalEpisodes: 24,
         status: 'paused',
-        tags: ['short'],
+        rating: 8,
+        tags: ['sports', 'dub'],
         progress: {
-          current: 4,
-          total: 10,
+          current: 14,
+          total: 24,
           unit: 'episode',
-          updatedAt: NOW - 3 * DAY_MS,
+          updatedAt: NOW - DAY_MS * 6,
         },
-        addedAt: NOW - 10 * DAY_MS,
-        updatedAt: NOW - 3 * DAY_MS,
-      }),
-    ],
-    {
-      description: 'Current TV, movie, and anime rotation.',
-      pinned: true,
-      templateId: 'template-watch',
-      updatedAt: NOW - DAY_MS,
-    }
-  ),
-  createSeedList(
-    'list-reading',
-    'Reading Queue',
-    [
-      createSeedEntry('seed-read-1', 'Blue Period', 'manga', {
-        imageUrl: 'https://cdn.myanimelist.net/images/manga/1/229262.jpg',
-        detailPath: 'manga/107931',
-        status: 'active',
-        tags: ['morning'],
-        progress: {
-          current: 38,
-          total: 65,
-          unit: 'chapter',
-          updatedAt: NOW - 2 * DAY_MS,
+        notes: 'On pause until the group watch catches up.',
+        sourceRef: {
+          source: 'anime',
+          externalId: '49596',
+          detailPath: 'anime/49596',
         },
-        addedAt: NOW - 14 * DAY_MS,
-        updatedAt: NOW - 2 * DAY_MS,
+        addedAt: NOW - DAY_MS * 40,
+        updatedAt: NOW - DAY_MS * 6,
       }),
-      createSeedEntry('seed-read-2', 'Project Hail Mary', 'book', {
-        detailPath: 'books/works--OL24210561W',
-        status: 'planned',
-        tags: ['sci-fi'],
-        addedAt: NOW - 5 * DAY_MS,
-        updatedAt: NOW - 5 * DAY_MS,
-      }),
-    ],
-    {
-      description: 'Books and manga to keep moving through.',
-      pinned: true,
-      templateId: 'template-reading',
-      updatedAt: NOW - 2 * DAY_MS,
-    }
-  ),
-  createSeedList(
-    'list-favorites',
-    'Finished Favorites',
-    [
-      createSeedEntry('seed-fav-1', 'Steins;Gate', 'anime', {
-        imageUrl: 'https://cdn.myanimelist.net/images/anime/1935/127974.jpg',
-        detailPath: 'anime/9253',
-        status: 'completed',
-        rating: 10,
-        tags: ['all-timer'],
-        addedAt: NOW - 60 * DAY_MS,
-        updatedAt: NOW - 20 * DAY_MS,
-      }),
-      createSeedEntry('seed-fav-2', 'Everything Everywhere All at Once', 'movie', {
-        imageUrl: 'https://image.tmdb.org/t/p/w342/w3LxiVYdWWRvEVdn5RYq6jIqkb1.jpg',
-        detailPath: 'tv-movie/movie/545611',
+      createSeedEntry('entry-mock-the-bear', 'The Bear', 'tv', {
+        imageUrl: tmdbPoster('/eKfVzzEazSIjJMrw9ADa2x8ksLz.jpg'),
+        detailPath: 'tv-movie/tv/136315',
         status: 'completed',
         rating: 9,
-        tags: ['rewatch'],
-        addedAt: NOW - 45 * DAY_MS,
-        updatedAt: NOW - 12 * DAY_MS,
+        tags: ['rewatch', 'fx'],
+        progress: {
+          current: 18,
+          total: 18,
+          unit: 'episode',
+          updatedAt: NOW - DAY_MS * 4,
+        },
+        notes: 'Season 2 finale still clears almost everything else from last year.',
+        sourceRef: {
+          source: 'tv',
+          externalId: '136315',
+          detailPath: 'tv-movie/tv/136315',
+        },
+        addedAt: NOW - DAY_MS * 75,
+        updatedAt: NOW - DAY_MS * 4,
+      }),
+      createSeedEntry('entry-mock-severance', 'Severance', 'tv', {
+        imageUrl: tmdbPoster('/pPHpeI2X1qEd1CS1SeyrdhZ4qnT.jpg'),
+        detailPath: 'tv-movie/tv/95396',
+        status: 'planned',
+        tags: ['apple-tv+', 'office-horror'],
+        notes: 'Waiting for two more episodes before starting the new season.',
+        reminderAt: NOW + DAY_MS * 5,
+        sourceRef: {
+          source: 'tv',
+          externalId: '95396',
+          detailPath: 'tv-movie/tv/95396',
+        },
+        addedAt: NOW - DAY_MS * 18,
+        updatedAt: NOW - DAY_MS * 2,
+      }),
+      createSeedEntry('entry-mock-dune-part-two', 'Dune: Part Two', 'movie', {
+        imageUrl: tmdbPoster('/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg'),
+        detailPath: 'tv-movie/movie/693134',
+        status: 'completed',
+        rating: 9,
+        tags: ['imax', 'sci-fi'],
+        progress: {
+          current: 1,
+          total: 1,
+          unit: 'item',
+          updatedAt: NOW - DAY_MS * 8,
+        },
+        notes: 'Rewatch before the next adaptation lands.',
+        sourceRef: {
+          source: 'movie',
+          externalId: '693134',
+          detailPath: 'tv-movie/movie/693134',
+        },
+        addedAt: NOW - DAY_MS * 12,
+        updatedAt: NOW - DAY_MS * 8,
       }),
     ],
     {
-      description: 'Completed items worth keeping visible.',
-      updatedAt: NOW - 12 * DAY_MS,
+      description: 'A mixed media queue with progress, reminders, and ratings.',
+      preset: 'tracking',
+      pinned: true,
+      config: createListConfig({
+        addons: ['status', 'progress', 'rating', 'tags', 'notes', 'reminders', 'cover'],
+        fieldDefinitions: [],
+        defaultEntryType: 'tv',
+      }),
+      preferences: createListPreferences({
+        viewMode: 'grid',
+        groupMode: 'status',
+      }),
+      createdAt: NOW - DAY_MS * 90,
+      updatedAt: NOW - DAY_MS,
     }
-  ),
-  createSeedList(
-    'list-links',
-    'Quick Captures',
+  );
+
+  const readingStack = createSeedList(
+    readingStackId,
+    'Reading Stack',
     [
-      createSeedEntry('seed-link-1', 'Mechanical keyboard switch sampler', 'link', {
-        imageUrl:
-          'https://images.unsplash.com/photo-1511467687858-23d96c32e4ae?auto=format&fit=crop&w=600&q=80',
+      createSeedEntry('entry-mock-atomic-habits', 'Atomic Habits', 'book', {
+        imageUrl: 'https://covers.openlibrary.org/b/id/12539702-M.jpg',
+        detailPath: bookKeyToDetailPath('/works/OL17930368W'),
+        status: 'active',
+        rating: 9,
+        tags: ['nonfiction', 'morning-routine'],
+        progress: {
+          current: 42,
+          total: 100,
+          unit: 'percent',
+          updatedAt: NOW - DAY_MS * 2,
+        },
+        reminderAt: NOW + DAY_MS * 1,
+        notes: 'Reading a chapter every weekday morning.',
+        customFields: [
+          { title: 'Creator', value: 'James Clear' },
+          { title: 'Format', value: 'Hardcover' },
+          { title: 'Length', value: '320', format: 'numbers' },
+        ],
+        sourceRef: {
+          source: 'book',
+          externalId: '/works/OL17930368W',
+          detailPath: bookKeyToDetailPath('/works/OL17930368W'),
+          canonicalUrl: 'https://openlibrary.org/works/OL17930368W',
+        },
+        addedAt: NOW - DAY_MS * 24,
+        updatedAt: NOW - DAY_MS * 2,
+      }),
+      createSeedEntry('entry-mock-the-hobbit', 'The Hobbit', 'book', {
+        imageUrl: 'https://covers.openlibrary.org/b/id/14627509-M.jpg',
+        detailPath: bookKeyToDetailPath('/works/OL27482W'),
+        status: 'completed',
+        rating: 10,
+        tags: ['fantasy', 'reread'],
+        progress: {
+          current: 100,
+          total: 100,
+          unit: 'percent',
+          updatedAt: NOW - DAY_MS * 14,
+        },
+        notes: 'Annual comfort reread in late December.',
+        customFields: [
+          { title: 'Creator', value: 'J.R.R. Tolkien' },
+          { title: 'Format', value: 'Paperback' },
+          { title: 'Length', value: '310', format: 'numbers' },
+        ],
+        sourceRef: {
+          source: 'book',
+          externalId: '/works/OL27482W',
+          detailPath: bookKeyToDetailPath('/works/OL27482W'),
+          canonicalUrl: 'https://openlibrary.org/works/OL27482W',
+        },
+        addedAt: NOW - DAY_MS * 80,
+        updatedAt: NOW - DAY_MS * 14,
+      }),
+      createSeedEntry('entry-mock-blue-period', 'Blue Period', 'manga', {
+        detailPath: 'manga/107931',
+        status: 'active',
+        rating: 9,
+        tags: ['art', 'ongoing'],
+        progress: {
+          current: 64,
+          unit: 'chapter',
+          updatedAt: NOW - DAY_MS * 1,
+        },
+        notes: 'Caught up digitally and buying physical volumes slowly.',
+        customFields: [
+          { title: 'Creator', value: 'Tsubasa Yamaguchi' },
+          { title: 'Format', value: 'Digital' },
+          { title: 'Length', value: '16', format: 'numbers' },
+        ],
+        sourceRef: {
+          source: 'manga',
+          externalId: '107931',
+          detailPath: 'manga/107931',
+        },
+        addedAt: NOW - DAY_MS * 55,
+        updatedAt: NOW - DAY_MS * 1,
+      }),
+      createSeedEntry('entry-mock-one-piece', 'One Piece', 'manga', {
+        detailPath: 'manga/13',
+        status: 'paused',
+        rating: 10,
+        tags: ['marathon'],
+        progress: {
+          current: 1112,
+          unit: 'chapter',
+          updatedAt: NOW - DAY_MS * 9,
+        },
+        notes: 'Paused until the current arc is a little further ahead.',
+        customFields: [
+          { title: 'Creator', value: 'Eiichiro Oda' },
+          { title: 'Format', value: 'Shonen Jump app' },
+          { title: 'Length', value: '1112', format: 'numbers' },
+        ],
+        sourceRef: {
+          source: 'manga',
+          externalId: '13',
+          detailPath: 'manga/13',
+        },
+        addedAt: NOW - DAY_MS * 180,
+        updatedAt: NOW - DAY_MS * 9,
+      }),
+    ],
+    {
+      description: 'Books and manga managed like a serious reading backlog.',
+      preset: 'tracking',
+      pinned: true,
+      config: createListConfig({
+        addons: [
+          'status',
+          'progress',
+          'rating',
+          'tags',
+          'notes',
+          'reminders',
+          'cover',
+          'custom-fields',
+          'compare',
+        ],
+        fieldDefinitions: [
+          createListFieldDefinition('creator', 'Creator', 'text'),
+          createListFieldDefinition('format', 'Format', 'text'),
+          createListFieldDefinition('length', 'Length', 'number'),
+        ],
+        defaultEntryType: 'book',
+      }),
+      preferences: createListPreferences({
+        viewMode: 'compare',
+        sortMode: 'rating-desc',
+      }),
+      createdAt: NOW - DAY_MS * 120,
+      updatedAt: NOW - DAY_MS,
+    }
+  );
+
+  const wishlist = createSeedList(
+    wishlistId,
+    'Wishlist',
+    [
+      createSeedEntry('entry-mock-aeropress-xl', 'AeroPress XL', 'link', {
         status: 'planned',
-        tags: ['sale'],
-        productUrl: 'https://example.com/keyboard-switch-sampler',
-        price: '$18.00',
+        tags: ['coffee', 'gear'],
+        notes: 'Large enough for brewing when friends come over.',
+        productUrl: 'https://aeropress.com/products/aeropress-xl-coffee-press',
+        price: '$69.95',
+        customFields: [
+          { title: 'Store', value: 'AeroPress' },
+          { title: 'Target Price', value: '60', format: 'numbers' },
+          { title: 'Why', value: 'Batch coffee without switching to drip gear' },
+        ],
         sourceRef: {
           source: 'link',
-          canonicalUrl: 'https://example.com/keyboard-switch-sampler',
+          canonicalUrl: 'https://aeropress.com/products/aeropress-xl-coffee-press',
         },
-        notes: 'Compare against tactile pack before ordering.',
-        addedAt: NOW - 3 * DAY_MS,
-        updatedAt: NOW - 3 * DAY_MS,
+        addedAt: NOW - DAY_MS * 20,
+        updatedAt: NOW - DAY_MS * 2,
+      }),
+      createSeedEntry('entry-mock-mx-master', 'Logitech MX Master 3S', 'link', {
+        status: 'planned',
+        tags: ['desk', 'productivity'],
+        notes: 'Waiting for a sale before replacing the travel mouse.',
+        productUrl: 'https://www.logitech.com/en-us/products/mice/mx-master-3s.910-006556.html',
+        price: '$99.99',
+        customFields: [
+          { title: 'Store', value: 'Logitech' },
+          { title: 'Target Price', value: '80', format: 'numbers' },
+          { title: 'Why', value: 'Better ergonomics for daily editing work' },
+        ],
+        sourceRef: {
+          source: 'link',
+          canonicalUrl:
+            'https://www.logitech.com/en-us/products/mice/mx-master-3s.910-006556.html',
+        },
+        addedAt: NOW - DAY_MS * 31,
+        updatedAt: NOW - DAY_MS * 7,
+      }),
+      createSeedEntry('entry-mock-kindle-paperwhite', 'Kindle Paperwhite Signature Edition', 'link', {
+        status: 'planned',
+        tags: ['reading', 'travel'],
+        notes: 'For library holds and flights when carrying hardcovers gets old.',
+        productUrl: 'https://www.amazon.com/dp/B08B495319',
+        price: '$189.99',
+        customFields: [
+          { title: 'Store', value: 'Amazon' },
+          { title: 'Target Price', value: '150', format: 'numbers' },
+          { title: 'Why', value: 'Battery life and warm light for night reading' },
+        ],
+        sourceRef: {
+          source: 'link',
+          canonicalUrl: 'https://www.amazon.com/dp/B08B495319',
+        },
+        addedAt: NOW - DAY_MS * 16,
+        updatedAt: NOW - DAY_MS * 3,
+      }),
+      createSeedEntry('entry-mock-black-hole', 'Patagonia Black Hole Mini MLC 30L', 'link', {
+        status: 'planned',
+        tags: ['travel', 'carry-on'],
+        notes: 'Would replace the overstuffed weekender bag for short trips.',
+        productUrl: 'https://www.patagonia.com/product/black-hole-mini-mlc-convertible-backpack-30-liters/49266.html',
+        price: '$199.00',
+        customFields: [
+          { title: 'Store', value: 'Patagonia' },
+          { title: 'Target Price', value: '170', format: 'numbers' },
+          { title: 'Why', value: 'Cleaner one-bag setup for 2-3 day trips' },
+        ],
+        sourceRef: {
+          source: 'link',
+          canonicalUrl:
+            'https://www.patagonia.com/product/black-hole-mini-mlc-convertible-backpack-30-liters/49266.html',
+        },
+        addedAt: NOW - DAY_MS * 22,
+        updatedAt: NOW - DAY_MS * 5,
       }),
     ],
     {
-      description: 'Manual notes, link imports, and one-off ideas.',
+      description: 'A practical wishlist with links, pricing, and comparison notes.',
       preset: 'blank',
-      templateId: 'template-links',
-      updatedAt: NOW - 3 * DAY_MS,
+      config: createListConfig({
+        addons: ['tags', 'notes', 'links', 'cover', 'custom-fields', 'compare'],
+        fieldDefinitions: [
+          createListFieldDefinition('store', 'Store', 'text'),
+          createListFieldDefinition('target-price', 'Target Price', 'number'),
+          createListFieldDefinition('why', 'Why', 'text'),
+        ],
+        defaultEntryType: 'link',
+      }),
+      preferences: createListPreferences({
+        viewMode: 'compare',
+      }),
+      createdAt: NOW - DAY_MS * 48,
+      updatedAt: NOW - DAY_MS * 2,
     }
-  ),
-];
+  );
+
+  const pantryReset = createSeedList(
+    pantryResetId,
+    'Pantry Reset',
+    [
+      createSeedEntry('entry-mock-pantry-measure', 'Measure shelf heights', 'custom', {
+        status: 'completed',
+        tags: ['prep'],
+        notes: 'Needed exact measurements before ordering bins.',
+        addedAt: NOW - DAY_MS * 11,
+        updatedAt: NOW - DAY_MS * 10,
+      }),
+      createSeedEntry('entry-mock-pantry-bins', 'Order three clear storage bins', 'custom', {
+        status: 'active',
+        tags: ['shopping'],
+        reminderAt: NOW + DAY_MS * 1,
+        notes: 'Looking for matching lids so snacks stack cleanly.',
+        addedAt: NOW - DAY_MS * 9,
+        updatedAt: NOW - DAY_MS * 1,
+      }),
+      createSeedEntry('entry-mock-pantry-labels', 'Label breakfast and baking shelves', 'custom', {
+        status: 'planned',
+        tags: ['organization'],
+        addedAt: NOW - DAY_MS * 8,
+        updatedAt: NOW - DAY_MS * 8,
+      }),
+    ],
+    {
+      description: 'Step-by-step checklist for the kitchen refresh.',
+      preset: 'blank',
+      config: createListConfig({
+        addons: ['status', 'tags', 'notes', 'reminders'],
+        fieldDefinitions: [],
+        defaultEntryType: 'custom',
+      }),
+      preferences: createListPreferences({
+        groupMode: 'status',
+      }),
+      createdAt: NOW - DAY_MS * 14,
+      updatedAt: NOW - DAY_MS * 1,
+    }
+  );
+
+  const galleryWall = createSeedList(
+    galleryWallId,
+    'Gallery Wall',
+    [
+      createSeedEntry('entry-mock-gallery-frames', 'Order five walnut frames', 'custom', {
+        status: 'active',
+        tags: ['shopping'],
+        notes: 'Mix 8x10 and 11x14 sizes.',
+        addedAt: NOW - DAY_MS * 18,
+        updatedAt: NOW - DAY_MS * 2,
+      }),
+      createSeedEntry('entry-mock-gallery-prints', 'Print family photos from the fall trip', 'custom', {
+        status: 'planned',
+        tags: ['photos'],
+        reminderAt: NOW + DAY_MS * 6,
+        addedAt: NOW - DAY_MS * 16,
+        updatedAt: NOW - DAY_MS * 16,
+      }),
+      createSeedEntry('entry-mock-gallery-patch', 'Patch the old anchor holes', 'custom', {
+        status: 'planned',
+        tags: ['paint'],
+        addedAt: NOW - DAY_MS * 15,
+        updatedAt: NOW - DAY_MS * 15,
+      }),
+    ],
+    {
+      description: 'The short list behind the hallway wall project.',
+      preset: 'blank',
+      config: createListConfig({
+        addons: ['status', 'tags', 'notes', 'reminders'],
+        fieldDefinitions: [],
+        defaultEntryType: 'custom',
+      }),
+      preferences: createListPreferences({
+        groupMode: 'status',
+      }),
+      createdAt: NOW - DAY_MS * 20,
+      updatedAt: NOW - DAY_MS * 2,
+    }
+  );
+
+  const homeProjects = createSeedList(
+    homeProjectsId,
+    'Home Projects',
+    [
+      createSeedEntry('entry-mock-home-pantry', 'Pantry Reset', 'list', {
+        linkedListId: pantryResetId,
+        detailPath: `list/${pantryResetId}`,
+        status: 'active',
+        tags: ['kitchen'],
+        notes: 'Sublist tracks the individual setup tasks.',
+        customFields: [
+          { title: 'Owner', value: 'Justin' },
+          { title: 'Due Date', value: 'March 18' },
+          { title: 'Budget', value: '120', format: 'numbers' },
+        ],
+        addedAt: NOW - DAY_MS * 12,
+        updatedAt: NOW - DAY_MS * 1,
+      }),
+      createSeedEntry('entry-mock-home-gallery', 'Entryway Gallery Wall', 'list', {
+        linkedListId: galleryWallId,
+        detailPath: `list/${galleryWallId}`,
+        status: 'planned',
+        tags: ['decor'],
+        notes: 'Waiting until the frame sizes are final.',
+        customFields: [
+          { title: 'Owner', value: 'Justin + Sam' },
+          { title: 'Due Date', value: 'April 02' },
+          { title: 'Budget', value: '240', format: 'numbers' },
+        ],
+        addedAt: NOW - DAY_MS * 18,
+        updatedAt: NOW - DAY_MS * 2,
+      }),
+      createSeedEntry('entry-mock-home-tax', 'Tax paperwork cleanup', 'custom', {
+        status: 'active',
+        tags: ['admin'],
+        reminderAt: NOW + DAY_MS * 4,
+        notes: 'Need one digital folder and one physical folder, nothing fancy.',
+        customFields: [
+          { title: 'Owner', value: 'Justin' },
+          { title: 'Due Date', value: 'March 20' },
+          { title: 'Budget', value: '0', format: 'numbers' },
+        ],
+        addedAt: NOW - DAY_MS * 6,
+        updatedAt: NOW - DAY_MS * 1,
+      }),
+      createSeedEntry('entry-mock-home-ac', 'Window AC deep clean', 'custom', {
+        status: 'planned',
+        tags: ['seasonal'],
+        customFields: [
+          { title: 'Owner', value: 'Justin' },
+          { title: 'Due Date', value: 'April 12' },
+          { title: 'Budget', value: '25', format: 'numbers' },
+        ],
+        addedAt: NOW - DAY_MS * 5,
+        updatedAt: NOW - DAY_MS * 5,
+      }),
+    ],
+    {
+      description: 'A project list that leans on reminders, custom fields, and sublists.',
+      preset: 'blank',
+      config: createListConfig({
+        addons: ['status', 'tags', 'notes', 'reminders', 'sublists', 'custom-fields'],
+        fieldDefinitions: [
+          createListFieldDefinition('owner', 'Owner', 'text'),
+          createListFieldDefinition('due-date', 'Due Date', 'text'),
+          createListFieldDefinition('budget', 'Budget', 'number'),
+        ],
+        defaultEntryType: 'custom',
+      }),
+      preferences: createListPreferences({
+        groupMode: 'status',
+      }),
+      createdAt: NOW - DAY_MS * 21,
+      updatedAt: NOW - DAY_MS * 1,
+    }
+  );
+
+  const takeoutSTier = createSeedList(
+    takeoutSTierId,
+    'S Tier',
+    [
+      createSeedEntry('entry-mock-cava', 'CAVA', 'custom', {
+        tags: ['fast-casual', 'healthy'],
+        notes: 'Reliable lunch order, and the pita chips never miss.',
+        rating: 9,
+        addedAt: NOW - DAY_MS * 35,
+        updatedAt: NOW - DAY_MS * 2,
+      }),
+      createSeedEntry('entry-mock-shake-shack', 'Shake Shack', 'custom', {
+        tags: ['burgers'],
+        notes: 'Best default “everyone agrees on it” dinner order.',
+        rating: 9,
+        addedAt: NOW - DAY_MS * 35,
+        updatedAt: NOW - DAY_MS * 4,
+      }),
+    ],
+    {
+      preset: 'blank',
+      config: createListConfig({
+        addons: ['cover', 'notes', 'tags'],
+        fieldDefinitions: [],
+        defaultEntryType: 'custom',
+      }),
+      createdAt: NOW - DAY_MS * 35,
+      updatedAt: NOW - DAY_MS * 2,
+    }
+  );
+
+  const takeoutATier = createSeedList(
+    takeoutATierId,
+    'A Tier',
+    [
+      createSeedEntry('entry-mock-sweetgreen', 'Sweetgreen', 'custom', {
+        tags: ['salads'],
+        notes: 'Solid default for weekdays when energy is low.',
+        rating: 8,
+        addedAt: NOW - DAY_MS * 35,
+        updatedAt: NOW - DAY_MS * 5,
+      }),
+      createSeedEntry('entry-mock-dominos', "Domino's", 'custom', {
+        tags: ['pizza', 'late-night'],
+        notes: 'Not artisanal, just dependable.',
+        rating: 8,
+        addedAt: NOW - DAY_MS * 35,
+        updatedAt: NOW - DAY_MS * 7,
+      }),
+    ],
+    {
+      preset: 'blank',
+      config: createListConfig({
+        addons: ['cover', 'notes', 'tags'],
+        fieldDefinitions: [],
+        defaultEntryType: 'custom',
+      }),
+      createdAt: NOW - DAY_MS * 35,
+      updatedAt: NOW - DAY_MS * 5,
+    }
+  );
+
+  const takeoutBTier = createSeedList(
+    takeoutBTierId,
+    'B Tier',
+    [
+      createSeedEntry('entry-mock-chipotle', 'Chipotle', 'custom', {
+        tags: ['burritos'],
+        notes: 'Great until the guac price starts feeling personal.',
+        rating: 7,
+        addedAt: NOW - DAY_MS * 35,
+        updatedAt: NOW - DAY_MS * 9,
+      }),
+      createSeedEntry('entry-mock-five-guys', 'Five Guys', 'custom', {
+        tags: ['burgers', 'fries'],
+        notes: 'Worth it only when the craving is specific.',
+        rating: 7,
+        addedAt: NOW - DAY_MS * 35,
+        updatedAt: NOW - DAY_MS * 12,
+      }),
+    ],
+    {
+      preset: 'blank',
+      config: createListConfig({
+        addons: ['cover', 'notes', 'tags'],
+        fieldDefinitions: [],
+        defaultEntryType: 'custom',
+      }),
+      createdAt: NOW - DAY_MS * 35,
+      updatedAt: NOW - DAY_MS * 9,
+    }
+  );
+
+  const takeoutCTier = createSeedList(
+    takeoutCTierId,
+    'C Tier',
+    [
+      createSeedEntry('entry-mock-panera', 'Panera Bread', 'custom', {
+        tags: ['soup'],
+        notes: 'Fine in airports. Rarely the first choice at home.',
+        rating: 5,
+        addedAt: NOW - DAY_MS * 35,
+        updatedAt: NOW - DAY_MS * 15,
+      }),
+    ],
+    {
+      preset: 'blank',
+      config: createListConfig({
+        addons: ['cover', 'notes', 'tags'],
+        fieldDefinitions: [],
+        defaultEntryType: 'custom',
+      }),
+      createdAt: NOW - DAY_MS * 35,
+      updatedAt: NOW - DAY_MS * 15,
+    }
+  );
+
+  const takeoutTier = createSeedList(
+    takeoutTierId,
+    'Favorite Takeout Tier List',
+    [
+      createSeedEntry('entry-mock-tier-s', 'S Tier', 'list', {
+        linkedListId: takeoutSTierId,
+        detailPath: `list/${takeoutSTierId}`,
+        addedAt: NOW - DAY_MS * 35,
+        updatedAt: NOW - DAY_MS * 2,
+      }),
+      createSeedEntry('entry-mock-tier-a', 'A Tier', 'list', {
+        linkedListId: takeoutATierId,
+        detailPath: `list/${takeoutATierId}`,
+        addedAt: NOW - DAY_MS * 35,
+        updatedAt: NOW - DAY_MS * 5,
+      }),
+      createSeedEntry('entry-mock-tier-b', 'B Tier', 'list', {
+        linkedListId: takeoutBTierId,
+        detailPath: `list/${takeoutBTierId}`,
+        addedAt: NOW - DAY_MS * 35,
+        updatedAt: NOW - DAY_MS * 9,
+      }),
+      createSeedEntry('entry-mock-tier-c', 'C Tier', 'list', {
+        linkedListId: takeoutCTierId,
+        detailPath: `list/${takeoutCTierId}`,
+        addedAt: NOW - DAY_MS * 35,
+        updatedAt: NOW - DAY_MS * 15,
+      }),
+    ],
+    {
+      description: 'A lightweight tier board built from linked sublists.',
+      preset: 'blank',
+      config: createListConfig({
+        addons: ['sublists', 'tier', 'cover'],
+        fieldDefinitions: [],
+        defaultEntryType: 'custom',
+      }),
+      preferences: createListPreferences({
+        viewMode: 'tier',
+      }),
+      createdAt: NOW - DAY_MS * 35,
+      updatedAt: NOW - DAY_MS * 2,
+    }
+  );
+
+  const archivedReadingChallenge = createSeedList(
+    archivedReadingChallengeId,
+    '2025 Reading Challenge',
+    [
+      createSeedEntry('entry-mock-deep-work', 'Deep Work', 'book', {
+        status: 'completed',
+        rating: 8,
+        tags: ['focus'],
+        progress: {
+          current: 100,
+          total: 100,
+          unit: 'percent',
+          updatedAt: NOW - DAY_MS * 40,
+        },
+        customFields: [
+          { title: 'Creator', value: 'Cal Newport' },
+          { title: 'Format', value: 'Audiobook' },
+          { title: 'Length', value: '304', format: 'numbers' },
+        ],
+        addedAt: NOW - DAY_MS * 220,
+        updatedAt: NOW - DAY_MS * 40,
+      }),
+      createSeedEntry('entry-mock-project-hail-mary', 'Project Hail Mary', 'book', {
+        status: 'completed',
+        rating: 9,
+        tags: ['sci-fi'],
+        progress: {
+          current: 100,
+          total: 100,
+          unit: 'percent',
+          updatedAt: NOW - DAY_MS * 70,
+        },
+        customFields: [
+          { title: 'Creator', value: 'Andy Weir' },
+          { title: 'Format', value: 'Hardcover' },
+          { title: 'Length', value: '496', format: 'numbers' },
+        ],
+        addedAt: NOW - DAY_MS * 260,
+        updatedAt: NOW - DAY_MS * 70,
+      }),
+    ],
+    {
+      description: 'Archived after the yearly challenge wrapped.',
+      preset: 'tracking',
+      config: createListConfig({
+        addons: ['status', 'progress', 'rating', 'tags', 'notes', 'cover', 'custom-fields'],
+        fieldDefinitions: [
+          createListFieldDefinition('creator-archive', 'Creator', 'text'),
+          createListFieldDefinition('format-archive', 'Format', 'text'),
+          createListFieldDefinition('length-archive', 'Length', 'number'),
+        ],
+        defaultEntryType: 'book',
+      }),
+      preferences: createListPreferences({
+        viewMode: 'list',
+        filterMode: 'completed',
+      }),
+      archivedAt: NOW - DAY_MS * 30,
+      createdAt: NOW - DAY_MS * 280,
+      updatedAt: NOW - DAY_MS * 30,
+    }
+  );
+
+  const deletedGiftIdeas = createSeedList(
+    deletedGiftIdeasId,
+    'Holiday Gift Ideas 2025',
+    [
+      createSeedEntry('entry-mock-gift-hoodie', 'Champion Reverse Weave Hoodie', 'link', {
+        productUrl: 'https://www.champion.com/reverse-weave-hoodie.html',
+        price: '$65.00',
+        notes: 'Good backup gift idea for my brother.',
+        tags: ['family'],
+        addedAt: NOW - DAY_MS * 100,
+        updatedAt: NOW - DAY_MS * 92,
+      }),
+      createSeedEntry('entry-mock-gift-mug', 'Fellow Carter Move Mug', 'link', {
+        productUrl: 'https://fellowproducts.com/products/carter-move-mug',
+        price: '$30.00',
+        notes: 'Almost bought this twice, so the list did its job.',
+        tags: ['coffee'],
+        addedAt: NOW - DAY_MS * 103,
+        updatedAt: NOW - DAY_MS * 95,
+      }),
+    ],
+    {
+      description: 'Deleted after the holidays were over.',
+      preset: 'blank',
+      config: createListConfig({
+        addons: ['tags', 'notes', 'links'],
+        fieldDefinitions: [],
+        defaultEntryType: 'link',
+      }),
+      deletedAt: NOW - DAY_MS * 85,
+      createdAt: NOW - DAY_MS * 110,
+      updatedAt: NOW - DAY_MS * 85,
+    }
+  );
+
+  return {
+    lists: [
+      watchQueue,
+      readingStack,
+      wishlist,
+      homeProjects,
+      pantryReset,
+      galleryWall,
+      takeoutTier,
+      takeoutSTier,
+      takeoutATier,
+      takeoutBTier,
+      takeoutCTier,
+      archivedReadingChallenge,
+    ],
+    deletedLists: [deletedGiftIdeas],
+    savedTemplates: [
+      {
+        id: 'template-user-weekend-reset',
+        title: 'Weekend Reset',
+        description: 'A reusable household reset with reminders and a couple of owner fields.',
+        source: 'user',
+        preset: 'blank',
+        config: createListConfig({
+          addons: ['status', 'tags', 'notes', 'reminders', 'custom-fields'],
+          fieldDefinitions: [
+            createListFieldDefinition('weekend-area', 'Area', 'text'),
+            createListFieldDefinition('weekend-timebox', 'Timebox', 'number'),
+          ],
+          defaultEntryType: 'custom',
+        }),
+        starterEntries: [
+          {
+            title: 'Laundry',
+            type: 'custom',
+            status: 'planned',
+            tags: ['home'],
+            customFields: [
+              { title: 'Area', value: 'Bedroom' },
+              { title: 'Timebox', value: '45', format: 'numbers' },
+            ],
+          },
+          {
+            title: 'Inbox zero',
+            type: 'custom',
+            status: 'planned',
+            tags: ['admin'],
+            customFields: [
+              { title: 'Area', value: 'Office' },
+              { title: 'Timebox', value: '30', format: 'numbers' },
+            ],
+          },
+        ],
+      },
+    ],
+    itemUserDataByKey: {
+      [getItemUserDataKey('anime', '52991')]: createUserData(
+        ['favorite', 'rewatch'],
+        'Episode 10 is still the benchmark for this entire season.',
+        10,
+        [{ title: 'Watch With', value: 'Sunday dinner crew' }]
+      ),
+      [getItemUserDataKey('tv', '136315')]: createUserData(
+        ['kitchen-nightmare', 'comfort-rewatch'],
+        'The sound design alone makes it worth revisiting with headphones.',
+        9
+      ),
+      [getItemUserDataKey('tv', '95396')]: createUserData(
+        ['office-horror'],
+        'Holding off until I can binge more than one episode at a time.'
+      ),
+      [getItemUserDataKey('book', '/works/OL17930368W')]: createUserData(
+        ['highlight-heavy'],
+        'Using this as the current “small habit” reset read.',
+        9,
+        [{ title: 'Favorite Chapter', value: 'The 2-Minute Rule' }]
+      ),
+      [getItemUserDataKey('book', '/works/OL27482W')]: createUserData(
+        ['comfort-read'],
+        'Still the easiest fantasy reread to recommend to anyone.',
+        10
+      ),
+      [getItemUserDataKey('manga', '107931')]: createUserData(
+        ['art-school'],
+        'One of the best depictions of taste and craft in any manga.',
+        9
+      ),
+      [getItemUserDataKey('manga', '13')]: createUserData(
+        ['long-haul'],
+        'Too big to track casually, but impossible to drop entirely.',
+        10
+      ),
+    },
+    recentSearches: ['frieren', 'atomic habits', 'mx master 3s', 'severance'],
+    recentListIds: [watchQueueId, readingStackId, homeProjectsId, wishlistId, takeoutTierId],
+  };
+}
+
+export const DEFAULT_LISTS: TrackerList[] = [];
 
 export const MOCK_LISTS = DEFAULT_LISTS;
 export const MOCK_TIER_SUBLISTS: TrackerList[] = [];
 
-export const LEGACY_MOCK_LISTS: TrackerList[] = [
-  createSeedList(
-    'list-watchlist',
-    'Watchlist',
-    [
-      createSeedEntry('e1', 'Attack on Titan', 'anime', {
-        imageUrl: 'https://cdn.myanimelist.net/images/anime/10/47347.jpg',
-        detailPath: 'anime/16498',
-      }),
-      createSeedEntry('e2', 'Dune', 'movie', {
-        imageUrl: 'https://image.tmdb.org/t/p/w200/8b8R8l88Qje9dn9OE8PY05Nxl1X.jpg',
-        detailPath: 'tv-movie/movie/438631',
-      }),
-      createSeedEntry('e3', 'The Legend of Zelda: Breath of the Wild', 'game', {
-        detailPath: 'games/7346',
-      }),
-      createSeedEntry('e4', 'Chainsaw Man', 'manga', {
-        imageUrl: 'https://cdn.myanimelist.net/images/manga/3/216464.jpg',
-        detailPath: 'manga/116778',
-      }),
-    ],
-    { preset: 'tracking' }
-  ),
-  createSeedList(
-    'list-favorites',
-    'Favorites',
-    [
-      createSeedEntry('e5', 'Steins;Gate', 'anime', {
-        imageUrl: 'https://cdn.myanimelist.net/images/anime/1935/127974.jpg',
-        detailPath: 'anime/9253',
-      }),
-      createSeedEntry('e6', 'Breaking Bad', 'tv', {
-        imageUrl: 'https://image.tmdb.org/t/p/w200/ggFHVNu6YYI5L9pCfOacjizRGt.jpg',
-        detailPath: 'tv-movie/tv/1396',
-      }),
-      createSeedEntry('e7', 'Project Hail Mary', 'book', {
-        detailPath: 'books/OL21745884W',
-      }),
-    ]
-  ),
-  createSeedList(
-    'list-reading',
-    'Currently Reading',
-    [
-      createSeedEntry('e8', 'Berserk', 'manga', {
-        imageUrl: 'https://cdn.myanimelist.net/images/manga/1/157931.jpg',
-        detailPath: 'manga/2',
-      }),
-      createSeedEntry('e9', 'The Three-Body Problem', 'book', {
-        detailPath: 'books/OL17267881W',
-      }),
-    ]
-  ),
-  createSeedList(
-    'list-games-backlog',
-    'Games Backlog',
-    [
-      createSeedEntry('e10', 'Elden Ring', 'game', { detailPath: 'games/190667' }),
-      createSeedEntry('e11', 'Hades', 'game', { detailPath: 'games/112461' }),
-    ]
-  ),
-  createSeedList(
-    'list-movie-tier',
-    'Movie tier list',
-    [
-      createSeedEntry('tl1', 'S', 'custom', {
-        detailPath: 'list/list-tier-s',
-        notes: 'Legacy tier list bucket.',
-      }),
-      createSeedEntry('tl2', 'A', 'custom', {
-        detailPath: 'list/list-tier-a',
-        notes: 'Legacy tier list bucket.',
-      }),
-      createSeedEntry('tl3', 'B', 'custom', {
-        detailPath: 'list/list-tier-b',
-        notes: 'Legacy tier list bucket.',
-      }),
-      createSeedEntry('tl4', 'C', 'custom', {
-        detailPath: 'list/list-tier-c',
-        notes: 'Legacy tier list bucket.',
-      }),
-      createSeedEntry('tl5', 'D', 'custom', {
-        detailPath: 'list/list-tier-d',
-        notes: 'Legacy tier list bucket.',
-      }),
-      createSeedEntry('tl6', 'E', 'custom', {
-        detailPath: 'list/list-tier-e',
-        notes: 'Legacy tier list bucket.',
-      }),
-      createSeedEntry('tl7', 'F', 'custom', {
-        detailPath: 'list/list-tier-f',
-        notes: 'Legacy tier list bucket.',
-      }),
-    ],
-    { preset: 'blank' }
-  ),
-];
+export const LEGACY_MOCK_LISTS: TrackerList[] = [];
 
-export const LEGACY_MOCK_TIER_SUBLISTS: TrackerList[] = [
-  createSeedList('list-tier-s', 'S', []),
-  createSeedList('list-tier-a', 'A', []),
-  createSeedList('list-tier-b', 'B', []),
-  createSeedList('list-tier-c', 'C', []),
-  createSeedList('list-tier-d', 'D', []),
-  createSeedList('list-tier-e', 'E', []),
-  createSeedList('list-tier-f', 'F', []),
-];
+export const LEGACY_MOCK_TIER_SUBLISTS: TrackerList[] = [];
 
 export function cloneEntry(entry: ListEntry): ListEntry {
   return {
@@ -532,8 +1391,24 @@ export function cloneEntry(entry: ListEntry): ListEntry {
 export function cloneList(list: TrackerList): TrackerList {
   return {
     ...list,
+    tags: [...list.tags],
+    config: createListConfig(list.config),
     preferences: { ...list.preferences },
     entries: list.entries.map(cloneEntry),
+  };
+}
+
+export function cloneTemplate(template: ListTemplate): ListTemplate {
+  return {
+    ...template,
+    config: createListConfig(template.config),
+    starterEntries: template.starterEntries.map((entry) => ({
+      ...entry,
+      tags: entry.tags ? [...entry.tags] : undefined,
+      progress: entry.progress ? { ...entry.progress } : undefined,
+      sourceRef: entry.sourceRef ? { ...entry.sourceRef } : undefined,
+      customFields: entry.customFields?.map((field) => ({ ...field })),
+    })),
   };
 }
 
@@ -554,7 +1429,8 @@ export function createListFromTemplate(template: ListTemplate): TrackerList {
           sourceRef:
             entry.sourceRef ??
             ({
-              source: entry.type === 'game' ? 'custom' : entry.type,
+              source:
+                entry.type === 'game' || entry.type === 'list' ? 'custom' : entry.type,
               detailPath: entry.detailPath,
               canonicalUrl: entry.productUrl,
             } satisfies EntrySourceRef),
@@ -565,6 +1441,7 @@ export function createListFromTemplate(template: ListTemplate): TrackerList {
     ),
     {
       description: template.description,
+      config: template.config,
       preset: template.preset,
       pinned: false,
       createdAt: timestamp,

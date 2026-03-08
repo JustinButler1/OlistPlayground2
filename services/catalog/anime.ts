@@ -1,4 +1,5 @@
 import type { CatalogAdapter, CatalogSearchItem } from '@/services/catalog/types';
+import { normalizeRating } from '@/lib/tracker-metadata';
 
 const JIKAN_API = 'https://api.jikan.moe/v4';
 
@@ -52,7 +53,7 @@ async function searchAnime(query: string): Promise<CatalogSearchItem[]> {
         externalId: String(item.mal_id),
         detailPath: `anime/${item.mal_id}`,
       },
-      rating: typeof item.score === 'number' ? item.score : undefined,
+      rating: normalizeRating(typeof item.score === 'number' ? item.score : undefined),
       progressUnit: 'episode',
       totalProgress: typeof item.episodes === 'number' ? item.episodes : undefined,
     };

@@ -11,11 +11,19 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import {
+  ItemDetailTabs,
+  type ItemDetailTabId,
+} from '@/components/tracker/ItemDetailTabs';
+import { ItemUserDataPanel } from '@/components/tracker/ItemUserDataPanel';
+import { RatingStars } from '@/components/tracker/RatingStars';
 import { ThumbnailImage } from '@/components/thumbnail-image';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Colors } from '@/constants/theme';
+import { getItemUserDataKey } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { normalizeRating } from '@/lib/tracker-metadata';
 
 const JIKAN_API = 'https://api.jikan.moe/v4';
 
@@ -58,6 +66,7 @@ export default function AnimeDetailsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showImage, setShowImage] = useState(false);
+  const [activeTab, setActiveTab] = useState<ItemDetailTabId>('details');
 
   useEffect(() => {
     if (!id) {
@@ -73,6 +82,8 @@ export default function AnimeDetailsScreen() {
   }, [id]);
 
   const imageUrl = anime?.images?.jpg?.large_image_url ?? anime?.images?.jpg?.image_url;
+  const itemKey = id ? getItemUserDataKey('anime', id) : null;
+  const communityRating = normalizeRating(anime?.score ?? undefined);
   const meta = [anime?.type, anime?.episodes ? `${anime.episodes} ep` : null, anime?.year, anime?.duration]
     .filter(Boolean)
     .join(' | ');
@@ -111,33 +122,51 @@ export default function AnimeDetailsScreen() {
             <Pressable onPress={() => imageUrl && setShowImage(true)}>
               <ThumbnailImage imageUrl={imageUrl} style={styles.hero} />
             </Pressable>
-            <ThemedText type="title">{anime.title}</ThemedText>
-            {(anime.title_english || anime.title_japanese) && (
-              <ThemedText style={{ color: colors.icon }}>
-                {[anime.title_english, anime.title_japanese].filter(Boolean).join(' | ')}
-              </ThemedText>
-            )}
-            {meta ? <ThemedText style={{ color: colors.icon }}>{meta}</ThemedText> : null}
-            {typeof anime.score === 'number' ? (
-              <ThemedText style={{ color: colors.icon }}>Score: {anime.score.toFixed(1)}</ThemedText>
-            ) : null}
-            {anime.genres?.length ? (
-              <View style={styles.genreRow}>
-                {anime.genres.map((genre) => (
-                  <View
-                    key={genre.mal_id}
-                    style={[styles.genreChip, { backgroundColor: colors.tint + '14' }]}
-                  >
-                    <ThemedText style={{ color: colors.tint }}>{genre.name}</ThemedText>
+            <ItemDetailTabs activeTab={activeTab} onChange={setActiveTab} />
+            {activeTab === 'details' ? (
+              <>
+                <ThemedText type="title">{anime.title}</ThemedText>
+                {(anime.title_english || anime.title_japanese) && (
+                  <ThemedText style={{ color: colors.icon }}>
+                    {[anime.title_english, anime.title_japanese].filter(Boolean).join(' | ')}
+                  </ThemedText>
+                )}
+                {meta ? <ThemedText style={{ color: colors.icon }}>{meta}</ThemedText> : null}
+                {communityRating ? (
+                  <View style={styles.ratingRow}>
+                    <ThemedText style={{ color: colors.icon }}>Community rating</ThemedText>
+                    <RatingStars value={communityRating} showValue />
                   </View>
-                ))}
-              </View>
-            ) : null}
-            {anime.synopsis ? (
-              <View style={styles.section}>
-                <ThemedText type="subtitle">Synopsis</ThemedText>
-                <ThemedText>{anime.synopsis}</ThemedText>
-              </View>
+                ) : null}
+                {anime.genres?.length ? (
+                  <View style={styles.genreRow}>
+                    {anime.genres.map((genre) => (
+                      <View
+                        key={genre.mal_id}
+                        style={[styles.genreChip, { backgroundColor: colors.tint + '14' }]}
+                      >
+                        <ThemedText style={{ color: colors.tint }}>{genre.name}</ThemedText>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+                {anime.synopsis ? (
+                  <View style={styles.section}>
+                    <ThemedText type="subtitle">Synopsis</ThemedText>
+                    <ThemedText>{anime.synopsis}</ThemedText>
+                  </View>
+                ) : null}
+              </>
+            ) : itemKey ? (
+              <ItemUserDataPanel
+                itemKey={itemKey}
+                showRating
+                progressConfig={{
+                  label: 'Episodes',
+                  unit: 'episode',
+                  total: anime?.episodes ?? undefined,
+                }}
+              />
             ) : null}
           </ScrollView>
         )}
@@ -175,6 +204,9 @@ const styles = StyleSheet.create({
   section: {
     gap: 8,
     marginTop: 8,
+  },
+  ratingRow: {
+    gap: 8,
   },
   genreRow: {
     flexDirection: 'row',

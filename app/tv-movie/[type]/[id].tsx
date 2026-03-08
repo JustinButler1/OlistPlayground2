@@ -12,12 +12,20 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import {
+  ItemDetailTabs,
+  type ItemDetailTabId,
+} from '@/components/tracker/ItemDetailTabs';
+import { ItemUserDataPanel } from '@/components/tracker/ItemUserDataPanel';
+import { RatingStars } from '@/components/tracker/RatingStars';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { ThumbnailImage } from '@/components/thumbnail-image';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
+import { getItemUserDataKey } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { normalizeRating } from '@/lib/tracker-metadata';
 
 const TMDB_API_BASE = 'https://api.themoviedb.org/3';
 const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p';
@@ -67,60 +75,12 @@ interface TmdbTvDetails {
 
 type TmdbDetails = TmdbMovieDetails | TmdbTvDetails;
 
-function getTmdbApiKey(): string | null {
-  const key = process.env.EXPO_PUBLIC_TMDB_API_KEY?.trim();
-  return key ? key : null;
-}
-
-async function fetchTmdbDetails(
-  type: TmdbType,
-  id: string
-): Promise<TmdbDetails> {
-  const apiKey = getTmdbApiKey();
-  if (!apiKey) throw new Error('TMDB API key not configured');
-
-  const endpoint = type === 'movie' ? 'movie' : 'tv';
-  const res = await fetch(
-    `${TMDB_API_BASE}/${endpoint}/${id}?api_key=${encodeURIComponent(apiKey)}&language=en-US`
-  );
-  if (!res.ok) throw new Error('Failed to load details');
-  return res.json();
-}
-
-function isMovie(d: TmdbDetails): d is TmdbMovieDetails {
-  return 'title' in d && 'release_date' in d;
-}
-
 interface TmdbVideo {
   id: string;
   key: string;
   name: string;
   type: string;
   site: string;
-}
-
-async function fetchTmdbVideos(
-  type: TmdbType,
-  id: string
-): Promise<TmdbVideo[]> {
-  const apiKey = getTmdbApiKey();
-  if (!apiKey) return [];
-
-  const endpoint = type === 'movie' ? 'movie' : 'tv';
-  const res = await fetch(
-    `${TMDB_API_BASE}/${endpoint}/${id}/videos?api_key=${encodeURIComponent(apiKey)}&language=en-US`
-  );
-  if (!res.ok) return [];
-
-  const json: { results?: TmdbVideo[] } = await res.json();
-  const results = json.results ?? [];
-
-  return results.filter(
-    (v) =>
-      v.site === 'YouTube' &&
-      (v.type === 'Trailer' || v.type === 'Teaser') &&
-      v.key
-  );
 }
 
 interface TmdbCastMember {
@@ -131,25 +91,61 @@ interface TmdbCastMember {
   order: number;
 }
 
-async function fetchTmdbCredits(
-  type: TmdbType,
-  id: string
-): Promise<TmdbCastMember[]> {
+function getTmdbApiKey(): string | null {
+  const key = process.env.EXPO_PUBLIC_TMDB_API_KEY?.trim();
+  return key ? key : null;
+}
+
+async function fetchTmdbDetails(type: TmdbType, id: string): Promise<TmdbDetails> {
+  const apiKey = getTmdbApiKey();
+  if (!apiKey) throw new Error('TMDB API key not configured');
+
+  const endpoint = type === 'movie' ? 'movie' : 'tv';
+  const response = await fetch(
+    `${TMDB_API_BASE}/${endpoint}/${id}?api_key=${encodeURIComponent(apiKey)}&language=en-US`
+  );
+  if (!response.ok) throw new Error('Failed to load details');
+  return response.json();
+}
+
+async function fetchTmdbVideos(type: TmdbType, id: string): Promise<TmdbVideo[]> {
   const apiKey = getTmdbApiKey();
   if (!apiKey) return [];
 
   const endpoint = type === 'movie' ? 'movie' : 'tv';
-  const res = await fetch(
+  const response = await fetch(
+    `${TMDB_API_BASE}/${endpoint}/${id}/videos?api_key=${encodeURIComponent(apiKey)}&language=en-US`
+  );
+  if (!response.ok) return [];
+
+  const json: { results?: TmdbVideo[] } = await response.json();
+  return (json.results ?? []).filter(
+    (video) =>
+      video.site === 'YouTube' &&
+      (video.type === 'Trailer' || video.type === 'Teaser') &&
+      video.key
+  );
+}
+
+async function fetchTmdbCredits(type: TmdbType, id: string): Promise<TmdbCastMember[]> {
+  const apiKey = getTmdbApiKey();
+  if (!apiKey) return [];
+
+  const endpoint = type === 'movie' ? 'movie' : 'tv';
+  const response = await fetch(
     `${TMDB_API_BASE}/${endpoint}/${id}/credits?api_key=${encodeURIComponent(apiKey)}&language=en-US`
   );
-  if (!res.ok) return [];
+  if (!response.ok) return [];
 
-  const json: { cast?: TmdbCastMember[] } = await res.json();
-  const cast = json.cast ?? [];
-  return cast
-    .filter((c) => c.name && c.character)
+  const json: { cast?: TmdbCastMember[] } = await response.json();
+  return (json.cast ?? [])
+    .filter((member) => member.name && member.character)
     .sort((a, b) => (a.order ?? 999) - (b.order ?? 999))
     .slice(0, 20);
+}
+
+function isMovie(details: TmdbDetails): details is TmdbMovieDetails {
+  return 'title' in details && 'release_date' in details;
 }
 
 export default function TvMovieDetailsScreen() {
@@ -164,12 +160,14 @@ export default function TvMovieDetailsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [fullScreenImageVisible, setFullScreenImageVisible] = useState(false);
+  const [activeTab, setActiveTab] = useState<ItemDetailTabId>('details');
 
-  const mediaType: TmdbType | null =
-    type === 'movie' || type === 'tv' ? type : null;
+  const mediaType: TmdbType | null = type === 'movie' || type === 'tv' ? type : null;
+  const itemKey = mediaType && id ? getItemUserDataKey(mediaType, id) : null;
 
   useEffect(() => {
     if (!id || !mediaType) return;
+
     setLoading(true);
     setError(null);
     Promise.all([
@@ -188,15 +186,11 @@ export default function TvMovieDetailsScreen() {
 
   const backdropPath = details?.backdrop_path;
   const posterPath = details?.poster_path;
-  const img =
+  const imageUrl =
     backdropPath || posterPath
       ? `${TMDB_IMAGE_BASE}/${backdropPath ? TMDB_BACKDROP_SIZE : TMDB_POSTER_SIZE}${backdropPath ?? posterPath!}`
       : null;
-  const title = details
-    ? isMovie(details)
-      ? details.title
-      : details.name
-    : '';
+  const title = details ? (isMovie(details) ? details.title : details.name) : '';
   const subtitle = details
     ? isMovie(details)
       ? details.original_title
@@ -208,18 +202,19 @@ export default function TvMovieDetailsScreen() {
       : details.first_air_date?.slice(0, 4)
     : null;
   const metaParts: string[] = [];
+
   if (mediaType) metaParts.push(mediaType === 'movie' ? 'Movie' : 'TV');
   if (dateStr) metaParts.push(dateStr);
-  if (details && isMovie(details) && details.runtime)
+  if (details && isMovie(details) && details.runtime) {
     metaParts.push(`${details.runtime} min`);
+  }
   if (details && !isMovie(details)) {
-    if (details.number_of_seasons)
-      metaParts.push(`${details.number_of_seasons} season(s)`);
-    if (details.number_of_episodes)
-      metaParts.push(`${details.number_of_episodes} ep`);
+    if (details.number_of_seasons) metaParts.push(`${details.number_of_seasons} season(s)`);
+    if (details.number_of_episodes) metaParts.push(`${details.number_of_episodes} ep`);
   }
 
   const headerTitle = title || (mediaType === 'movie' ? 'Movie' : 'TV');
+  const communityRating = normalizeRating(details?.vote_average ?? undefined);
 
   if (!id || !mediaType) {
     return (
@@ -255,206 +250,226 @@ export default function TvMovieDetailsScreen() {
     <>
       <Stack.Screen options={{ title: headerTitle }} />
       <ThemedView style={styles.container}>
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
-        showsVerticalScrollIndicator={false}
-      >
-        <Pressable
-          onPress={() => img && setFullScreenImageVisible(true)}
-          style={({ pressed }) => [styles.heroImageWrap, pressed && img && { opacity: 0.9 }]}
-        >
-          <ThumbnailImage
-            imageUrl={img ?? undefined}
-            style={styles.heroImage}
-            contentFit="cover"
-          />
-        </Pressable>
-
-        <Modal
-          visible={fullScreenImageVisible}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setFullScreenImageVisible(false)}
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
+          showsVerticalScrollIndicator={false}
         >
           <Pressable
-            style={styles.fullScreenOverlay}
-            onPress={() => setFullScreenImageVisible(false)}
+            onPress={() => imageUrl && setFullScreenImageVisible(true)}
+            style={({ pressed }) => [styles.heroImageWrap, pressed && imageUrl && { opacity: 0.9 }]}
           >
-            <Pressable onPress={() => {}} style={styles.fullScreenImageContainer}>
-              <Image
-                source={{ uri: img! }}
-                style={styles.fullScreenImage}
-                contentFit="contain"
-              />
-            </Pressable>
+            <ThumbnailImage
+              imageUrl={imageUrl ?? undefined}
+              style={styles.heroImage}
+              contentFit="cover"
+            />
+          </Pressable>
+          <ItemDetailTabs activeTab={activeTab} onChange={setActiveTab} />
+
+          <Modal
+            visible={fullScreenImageVisible}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setFullScreenImageVisible(false)}
+          >
             <Pressable
-              style={({ pressed }) => [
-                styles.closeFullScreenButton,
-                { top: insets.top + 12 },
-                pressed && { opacity: 0.7 },
-              ]}
+              style={styles.fullScreenOverlay}
               onPress={() => setFullScreenImageVisible(false)}
             >
-              <IconSymbol name="xmark" size={24} color="#fff" />
+              <Pressable onPress={() => {}} style={styles.fullScreenImageContainer}>
+                {imageUrl ? (
+                  <Image
+                    source={{ uri: imageUrl }}
+                    style={styles.fullScreenImage}
+                    contentFit="contain"
+                  />
+                ) : null}
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.closeFullScreenButton,
+                  { top: insets.top + 12 },
+                  pressed && { opacity: 0.7 },
+                ]}
+                onPress={() => setFullScreenImageVisible(false)}
+              >
+                <IconSymbol name="xmark" size={24} color="#fff" />
+              </Pressable>
             </Pressable>
-          </Pressable>
-        </Modal>
+          </Modal>
 
-        <View style={styles.content}>
-          <ThemedText type="title" style={styles.title}>
-            {title}
-          </ThemedText>
-          {subtitle ? (
-            <ThemedText style={[styles.subtitle, { color: colors.icon }]}>
-              {subtitle}
-            </ThemedText>
-          ) : null}
-
-          <View style={styles.metaRow}>
-            {metaParts.length > 0 && (
-              <ThemedText style={[styles.meta, { color: colors.icon }]}>
-                {metaParts.join(' · ')}
-              </ThemedText>
-            )}
-            {details!.vote_average > 0 && (
-              <ThemedText style={styles.score}>
-                ★ {details!.vote_average.toFixed(1)}
-              </ThemedText>
-            )}
-          </View>
-
-          {details!.tagline ? (
-            <ThemedText style={[styles.tagline, { color: colors.icon }]}>
-              {details!.tagline}
-            </ThemedText>
-          ) : null}
-
-          {details!.genres?.length > 0 && (
-            <View style={styles.genres}>
-              {details!.genres.map((g) => (
-                <View
-                  key={g.id}
-                  style={[styles.genreChip, { backgroundColor: colors.tint + '20' }]}
-                >
-                  <ThemedText style={[styles.genreText, { color: colors.tint }]}>
-                    {g.name}
+          <View style={styles.content}>
+            {activeTab === 'details' ? (
+              <>
+                <ThemedText type="title" style={styles.title}>
+                  {title}
+                </ThemedText>
+                {subtitle ? (
+                  <ThemedText style={[styles.subtitle, { color: colors.icon }]}>
+                    {subtitle}
                   </ThemedText>
+                ) : null}
+
+                <View style={styles.metaRow}>
+                  {metaParts.length > 0 ? (
+                    <ThemedText style={[styles.meta, { color: colors.icon }]}>
+                      {metaParts.join(' | ')}
+                    </ThemedText>
+                  ) : null}
+                  {communityRating ? (
+                    <RatingStars value={communityRating} showValue />
+                  ) : null}
                 </View>
-              ))}
-            </View>
-          )}
 
-          {details!.overview ? (
-            <>
-              <ThemedText type="subtitle" style={styles.sectionTitle}>
-                Overview
-              </ThemedText>
-              <ThemedText style={styles.synopsis}>{details!.overview}</ThemedText>
-            </>
-          ) : null}
+                {details?.tagline ? (
+                  <ThemedText style={[styles.tagline, { color: colors.icon }]}>
+                    {details.tagline}
+                  </ThemedText>
+                ) : null}
 
-          {cast.length > 0 ? (
-            <View style={styles.castSection}>
-              <ThemedText type="subtitle" style={styles.sectionTitle}>
-                Cast
-              </ThemedText>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.castScroll}
-              >
-                {cast.map((member) => {
-                  const profileUri = member.profile_path
-                    ? `${TMDB_IMAGE_BASE}/w185${member.profile_path}`
-                    : null;
-                  return (
-                    <View
-                      key={`${member.id}-${member.character}`}
-                      style={[styles.castCard, { backgroundColor: colors.tint + '15' }]}
-                    >
-                      <View style={styles.castImageWrap}>
-                        {profileUri ? (
-                          <Image
-                            source={{ uri: profileUri }}
-                            style={styles.castImage}
-                            contentFit="cover"
-                          />
-                        ) : (
-                          <View style={[styles.castImage, styles.castImagePlaceholder]} />
-                        )}
+                {details?.genres?.length ? (
+                  <View style={styles.genres}>
+                    {details.genres.map((genre) => (
+                      <View
+                        key={genre.id}
+                        style={[styles.genreChip, { backgroundColor: colors.tint + '20' }]}
+                      >
+                        <ThemedText style={[styles.genreText, { color: colors.tint }]}>
+                          {genre.name}
+                        </ThemedText>
                       </View>
-                      <ThemedText
-                        style={[styles.castName, { color: colors.text }]}
-                        numberOfLines={2}
-                      >
-                        {member.name}
-                      </ThemedText>
-                      <ThemedText
-                        style={[styles.castCharacter, { color: colors.icon }]}
-                        numberOfLines={2}
-                      >
-                        {member.character}
-                      </ThemedText>
-                    </View>
-                  );
-                })}
-              </ScrollView>
-            </View>
-          ) : null}
+                    ))}
+                  </View>
+                ) : null}
 
-          {trailers.length > 0 ? (
-            <View style={styles.trailerSection}>
-              <ThemedText type="subtitle" style={styles.sectionTitle}>
-                Trailers
-              </ThemedText>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.trailerScroll}
-              >
-                {trailers.map((trailer) => {
-                  const thumbnailUri = `https://img.youtube.com/vi/${trailer.key}/hqdefault.jpg`;
-                  const youtubeUrl = `https://www.youtube.com/watch?v=${trailer.key}`;
-                  return (
-                    <Pressable
-                      key={trailer.id}
-                      onPress={() => Linking.openURL(youtubeUrl)}
-                      style={({ pressed }) => [
-                        styles.trailerCard,
-                        { backgroundColor: colors.tint + '15' },
-                        pressed && { opacity: 0.8 },
-                      ]}
+                {details?.overview ? (
+                  <>
+                    <ThemedText type="subtitle" style={styles.sectionTitle}>
+                      Overview
+                    </ThemedText>
+                    <ThemedText style={styles.synopsis}>{details.overview}</ThemedText>
+                  </>
+                ) : null}
+
+                {cast.length > 0 ? (
+                  <View style={styles.castSection}>
+                    <ThemedText type="subtitle" style={styles.sectionTitle}>
+                      Cast
+                    </ThemedText>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.castScroll}
                     >
-                      <View style={styles.trailerThumbWrap}>
-                        <Image
-                          source={{ uri: thumbnailUri }}
-                          style={styles.trailerThumb}
-                          contentFit="cover"
-                        />
-                        <View style={styles.trailerPlayOverlay}>
-                          <IconSymbol
-                            name="play.circle.fill"
-                            size={56}
-                            color="rgba(255,255,255,0.95)"
-                          />
-                        </View>
-                      </View>
-                      <ThemedText
-                        style={[styles.trailerTitle, { color: colors.text }]}
-                        numberOfLines={2}
-                      >
-                        {trailer.name}
-                      </ThemedText>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-            </View>
-          ) : null}
-        </View>
-      </ScrollView>
-    </ThemedView>
+                      {cast.map((member) => {
+                        const profileUri = member.profile_path
+                          ? `${TMDB_IMAGE_BASE}/w185${member.profile_path}`
+                          : null;
+                        return (
+                          <View
+                            key={`${member.id}-${member.character}`}
+                            style={[styles.castCard, { backgroundColor: colors.tint + '15' }]}
+                          >
+                            <View style={styles.castImageWrap}>
+                              {profileUri ? (
+                                <Image
+                                  source={{ uri: profileUri }}
+                                  style={styles.castImage}
+                                  contentFit="cover"
+                                />
+                              ) : (
+                                <View style={[styles.castImage, styles.castImagePlaceholder]} />
+                              )}
+                            </View>
+                            <ThemedText
+                              style={[styles.castName, { color: colors.text }]}
+                              numberOfLines={2}
+                            >
+                              {member.name}
+                            </ThemedText>
+                            <ThemedText
+                              style={[styles.castCharacter, { color: colors.icon }]}
+                              numberOfLines={2}
+                            >
+                              {member.character}
+                            </ThemedText>
+                          </View>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                ) : null}
+
+                {trailers.length > 0 ? (
+                  <View style={styles.trailerSection}>
+                    <ThemedText type="subtitle" style={styles.sectionTitle}>
+                      Trailers
+                    </ThemedText>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.trailerScroll}
+                    >
+                      {trailers.map((trailer) => {
+                        const thumbnailUri = `https://img.youtube.com/vi/${trailer.key}/hqdefault.jpg`;
+                        const youtubeUrl = `https://www.youtube.com/watch?v=${trailer.key}`;
+                        return (
+                          <Pressable
+                            key={trailer.id}
+                            onPress={() => Linking.openURL(youtubeUrl)}
+                            style={({ pressed }) => [
+                              styles.trailerCard,
+                              { backgroundColor: colors.tint + '15' },
+                              pressed && { opacity: 0.8 },
+                            ]}
+                          >
+                            <View style={styles.trailerThumbWrap}>
+                              <Image
+                                source={{ uri: thumbnailUri }}
+                                style={styles.trailerThumb}
+                                contentFit="cover"
+                              />
+                              <View style={styles.trailerPlayOverlay}>
+                                <IconSymbol
+                                  name="play.circle.fill"
+                                  size={56}
+                                  color="rgba(255,255,255,0.95)"
+                                />
+                              </View>
+                            </View>
+                            <ThemedText
+                              style={[styles.trailerTitle, { color: colors.text }]}
+                              numberOfLines={2}
+                            >
+                              {trailer.name}
+                            </ThemedText>
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                ) : null}
+              </>
+            ) : itemKey ? (
+              <ItemUserDataPanel
+                itemKey={itemKey}
+                showRating
+                progressConfig={{
+                  label: mediaType === 'movie' ? 'Watched' : 'Episodes',
+                  unit: mediaType === 'movie' ? 'item' : 'episode',
+                  total:
+                    mediaType === 'movie'
+                      ? 1
+                      : details && !isMovie(details)
+                      ? details.number_of_episodes
+                      : undefined,
+                }}
+              />
+            ) : null}
+          </View>
+        </ScrollView>
+      </ThemedView>
     </>
   );
 }

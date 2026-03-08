@@ -1,11 +1,13 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 
+import { RatingStars } from '@/components/tracker/RatingStars';
 import { ThumbnailImage } from '@/components/thumbnail-image';
 import { ThemedText } from '@/components/themed-text';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
-import type { ListEntry } from '@/data/mock-lists';
+import type { ItemUserData, ListEntry } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { getEffectiveEntryRating } from '@/lib/tracker-metadata';
 import { formatProgressLabel } from '@/lib/tracker-selectors';
 
 interface EntryRowProps {
@@ -16,6 +18,7 @@ interface EntryRowProps {
   onPress?: () => void;
   onSelectToggle?: () => void;
   trailingLabel?: string;
+  itemUserDataByKey?: Record<string, ItemUserData>;
 }
 
 export function EntryRow({
@@ -26,10 +29,12 @@ export function EntryRow({
   onPress,
   onSelectToggle,
   trailingLabel,
+  itemUserDataByKey,
 }: EntryRowProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const progressLabel = formatProgressLabel(entry);
+  const progressLabel = formatProgressLabel(entry, itemUserDataByKey);
+  const rating = getEffectiveEntryRating(entry, itemUserDataByKey);
 
   return (
     <Pressable
@@ -74,10 +79,8 @@ export function EntryRow({
               {progressLabel}
             </ThemedText>
           ) : null}
-          {typeof entry.rating === 'number' ? (
-            <ThemedText style={[styles.metaText, { color: colors.icon }]}>
-              {entry.rating.toFixed(1)}
-            </ThemedText>
+          {rating ? (
+            <RatingStars value={rating} size={12} />
           ) : null}
         </View>
         {subtitle ? (
