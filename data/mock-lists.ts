@@ -14,7 +14,7 @@ export type EntrySourceType =
 export type ListEntryType = EntrySourceType | 'game' | 'list';
 export type ListPreset = 'blank' | 'tracking';
 export type ListViewMode = 'list' | 'grid' | 'compare' | 'tier';
-export type ListSortMode = 'updated-desc' | 'title-asc' | 'rating-desc' | 'status';
+export type ListSortMode = 'manual' | 'updated-desc' | 'title-asc' | 'rating-desc' | 'status';
 export type ListAddonId =
   | 'status'
   | 'progress'
@@ -156,7 +156,7 @@ export interface ListTemplate {
 
 export const DEFAULT_LIST_PREFERENCES: ListPreferences = {
   viewMode: 'list',
-  sortMode: 'updated-desc',
+  sortMode: 'manual',
   filterMode: 'all',
   groupMode: 'none',
   showCompleted: true,
@@ -617,8 +617,8 @@ export function createPowerUserMockSeed(): MockListsSeed {
     'Reading Stack',
     [
       createSeedEntry('entry-mock-atomic-habits', 'Atomic Habits', 'book', {
-        imageUrl: 'https://covers.openlibrary.org/b/id/12539702-M.jpg',
-        detailPath: bookKeyToDetailPath('/works/OL17930368W'),
+        imageUrl: 'https://books.google.com/books/content?id=f280CwAAQBAJ&printsec=frontcover&img=1&zoom=1&source=gbs_api',
+        detailPath: bookKeyToDetailPath('f280CwAAQBAJ'),
         status: 'active',
         rating: 9,
         tags: ['nonfiction', 'morning-routine'],
@@ -637,16 +637,16 @@ export function createPowerUserMockSeed(): MockListsSeed {
         ],
         sourceRef: {
           source: 'book',
-          externalId: '/works/OL17930368W',
-          detailPath: bookKeyToDetailPath('/works/OL17930368W'),
-          canonicalUrl: 'https://openlibrary.org/works/OL17930368W',
+          externalId: 'f280CwAAQBAJ',
+          detailPath: bookKeyToDetailPath('f280CwAAQBAJ'),
+          canonicalUrl: 'https://books.google.com/books?id=f280CwAAQBAJ',
         },
         addedAt: NOW - DAY_MS * 24,
         updatedAt: NOW - DAY_MS * 2,
       }),
       createSeedEntry('entry-mock-the-hobbit', 'The Hobbit', 'book', {
-        imageUrl: 'https://covers.openlibrary.org/b/id/14627509-M.jpg',
-        detailPath: bookKeyToDetailPath('/works/OL27482W'),
+        imageUrl: 'https://books.google.com/books/content?id=pD6arNyKyi8C&printsec=frontcover&img=1&zoom=1&source=gbs_api',
+        detailPath: bookKeyToDetailPath('pD6arNyKyi8C'),
         status: 'completed',
         rating: 10,
         tags: ['fantasy', 'reread'],
@@ -664,9 +664,9 @@ export function createPowerUserMockSeed(): MockListsSeed {
         ],
         sourceRef: {
           source: 'book',
-          externalId: '/works/OL27482W',
-          detailPath: bookKeyToDetailPath('/works/OL27482W'),
-          canonicalUrl: 'https://openlibrary.org/works/OL27482W',
+          externalId: 'pD6arNyKyi8C',
+          detailPath: bookKeyToDetailPath('pD6arNyKyi8C'),
+          canonicalUrl: 'https://books.google.com/books?id=pD6arNyKyi8C',
         },
         addedAt: NOW - DAY_MS * 80,
         updatedAt: NOW - DAY_MS * 14,

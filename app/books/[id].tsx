@@ -24,58 +24,47 @@ import { Colors } from '@/constants/theme';
 import { getItemUserDataKey } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
-const OPEN_LIBRARY_BASE = 'https://openlibrary.org';
+const GOOGLE_BOOKS_BASE = 'https://www.googleapis.com/books/v1/volumes/';
 
 export function bookKeyToSlug(key: string): string {
-  return key.replace(/^\//, '').replace(/\//g, '--');
+  return key;
 }
 
 function slugToBookKey(slug: string): string {
-  if (/^OL\d+W$/i.test(slug)) {
-    return `/works/${slug}`;
+  return slug;
+}
+
+interface GoogleBooksWork {
+  id: string;
+  volumeInfo: {
+    title: string;
+    description?: string;
+    publishedDate?: string;
+    authors?: string[];
+    imageLinks?: {
+      thumbnail?: string;
+      small?: string;
+      medium?: string;
+      large?: string;
+      extraLarge?: string;
+    };
+  };
+}
+
+async function fetchBookDetails(id: string): Promise<GoogleBooksWork> {
+  const apiKey = process.env.EXPO_PUBLIC_GOOGLE_BOOKS_API_KEY;
+  const url = new URL(`${GOOGLE_BOOKS_BASE}${id}`);
+  if (apiKey) {
+    url.searchParams.append('key', apiKey);
   }
-  return '/' + slug.replace(/--/g, '/');
-}
-
-interface OpenLibraryWork {
-  key: string;
-  title: string;
-  description?: string | { type: string; value: string };
-  first_publish_date?: string;
-  covers?: number[];
-  authors?: { author: { key: string } }[];
-}
-
-async function fetchBookDetails(key: string): Promise<OpenLibraryWork> {
-  const url = `${OPEN_LIBRARY_BASE}${key}.json`;
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'OlistPlayground (https://github.com)' },
-  });
+  const res = await fetch(url.toString());
   if (!res.ok) throw new Error('Failed to load book');
   return res.json();
 }
 
-async function fetchAuthorName(authorKey: string): Promise<string> {
-  try {
-    const res = await fetch(`${OPEN_LIBRARY_BASE}${authorKey}.json`, {
-      headers: { 'User-Agent': 'OlistPlayground (https://github.com)' },
-    });
-    if (!res.ok) return authorKey;
-    const json: { name?: string } = await res.json();
-    return json.name ?? authorKey;
-  } catch {
-    return authorKey;
-  }
-}
-
-function getDescriptionText(work: OpenLibraryWork): string | null {
-  const description = work.description;
-  if (!description) return null;
-  if (typeof description === 'string') return description;
-  if (description && typeof description === 'object' && 'value' in description) {
-    return description.value;
-  }
-  return null;
+function getDescriptionText(work: GoogleBooksWork): string | null {
+  if (!work.volumeInfo.description) return null;
+  return work.volumeInfo.description.replace(/<[^>]*>?/gm, '');
 }
 
 type DescriptionSegment =
@@ -83,41 +72,7 @@ type DescriptionSegment =
   | { type: 'link'; title: string; workKey: string };
 
 function parseDescriptionWithLinks(description: string): DescriptionSegment[] {
-  const refs: Record<string, string> = {};
-  const refDefRegex = /\[(\d+)\]:\s*https:\/\/openlibrary\.org\/works\/(OL\d+W)(?:\/[^\s\n]*)?/gi;
-  let refMatch: RegExpExecArray | null = null;
-  while ((refMatch = refDefRegex.exec(description)) !== null) {
-    refs[refMatch[1]] = `/works/${refMatch[2]}`;
-  }
-
-  const body = description
-    .replace(/\n?\s*\[\d+\]:\s*https:\/\/openlibrary\.org\/works\/[^\s\n]+/gi, '')
-    .trim();
-  const segments: DescriptionSegment[] = [];
-  let lastIndex = 0;
-  const inlineRegex = /\[\*+([^*]+)\*+\]\[(\d+)\]/g;
-  let inlineMatch: RegExpExecArray | null = null;
-
-  while ((inlineMatch = inlineRegex.exec(body)) !== null) {
-    if (inlineMatch.index > lastIndex) {
-      segments.push({ type: 'text', value: body.slice(lastIndex, inlineMatch.index) });
-    }
-
-    const title = inlineMatch[1].trim();
-    const workKey = refs[inlineMatch[2]];
-    if (workKey) {
-      segments.push({ type: 'link', title, workKey });
-    } else {
-      segments.push({ type: 'text', value: inlineMatch[0] });
-    }
-    lastIndex = inlineRegex.lastIndex;
-  }
-
-  if (lastIndex < body.length) {
-    segments.push({ type: 'text', value: body.slice(lastIndex) });
-  }
-
-  return segments.length ? segments : [{ type: 'text', value: description }];
+  return [{ type: 'text', value: description }];
 }
 
 export default function BookDetailsScreen() {
@@ -127,7 +82,7 @@ export default function BookDetailsScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
 
-  const [work, setWork] = useState<OpenLibraryWork | null>(null);
+  const [work, setWork] = useState<GoogleBooksWork | null>(null);
   const [authorNames, setAuthorNames] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -143,21 +98,16 @@ export default function BookDetailsScreen() {
     setLoading(true);
     setError(null);
     fetchBookDetails(workKey)
-      .then(async (data) => {
+      .then((data) => {
         setWork(data);
-        if (data.authors?.length) {
-          const names = await Promise.all(data.authors.map((a) => fetchAuthorName(a.author.key)));
-          setAuthorNames(names);
-        } else {
-          setAuthorNames([]);
-        }
+        setAuthorNames(data.volumeInfo?.authors ?? []);
       })
       .catch(() => setError('Failed to load book details'))
       .finally(() => setLoading(false));
   }, [workKey]);
 
-  const coverId = work?.covers?.[0];
-  const imageUrl = coverId ? `https://covers.openlibrary.org/b/id/${coverId}-L.jpg` : null;
+  const imageLinks = work?.volumeInfo?.imageLinks;
+  const imageUrl = (imageLinks?.extraLarge || imageLinks?.large || imageLinks?.medium || imageLinks?.thumbnail)?.replace('http:', 'https:') || null;
   const description = work ? getDescriptionText(work) : null;
 
   if (!slug) {
@@ -176,7 +126,7 @@ export default function BookDetailsScreen() {
   if (loading || error) {
     return (
       <>
-        <Stack.Screen options={{ title: work?.title ?? 'Book' }} />
+        <Stack.Screen options={{ title: work?.volumeInfo?.title ?? 'Book' }} />
         <ThemedView style={styles.container}>
           <View style={styles.centered}>
             {loading ? (
@@ -192,7 +142,7 @@ export default function BookDetailsScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: work?.title ?? 'Book' }} />
+      <Stack.Screen options={{ title: work?.volumeInfo?.title ?? 'Book' }} />
       <ThemedView style={styles.container}>
         <ScrollView
           style={styles.scroll}
@@ -247,14 +197,14 @@ export default function BookDetailsScreen() {
             {activeTab === 'details' ? (
               <>
                 <ThemedText type="title" style={styles.title}>
-                  {work?.title}
+                  {work?.volumeInfo?.title}
                 </ThemedText>
 
-                {(authorNames.length > 0 || work?.first_publish_date) && (
+                {(authorNames.length > 0 || work?.volumeInfo?.publishedDate) && (
                   <ThemedText style={[styles.subtitle, { color: colors.icon }]}>
                     {authorNames.length > 0 ? authorNames.join(', ') : ''}
-                    {authorNames.length > 0 && work?.first_publish_date ? ' | ' : ''}
-                    {work?.first_publish_date ?? ''}
+                    {authorNames.length > 0 && work?.volumeInfo?.publishedDate ? ' | ' : ''}
+                    {work?.volumeInfo?.publishedDate ?? ''}
                   </ThemedText>
                 )}
 

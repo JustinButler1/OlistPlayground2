@@ -54,6 +54,7 @@ export function ManualEntryForm({
   );
   const [status, setStatus] = useState<EntryStatus>(initialEntry?.status ?? 'planned');
   const [notes, setNotes] = useState(initialEntry?.notes ?? '');
+  const [productUrl, setProductUrl] = useState(initialEntry?.productUrl ?? '');
   const [tagsText, setTagsText] = useState(initialEntry?.tags.join(', ') ?? '');
   const [ratingValue, setRatingValue] = useState<number | undefined>(
     normalizeRating(initialEntry?.rating)
@@ -94,6 +95,7 @@ export function ManualEntryForm({
     setType(initialEntry.type);
     setStatus(initialEntry.status);
     setNotes(initialEntry.notes ?? '');
+    setProductUrl(initialEntry.productUrl ?? '');
     setTagsText(initialEntry.tags.join(', '));
     setRatingValue(normalizeRating(initialEntry.rating));
     setCurrentText(
@@ -265,9 +267,13 @@ export function ManualEntryForm({
         : undefined,
       reminderAt: hasAddon('reminders') ? reminderAt : undefined,
       coverAssetUri: hasAddon('cover') ? coverAssetUri : undefined,
+      productUrl:
+        hasAddon('links') || type === 'link' ? productUrl.trim() || undefined : undefined,
       sourceRef: {
         source: type === 'game' || type === 'list' ? 'custom' : type,
         detailPath: linkedListDetailPath,
+        canonicalUrl:
+          hasAddon('links') || type === 'link' ? productUrl.trim() || undefined : undefined,
       },
     });
   };
@@ -327,6 +333,26 @@ export function ManualEntryForm({
           placeholderTextColor={colors.icon}
           value={notes}
           onChangeText={setNotes}
+        />
+      ) : null}
+
+      {hasAddon('links') || type === 'link' ? (
+        <TextInput
+          style={[
+            styles.input,
+            {
+              color: colors.text,
+              borderColor: colors.icon + '28',
+              backgroundColor: colors.icon + '10',
+            },
+          ]}
+          keyboardType="url"
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholder="Link URL"
+          placeholderTextColor={colors.icon}
+          value={productUrl}
+          onChangeText={setProductUrl}
         />
       ) : null}
 

@@ -155,6 +155,7 @@ function isListViewMode(value: unknown): value is ListViewMode {
 
 function isListSortMode(value: unknown): value is ListSortMode {
   return (
+    value === 'manual' ||
     value === 'updated-desc' ||
     value === 'title-asc' ||
     value === 'rating-desc' ||

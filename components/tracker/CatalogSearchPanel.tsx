@@ -15,22 +15,30 @@ import {
 interface CatalogSearchPanelProps {
   onSelectItem: (item: CatalogSearchItem) => void;
   initialCategory?: CatalogCategory;
+  initialQuery?: string;
   placeholder?: string;
+  autoFocus?: boolean;
 }
 
 export function CatalogSearchPanel({
   onSelectItem,
   initialCategory = 'anime',
+  initialQuery = '',
   placeholder = 'Search the catalog',
+  autoFocus = false,
 }: CatalogSearchPanelProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const [category, setCategory] = useState<CatalogCategory>(initialCategory);
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<CatalogSearchItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const deferredQuery = useDeferredValue(query);
+
+  useEffect(() => {
+    setQuery(initialQuery);
+  }, [initialQuery]);
 
   useEffect(() => {
     const trimmedQuery = deferredQuery.trim();
@@ -97,6 +105,7 @@ export function CatalogSearchPanel({
           onChangeText={setQuery}
           autoCapitalize="none"
           autoCorrect={false}
+          autoFocus={autoFocus}
         />
       </View>
 

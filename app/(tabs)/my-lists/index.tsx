@@ -21,7 +21,12 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
-import { createListConfig, DEFAULT_LIST_CONFIG, type ListConfig, type TrackerList } from '@/data/mock-lists';
+import {
+  createListConfig,
+  DEFAULT_LIST_CONFIG,
+  type ListConfig,
+  type TrackerList,
+} from '@/data/mock-lists';
 import { useListActions, useListsQuery } from '@/contexts/lists-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
@@ -43,7 +48,9 @@ export default function MyListsScreen() {
   const [descriptionInput, setDescriptionInput] = useState('');
   const [createMode, setCreateMode] = useState<CreateMode>('scratch');
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
-  const [draftConfig, setDraftConfig] = useState<ListConfig>(createListConfig(DEFAULT_LIST_CONFIG));
+  const [draftConfig, setDraftConfig] = useState<ListConfig>(
+    createListConfig(DEFAULT_LIST_CONFIG)
+  );
   const [saveAsTemplate, setSaveAsTemplate] = useState(false);
   const [templateTitle, setTemplateTitle] = useState('');
   const [templateDescription, setTemplateDescription] = useState('');
@@ -206,7 +213,7 @@ export default function MyListsScreen() {
   );
 
   const renderDeleteAction = useCallback(
-    (progress: Animated.AnimatedInterpolation<number>, onDelete: () => void, label: string) => {
+    (progress: Animated.AnimatedInterpolation<number>, onDelete: () => void) => {
       const opacity = progress.interpolate({
         inputRange: [0, 1],
         outputRange: [0, 1],
@@ -281,8 +288,8 @@ export default function MyListsScreen() {
             {filterMode === 'all'
               ? 'All'
               : filterMode === 'progress'
-              ? 'Progress'
-              : 'Sublists'}
+                ? 'Progress'
+                : 'Sublists'}
           </ThemedText>
         </Pressable>
       </View>
@@ -300,7 +307,7 @@ export default function MyListsScreen() {
                 overshootRight={false}
                 rightThreshold={40}
                 renderRightActions={(progress) =>
-                  renderDeleteAction(progress, () => confirmDeleteList(item), `Delete ${item.title}`)
+                  renderDeleteAction(progress, () => confirmDeleteList(item))
                 }
               >
                 <Pressable
@@ -308,7 +315,7 @@ export default function MyListsScreen() {
                   style={({ pressed }) => [styles.resultRow, { opacity: pressed ? 0.8 : 1 }]}
                 >
                   <Image
-                    source={require('../../assets/images/placeholder-thumbnail.png')}
+                    source={require('../../../assets/images/placeholder-thumbnail.png')}
                     style={styles.resultPoster}
                     contentFit="cover"
                   />
@@ -317,7 +324,9 @@ export default function MyListsScreen() {
                       {item.title}
                     </ThemedText>
                     <ThemedText style={[styles.resultMeta, { color: colors.icon }]} numberOfLines={2}>
-                      {template ? `${template.title} template` : `${item.config.addons.length} add-ons`}
+                      {template
+                        ? `${template.title} template`
+                        : `${item.config.addons.length} add-ons`}
                       {' · '}
                       {item.entries.length} item{item.entries.length === 1 ? '' : 's'}
                     </ThemedText>
@@ -478,7 +487,9 @@ export default function MyListsScreen() {
                                   style={[
                                     styles.templateOptionRow,
                                     {
-                                      backgroundColor: selected ? colors.tint + '14' : 'transparent',
+                                      backgroundColor: selected
+                                        ? colors.tint + '14'
+                                        : 'transparent',
                                     },
                                   ]}
                                 >
@@ -489,7 +500,11 @@ export default function MyListsScreen() {
                                     </ThemedText>
                                   </View>
                                   {selected ? (
-                                    <IconSymbol name="checkmark" size={18} color={colors.tint} />
+                                    <IconSymbol
+                                      name="checkmark"
+                                      size={18}
+                                      color={colors.tint}
+                                    />
                                   ) : null}
                                 </Pressable>
                               );

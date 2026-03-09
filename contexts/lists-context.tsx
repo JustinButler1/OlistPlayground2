@@ -902,7 +902,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
       runStateUpdate((current) => {
         current.lists = current.lists.map((list) =>
           list.id === listId
-            ? updateListEntries(list, (entries) => [entry, ...entries])
+            ? updateListEntries(list, (entries) => [...entries, entry])
             : list
         );
         current.recentListIds = touchRecentListIds(current.recentListIds, listId);

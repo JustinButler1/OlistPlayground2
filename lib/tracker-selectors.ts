@@ -71,6 +71,8 @@ export function sortEntries(
   const nextEntries = [...completedFiltered];
 
   switch (preferences.sortMode) {
+    case 'manual':
+      return nextEntries;
     case 'title-asc':
       return nextEntries.sort(compareByTitleAsc);
     case 'rating-desc':

@@ -1,6 +1,7 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import type { ComponentType, PropsWithChildren } from 'react';
 import 'react-native-reanimated';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
@@ -36,11 +37,15 @@ export const unstable_settings = {
   anchor: '(tabs)',
 };
 
+const RootGestureHandlerView = GestureHandlerRootView as unknown as ComponentType<
+  PropsWithChildren<{ style?: { flex: number } }>
+>;
+
 export default function RootLayout() {
   const colorScheme = useColorScheme();
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <RootGestureHandlerView style={{ flex: 1 }}>
       <ThemeProvider value={colorScheme === 'dark' ? DarkThemeCustom : LightTheme}>
         <ListsProvider>
           <Stack screenOptions={{ headerBackButtonDisplayMode: 'minimal' }}>
@@ -61,6 +66,6 @@ export default function RootLayout() {
           <StatusBar style="auto" />
         </ListsProvider>
       </ThemeProvider>
-    </GestureHandlerRootView>
+    </RootGestureHandlerView>
   );
 }

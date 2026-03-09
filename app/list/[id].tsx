@@ -1,10 +1,11 @@
 import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
-import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
   Dimensions,
   FlatList,
+  Keyboard,
   Modal,
   Platform,
   Pressable,
@@ -16,7 +17,7 @@ import {
 import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { AddItemSheet } from '@/components/tracker/AddItemSheet';
+import { CatalogSearchPanel } from '@/components/tracker/CatalogSearchPanel';
 import { ListConfigurationEditor } from '@/components/tracker/ListConfigurationEditor';
 import { RatingStars } from '@/components/tracker/RatingStars';
 import { ThumbnailImage } from '@/components/thumbnail-image';
@@ -25,12 +26,15 @@ import { ThemedView } from '@/components/themed-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useEntryActions, useListActions, useListPreferences, useListsQuery } from '@/contexts/lists-context';
+import type { EntryDraft } from '@/contexts/lists-context';
 import type { ItemUserData, ListEntry, ListFilterMode, ListPreset, ListSortMode, ListViewMode } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { getEffectiveEntryRating } from '@/lib/tracker-metadata';
 import { formatProgressLabel, sortEntries } from '@/lib/tracker-selectors';
 
 const TIER_COLORS = ['#E8A598', '#FFCC80', '#FFF59D', '#AED581', '#81C784', '#4DD0E1', '#64B5F6'];
+const COMPOSER_TOOLBAR_HEIGHT = 76;
+const COMPOSER_TOOLBAR_OFFSET = 20;
 
 export default function ListDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -39,6 +43,8 @@ export default function ListDetailScreen() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const listRef = useRef<FlatList<ListEntry>>(null);
+  const composerInputRef = useRef<TextInput>(null);
   const { activeLists, itemUserDataByKey } = useListsQuery();
   const {
     createList,
@@ -51,8 +57,8 @@ export default function ListDetailScreen() {
   const { addEntryToList, deleteEntryFromList, setEntryStatus } = useEntryActions();
   const list = activeLists.find((item) => item.id === id) ?? null;
   const { preferences, setListPreferences } = useListPreferences(id ?? '');
-  const [addItemVisible, setAddItemVisible] = useState(false);
-  const [menuVisible, setMenuVisible] = useState<null | 'view' | 'sort' | 'filter' | 'tag-to-sublist'>(null);
+  const [menuVisible, setMenuVisible] =
+    useState<null | 'view' | 'sort' | 'filter' | 'tag-to-sublist'>(null);
   const [newSublistVisible, setNewSublistVisible] = useState(false);
   const [sublistTitle, setSublistTitle] = useState('');
   const [sublistPreset, setSublistPreset] = useState<ListPreset>('blank');
@@ -61,6 +67,21 @@ export default function ListDetailScreen() {
   const [draftConfig, setDraftConfig] = useState(list?.config);
   const [templateTitle, setTemplateTitle] = useState('');
   const [templateDescription, setTemplateDescription] = useState('');
+  const [composerVisible, setComposerVisible] = useState(false);
+  const [composerText, setComposerText] = useState('');
+  const [pendingTagsText, setPendingTagsText] = useState('');
+  const [pendingLinkUrl, setPendingLinkUrl] = useState('');
+  const [searchVisible, setSearchVisible] = useState(false);
+  const [tagSheetVisible, setTagSheetVisible] = useState(false);
+  const [linkSheetVisible, setLinkSheetVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  const collapseComposer = useCallback(() => {
+    setComposerVisible(false);
+    setComposerText('');
+    setPendingTagsText('');
+    setPendingLinkUrl('');
+  }, []);
 
   useEffect(() => {
     if (list?.id) {
@@ -68,12 +89,44 @@ export default function ListDetailScreen() {
     }
   }, [list?.id, markListOpened]);
 
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSubscription = Keyboard.addListener(showEvent, (event) => {
+      setKeyboardHeight(event.endCoordinates.height);
+    });
+    const hideSubscription = Keyboard.addListener(hideEvent, () => {
+      setKeyboardHeight(0);
+      if (!searchVisible && !tagSheetVisible && !linkSheetVisible) {
+        collapseComposer();
+      }
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, [collapseComposer, linkSheetVisible, searchVisible, tagSheetVisible]);
+
+  function queueComposerFocus() {
+    setTimeout(() => composerInputRef.current?.focus(), 60);
+  }
+
+  const openComposer = useCallback(() => {
+    if (preferences.viewMode !== 'list') {
+      setListPreferences({ viewMode: 'list' });
+    }
+    setComposerVisible(true);
+    queueComposerFocus();
+  }, [preferences.viewMode, setListPreferences]);
+
   useLayoutEffect(() => {
     navigation.setOptions({
       headerRight: () => (
         <View style={styles.headerButtonsRow}>
           <Pressable
-            onPress={() => setAddItemVisible(true)}
+            onPress={openComposer}
             style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.7 : 1 }]}
           >
             <IconSymbol name="plus" size={24} color={colors.tint} />
@@ -87,7 +140,7 @@ export default function ListDetailScreen() {
         </View>
       ),
     });
-  }, [colors.tint, navigation]);
+  }, [colors.tint, navigation, openComposer]);
 
   const visibleEntries = useMemo(() => {
     if (!list) {
@@ -99,6 +152,31 @@ export default function ListDetailScreen() {
   useEffect(() => {
     setDraftConfig(list?.config);
   }, [list?.config]);
+
+  useEffect(() => {
+    if (!composerVisible || preferences.viewMode !== 'list') {
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      listRef.current?.scrollToEnd({ animated: true });
+      composerInputRef.current?.focus();
+    }, 80);
+
+    return () => clearTimeout(timeout);
+  }, [composerVisible, preferences.viewMode, visibleEntries.length]);
+
+  useEffect(() => {
+    if (!composerVisible || preferences.viewMode !== 'list' || keyboardHeight <= 0) {
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      listRef.current?.scrollToEnd({ animated: true });
+    }, 80);
+
+    return () => clearTimeout(timeout);
+  }, [composerVisible, keyboardHeight, preferences.viewMode]);
 
   const tierRows = useMemo(
     () =>
@@ -133,13 +211,76 @@ export default function ListDetailScreen() {
       }));
   }, [list?.entries]);
 
+  function clearPendingComposerMetadata() {
+    setPendingTagsText('');
+    setPendingLinkUrl('');
+  }
+
+  function focusNextComposerLine() {
+    setComposerVisible(true);
+    setComposerText('');
+    clearPendingComposerMetadata();
+    queueComposerFocus();
+  }
+
+  function buildPendingTags() {
+    return pendingTagsText
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+  }
+
+  function submitComposer() {
+    if (!list) {
+      return;
+    }
+
+    const trimmedTitle = composerText.trim();
+    if (!trimmedTitle) {
+      Keyboard.dismiss();
+      return;
+    }
+
+    const trimmedLink = pendingLinkUrl.trim();
+    const draft: EntryDraft = {
+      title: trimmedTitle,
+      type: trimmedLink ? 'link' : list.config.defaultEntryType ?? 'custom',
+      tags: buildPendingTags(),
+      productUrl: trimmedLink || undefined,
+      sourceRef: {
+        source: trimmedLink ? 'link' : 'custom',
+        canonicalUrl: trimmedLink || undefined,
+      },
+    };
+
+    addEntryToList(list.id, draft);
+    focusNextComposerLine();
+  }
+
+  function addCatalogEntry(entry: EntryDraft) {
+    if (!list) {
+      return;
+    }
+
+    addEntryToList(list.id, {
+      ...entry,
+      tags: buildPendingTags(),
+    });
+    setSearchVisible(false);
+    focusNextComposerLine();
+  }
+
   const openEntry = (entry: ListEntry) => {
     const pathname = entry.linkedListId
       ? `/list/${entry.linkedListId}`
       : entry.detailPath
-      ? `/${entry.detailPath}`
-      : `/list-entry/${entry.id}`;
+        ? `/${entry.detailPath}`
+        : `/list-entry/${entry.id}`;
     router.push(pathname as never);
+  };
+
+  const openEntryMetadata = (entry: ListEntry) => {
+    router.push(`/list-entry/${entry.id}` as never);
   };
 
   const confirmDeleteEntry = (entry: ListEntry) => {
@@ -161,7 +302,10 @@ export default function ListDetailScreen() {
     ]);
   };
 
-  const renderDeleteAction = (progress: Animated.AnimatedInterpolation<number>, entry: ListEntry) => {
+  const renderRightActions = (
+    progress: Animated.AnimatedInterpolation<number>,
+    entry: ListEntry
+  ) => {
     const opacity = progress.interpolate({
       inputRange: [0, 1],
       outputRange: [0, 1],
@@ -170,6 +314,16 @@ export default function ListDetailScreen() {
     return (
       <Animated.View style={[styles.rightActionContainer, { opacity }]}>
         <Pressable
+          onPress={() => openEntryMetadata(entry)}
+          style={({ pressed }) => [
+            styles.infoAction,
+            { backgroundColor: colors.tint, opacity: pressed ? 0.85 : 1 },
+          ]}
+        >
+          <IconSymbol name="info.circle" size={18} color={colors.background} />
+          <ThemedText style={[styles.actionText, { color: colors.background }]}>Info</ThemedText>
+        </Pressable>
+        <Pressable
           onPress={() => confirmDeleteEntry(entry)}
           style={({ pressed }) => [
             styles.deleteAction,
@@ -177,7 +331,7 @@ export default function ListDetailScreen() {
           ]}
         >
           <IconSymbol name="trash" size={18} color="#fff" />
-          <ThemedText style={styles.deleteActionText}>Delete</ThemedText>
+          <ThemedText style={styles.actionText}>Delete</ThemedText>
         </Pressable>
       </Animated.View>
     );
@@ -196,13 +350,26 @@ export default function ListDetailScreen() {
     );
   }
 
+  const footerSpacerHeight = composerVisible
+    ? keyboardHeight + COMPOSER_TOOLBAR_HEIGHT + COMPOSER_TOOLBAR_OFFSET
+    : 28;
+  const actionBarBottom = keyboardHeight > 0 ? keyboardHeight + 12 : insets.bottom + 16;
+
   return (
     <>
       <Stack.Screen options={{ title: list.title }} />
       <ThemedView style={styles.container}>
         <View style={styles.toolbar}>
-          <ToolbarButton label="Sort" value={labelForSort(preferences.sortMode)} onPress={() => setMenuVisible('sort')} />
-          <ToolbarButton label="Filter" value={labelForFilter(preferences.filterMode)} onPress={() => setMenuVisible('filter')} />
+          <ToolbarButton
+            label="Sort"
+            value={labelForSort(preferences.sortMode)}
+            onPress={() => setMenuVisible('sort')}
+          />
+          <ToolbarButton
+            label="Filter"
+            value={labelForFilter(preferences.filterMode)}
+            onPress={() => setMenuVisible('filter')}
+          />
         </View>
 
         {list.tags.length ? (
@@ -223,12 +390,17 @@ export default function ListDetailScreen() {
         ) : preferences.viewMode === 'tier' ? (
           <TierView tierRows={tierRows} onOpenEntry={openEntry} />
         ) : preferences.viewMode === 'grid' ? (
-          <ScrollView contentContainerStyle={[styles.gridContent, { paddingBottom: insets.bottom + 24 }]}>
+          <ScrollView
+            contentContainerStyle={[styles.gridContent, { paddingBottom: insets.bottom + 24 }]}
+            keyboardShouldPersistTaps="handled"
+          >
             <View style={styles.grid}>
               {visibleEntries.map((entry) => (
                 <Pressable key={entry.id} onPress={() => openEntry(entry)} style={styles.gridCard}>
                   <ThumbnailImage imageUrl={entry.imageUrl} style={styles.gridImage} />
-                  <ThemedText style={styles.gridTitle} numberOfLines={2}>{entry.title}</ThemedText>
+                  <ThemedText style={styles.gridTitle} numberOfLines={2}>
+                    {entry.title}
+                  </ThemedText>
                   {formatProgressLabel(entry, itemUserDataByKey) ? (
                     <ThemedText style={[styles.gridMeta, { color: colors.icon }]}>
                       {formatProgressLabel(entry, itemUserDataByKey)}
@@ -240,31 +412,53 @@ export default function ListDetailScreen() {
                 </Pressable>
               ))}
             </View>
-            {!visibleEntries.length ? <ThemedText style={[styles.placeholder, { color: colors.icon }]}>This list is empty.</ThemedText> : null}
+            {!visibleEntries.length ? (
+              <ThemedText style={[styles.placeholder, { color: colors.icon }]}>
+                This list is empty.
+              </ThemedText>
+            ) : null}
           </ScrollView>
         ) : (
           <FlatList
+            ref={listRef}
             data={visibleEntries}
             keyExtractor={(item) => item.id}
+            keyboardShouldPersistTaps="handled"
             renderItem={({ item }) => (
-              <Swipeable overshootRight={false} rightThreshold={40} renderRightActions={(progress) => renderDeleteAction(progress, item)}>
+              <Swipeable
+                overshootRight={false}
+                rightThreshold={56}
+                renderRightActions={(progress) => renderRightActions(progress, item)}
+              >
                 <View style={[styles.row, { borderBottomColor: colors.icon + '28' }]}>
                   <Pressable
-                    onPress={() => setEntryStatus(list.id, item.id, item.status === 'completed' ? 'planned' : 'completed')}
+                    onPress={() =>
+                      setEntryStatus(
+                        list.id,
+                        item.id,
+                        item.status === 'completed' ? 'planned' : 'completed'
+                      )
+                    }
                     style={[
                       styles.checkbox,
                       {
-                        borderColor: item.status === 'completed' ? colors.tint : colors.icon + '45',
-                        backgroundColor: item.status === 'completed' ? colors.tint : 'transparent',
+                        borderColor:
+                          item.status === 'completed' ? colors.tint : colors.icon + '45',
+                        backgroundColor:
+                          item.status === 'completed' ? colors.tint : 'transparent',
                       },
                     ]}
                   >
-                    {item.status === 'completed' ? <IconSymbol name="checkmark" size={14} color={colors.background} /> : null}
+                    {item.status === 'completed' ? (
+                      <IconSymbol name="checkmark" size={14} color={colors.background} />
+                    ) : null}
                   </Pressable>
                   <Pressable onPress={() => openEntry(item)} style={styles.rowMain}>
                     <ThumbnailImage imageUrl={item.imageUrl} style={styles.rowImage} />
                     <View style={styles.rowInfo}>
-                      <ThemedText style={styles.rowTitle} numberOfLines={2}>{item.title}</ThemedText>
+                      <ThemedText style={styles.rowTitle} numberOfLines={2}>
+                        {item.title}
+                      </ThemedText>
                       <View style={styles.rowMetaWrap}>
                         <ThemedText style={[styles.rowMeta, { color: colors.icon }]} numberOfLines={2}>
                           {buildEntryMeta(item, itemUserDataByKey)}
@@ -278,24 +472,116 @@ export default function ListDetailScreen() {
                 </View>
               </Swipeable>
             )}
-            contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 24 }]}
-            ListEmptyComponent={<ThemedText style={[styles.placeholder, { color: colors.icon }]}>This list is empty.</ThemedText>}
+            contentContainerStyle={[
+              styles.listContent,
+              { paddingBottom: insets.bottom + footerSpacerHeight },
+            ]}
+            ListEmptyComponent={
+              <ThemedText style={[styles.placeholder, { color: colors.icon }]}>
+                This list is empty.
+              </ThemedText>
+            }
+            ListFooterComponent={
+              composerVisible ? (
+                <View style={styles.composerFooter}>
+                  {(pendingTagsText.trim() || pendingLinkUrl.trim()) ? (
+                    <View style={styles.pendingMetaRow}>
+                      {pendingTagsText.trim() ? (
+                        <View style={[styles.pendingChip, { backgroundColor: colors.tint + '16' }]}>
+                          <IconSymbol name="tag.fill" size={14} color={colors.tint} />
+                          <ThemedText style={{ color: colors.tint }} numberOfLines={1}>
+                            {pendingTagsText}
+                          </ThemedText>
+                        </View>
+                      ) : null}
+                      {pendingLinkUrl.trim() ? (
+                        <View style={[styles.pendingChip, { backgroundColor: colors.tint + '16' }]}>
+                          <IconSymbol name="link" size={14} color={colors.tint} />
+                          <ThemedText style={{ color: colors.tint }} numberOfLines={1}>
+                            {pendingLinkUrl}
+                          </ThemedText>
+                        </View>
+                      ) : null}
+                    </View>
+                  ) : null}
+                  <Pressable
+                    onPress={() => composerInputRef.current?.focus()}
+                    style={[
+                      styles.composerCard,
+                      {
+                        borderColor: colors.tint + '35',
+                        backgroundColor: colors.background,
+                      },
+                    ]}
+                  >
+                    <TextInput
+                      ref={composerInputRef}
+                      style={[styles.composerInput, { color: colors.text }]}
+                      placeholder="Add an item"
+                      placeholderTextColor={colors.icon}
+                      value={composerText}
+                      onChangeText={setComposerText}
+                      onSubmitEditing={submitComposer}
+                      blurOnSubmit={false}
+                      returnKeyType="done"
+                    />
+                  </Pressable>
+                </View>
+              ) : null
+            }
           />
         )}
 
-        <AddItemSheet
-          visible={addItemVisible}
-          onClose={() => setAddItemVisible(false)}
-          onAddEntry={(draft) => {
-            if (draft.type === 'list' && draft.linkedListId) {
-              updateList(draft.linkedListId, { parentListId: list.id });
-            }
-            addEntryToList(list.id, draft);
-          }}
-          listTitle={list.title}
-          currentListId={list.id}
-          listConfig={list.config}
-        />
+        {composerVisible ? (
+          <View
+            pointerEvents="box-none"
+            style={[
+              styles.actionBarWrap,
+              {
+                bottom: actionBarBottom,
+                paddingHorizontal: 20,
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.actionBar,
+                {
+                  backgroundColor: colors.background,
+                  borderColor: colors.icon + '22',
+                },
+              ]}
+            >
+              <Pressable
+                onPress={() => setSearchVisible(true)}
+                style={({ pressed }) => [
+                  styles.actionIconButton,
+                  { opacity: pressed ? 0.7 : 1 },
+                ]}
+              >
+                <IconSymbol name="magnifyingglass" size={22} color={colors.tint} />
+              </Pressable>
+              <Pressable
+                onPress={() => setTagSheetVisible(true)}
+                style={({ pressed }) => [
+                  styles.actionIconButton,
+                  { opacity: pressed ? 0.7 : 1 },
+                ]}
+              >
+                <IconSymbol name="tag.fill" size={22} color={colors.tint} />
+              </Pressable>
+              <Pressable
+                onPress={() => setLinkSheetVisible(true)}
+                style={({ pressed }) => [
+                  styles.actionIconButton,
+                  { opacity: pressed ? 0.7 : 1 },
+                ]}
+              >
+                <IconSymbol name="link" size={22} color={colors.tint} />
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
 
         <SelectionMenu
           visible={menuVisible === 'view'}
@@ -393,6 +679,7 @@ export default function ListDetailScreen() {
           visible={menuVisible === 'sort'}
           title="Sort items"
           options={[
+            { value: 'manual', label: 'Manual order' },
             { value: 'updated-desc', label: 'Recently updated' },
             { value: 'title-asc', label: 'Title A-Z' },
             { value: 'rating-desc', label: 'Rating' },
@@ -425,7 +712,196 @@ export default function ListDetailScreen() {
           }}
         />
 
-        <Modal visible={newSublistVisible} transparent animationType="slide" onRequestClose={() => setNewSublistVisible(false)}>
+        <Modal
+          visible={searchVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setSearchVisible(false)}
+        >
+          <Pressable style={styles.modalOverlay} onPress={() => setSearchVisible(false)}>
+            <Pressable
+              style={[
+                styles.sheet,
+                {
+                  backgroundColor: colors.background,
+                  paddingBottom: insets.bottom + 24,
+                  height: Dimensions.get('window').height * 0.95,
+                },
+              ]}
+              onPress={(event) => event.stopPropagation()}
+            >
+              <View style={[styles.sheetHeader, { borderBottomColor: colors.icon + '30' }]}>
+                <Pressable onPress={() => setSearchVisible(false)} style={styles.sheetHeaderButton}>
+                  <IconSymbol name="xmark" size={24} color={colors.text} />
+                </Pressable>
+                <ThemedText type="subtitle" style={styles.sheetTitle}>
+                  Search catalog
+                </ThemedText>
+                <View style={styles.sheetHeaderButton} />
+              </View>
+              <ScrollView
+                contentContainerStyle={styles.sheetBody}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
+                <CatalogSearchPanel
+                  initialQuery={composerText.trim()}
+                  autoFocus
+                  onSelectItem={(item) =>
+                    addCatalogEntry({
+                      title: item.title,
+                      type: item.type,
+                      imageUrl: item.imageUrl,
+                      detailPath: item.detailPath,
+                      sourceRef: item.sourceRef,
+                      rating: item.rating,
+                      progress:
+                        item.totalProgress && item.progressUnit
+                          ? {
+                              current: undefined,
+                              total: item.totalProgress,
+                              unit: item.progressUnit,
+                              updatedAt: Date.now(),
+                            }
+                          : undefined,
+                    })
+                  }
+                />
+              </ScrollView>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        <Modal
+          visible={tagSheetVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setTagSheetVisible(false)}
+        >
+          <Pressable style={styles.modalOverlay} onPress={() => setTagSheetVisible(false)}>
+            <Pressable
+              style={[
+                styles.sheet,
+                {
+                  backgroundColor: colors.background,
+                  paddingBottom: insets.bottom + 24,
+                  height: Dimensions.get('window').height * 0.3,
+                },
+              ]}
+              onPress={(event) => event.stopPropagation()}
+            >
+              <View style={[styles.sheetHeader, { borderBottomColor: colors.icon + '30' }]}>
+                <Pressable onPress={() => setTagSheetVisible(false)} style={styles.sheetHeaderButton}>
+                  <IconSymbol name="xmark" size={24} color={colors.text} />
+                </Pressable>
+                <ThemedText type="subtitle" style={styles.sheetTitle}>
+                  Tags
+                </ThemedText>
+                <Pressable
+                  onPress={() => setTagSheetVisible(false)}
+                  style={styles.sheetHeaderButton}
+                >
+                  <IconSymbol name="checkmark" size={24} color={colors.tint} />
+                </Pressable>
+              </View>
+              <View style={styles.sheetBody}>
+                <TextInput
+                  style={[
+                    styles.input,
+                    {
+                      color: colors.text,
+                      borderColor: colors.icon + '28',
+                      backgroundColor: colors.icon + '10',
+                    },
+                  ]}
+                  placeholder="Comma-separated tags"
+                  placeholderTextColor={colors.icon}
+                  value={pendingTagsText}
+                  onChangeText={setPendingTagsText}
+                  autoFocus
+                />
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        <Modal
+          visible={linkSheetVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setLinkSheetVisible(false)}
+        >
+          <Pressable style={styles.modalOverlay} onPress={() => setLinkSheetVisible(false)}>
+            <Pressable
+              style={[
+                styles.sheet,
+                {
+                  backgroundColor: colors.background,
+                  paddingBottom: insets.bottom + 24,
+                  height: Dimensions.get('window').height * 0.34,
+                },
+              ]}
+              onPress={(event) => event.stopPropagation()}
+            >
+              <View style={[styles.sheetHeader, { borderBottomColor: colors.icon + '30' }]}>
+                <Pressable onPress={() => setLinkSheetVisible(false)} style={styles.sheetHeaderButton}>
+                  <IconSymbol name="xmark" size={24} color={colors.text} />
+                </Pressable>
+                <ThemedText type="subtitle" style={styles.sheetTitle}>
+                  Link
+                </ThemedText>
+                <Pressable
+                  onPress={() => setLinkSheetVisible(false)}
+                  style={styles.sheetHeaderButton}
+                >
+                  <IconSymbol name="checkmark" size={24} color={colors.tint} />
+                </Pressable>
+              </View>
+              <View style={styles.sheetBody}>
+                <TextInput
+                  style={[
+                    styles.input,
+                    {
+                      color: colors.text,
+                      borderColor: colors.icon + '28',
+                      backgroundColor: colors.icon + '10',
+                    },
+                  ]}
+                  keyboardType="url"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  placeholder="https://example.com"
+                  placeholderTextColor={colors.icon}
+                  value={pendingLinkUrl}
+                  onChangeText={setPendingLinkUrl}
+                  autoFocus
+                />
+                {pendingLinkUrl.trim() ? (
+                  <Pressable
+                    onPress={() => setPendingLinkUrl('')}
+                    style={({ pressed }) => [
+                      styles.secondaryButton,
+                      {
+                        borderColor: colors.icon + '28',
+                        backgroundColor: colors.icon + '10',
+                        opacity: pressed ? 0.84 : 1,
+                      },
+                    ]}
+                  >
+                    <ThemedText style={{ color: colors.icon }}>Clear link</ThemedText>
+                  </Pressable>
+                ) : null}
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        <Modal
+          visible={newSublistVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setNewSublistVisible(false)}
+        >
           <Pressable style={styles.modalOverlay} onPress={() => setNewSublistVisible(false)}>
             <Pressable
               style={[
@@ -442,7 +918,9 @@ export default function ListDetailScreen() {
                 <Pressable onPress={() => setNewSublistVisible(false)} style={styles.sheetHeaderButton}>
                   <IconSymbol name="xmark" size={24} color={colors.text} />
                 </Pressable>
-                <ThemedText type="subtitle" style={styles.sheetTitle}>New sublist</ThemedText>
+                <ThemedText type="subtitle" style={styles.sheetTitle}>
+                  New sublist
+                </ThemedText>
                 <View style={styles.sheetHeaderButton} />
               </View>
               <View style={styles.sheetBody}>
@@ -461,8 +939,16 @@ export default function ListDetailScreen() {
                   onChangeText={setSublistTitle}
                 />
                 <View style={styles.sublistPresetRow}>
-                  <SublistPresetButton label="Blank" active={sublistPreset === 'blank'} onPress={() => setSublistPreset('blank')} />
-                  <SublistPresetButton label="Tracking" active={sublistPreset === 'tracking'} onPress={() => setSublistPreset('tracking')} />
+                  <SublistPresetButton
+                    label="Blank"
+                    active={sublistPreset === 'blank'}
+                    onPress={() => setSublistPreset('blank')}
+                  />
+                  <SublistPresetButton
+                    label="Tracking"
+                    active={sublistPreset === 'tracking'}
+                    onPress={() => setSublistPreset('tracking')}
+                  />
                 </View>
                 <Pressable
                   onPress={() => {
@@ -489,14 +975,21 @@ export default function ListDetailScreen() {
                     { backgroundColor: colors.tint, opacity: pressed ? 0.84 : 1 },
                   ]}
                 >
-                  <ThemedText style={[styles.primaryButtonText, { color: colors.background }]}>Create sublist</ThemedText>
+                  <ThemedText style={[styles.primaryButtonText, { color: colors.background }]}>
+                    Create sublist
+                  </ThemedText>
                 </Pressable>
               </View>
             </Pressable>
           </Pressable>
         </Modal>
 
-        <Modal visible={configVisible} transparent animationType="slide" onRequestClose={() => setConfigVisible(false)}>
+        <Modal
+          visible={configVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setConfigVisible(false)}
+        >
           <Pressable style={styles.modalOverlay} onPress={() => setConfigVisible(false)}>
             <Pressable
               style={[
@@ -513,7 +1006,9 @@ export default function ListDetailScreen() {
                 <Pressable onPress={() => setConfigVisible(false)} style={styles.sheetHeaderButton}>
                   <IconSymbol name="xmark" size={24} color={colors.text} />
                 </Pressable>
-                <ThemedText type="subtitle" style={styles.sheetTitle}>Configure list</ThemedText>
+                <ThemedText type="subtitle" style={styles.sheetTitle}>
+                  Configure list
+                </ThemedText>
                 <Pressable
                   onPress={() => {
                     if (!draftConfig) {
@@ -536,7 +1031,12 @@ export default function ListDetailScreen() {
           </Pressable>
         </Modal>
 
-        <Modal visible={templateVisible} transparent animationType="slide" onRequestClose={() => setTemplateVisible(false)}>
+        <Modal
+          visible={templateVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setTemplateVisible(false)}
+        >
           <Pressable style={styles.modalOverlay} onPress={() => setTemplateVisible(false)}>
             <Pressable
               style={[
@@ -553,7 +1053,9 @@ export default function ListDetailScreen() {
                 <Pressable onPress={() => setTemplateVisible(false)} style={styles.sheetHeaderButton}>
                   <IconSymbol name="xmark" size={24} color={colors.text} />
                 </Pressable>
-                <ThemedText type="subtitle" style={styles.sheetTitle}>Save as template</ThemedText>
+                <ThemedText type="subtitle" style={styles.sheetTitle}>
+                  Save as template
+                </ThemedText>
                 <View style={styles.sheetHeaderButton} />
               </View>
               <View style={styles.sheetBody}>
@@ -601,7 +1103,9 @@ export default function ListDetailScreen() {
                     { backgroundColor: colors.tint, opacity: pressed ? 0.84 : 1 },
                   ]}
                 >
-                  <ThemedText style={[styles.primaryButtonText, { color: colors.background }]}>Save template</ThemedText>
+                  <ThemedText style={[styles.primaryButtonText, { color: colors.background }]}>
+                    Save template
+                  </ThemedText>
                 </Pressable>
               </View>
             </Pressable>
@@ -612,7 +1116,15 @@ export default function ListDetailScreen() {
   );
 }
 
-function ToolbarButton({ label, value, onPress }: { label: string; value: string; onPress: () => void }) {
+function ToolbarButton({
+  label,
+  value,
+  onPress,
+}: {
+  label: string;
+  value: string;
+  onPress: () => void;
+}) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   return (
@@ -654,7 +1166,10 @@ function SelectionMenu({
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.menuOverlay} onPress={onClose}>
         <Pressable
-          style={[styles.menuCard, { backgroundColor: colors.background, borderColor: colors.icon + '30' }]}
+          style={[
+            styles.menuCard,
+            { backgroundColor: colors.background, borderColor: colors.icon + '30' },
+          ]}
           onPress={(event) => event.stopPropagation()}
         >
           <ThemedText type="subtitle">{title}</ThemedText>
@@ -666,12 +1181,15 @@ function SelectionMenu({
                 styles.menuOption,
                 {
                   opacity: pressed ? 0.75 : 1,
-                  backgroundColor: selectedValue === option.value ? colors.tint + '14' : 'transparent',
+                  backgroundColor:
+                    selectedValue === option.value ? colors.tint + '14' : 'transparent',
                 },
               ]}
             >
               <ThemedText>{option.label}</ThemedText>
-              {selectedValue === option.value ? <IconSymbol name="checkmark" size={18} color={colors.tint} /> : null}
+              {selectedValue === option.value ? (
+                <IconSymbol name="checkmark" size={18} color={colors.tint} />
+              ) : null}
             </Pressable>
           ))}
         </Pressable>
@@ -683,18 +1201,28 @@ function SelectionMenu({
 function CompareView({ entries }: { entries: ListEntry[] }) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const fieldTitles = Array.from(new Set(entries.flatMap((entry) => (entry.customFields ?? []).map((field) => field.title.trim())))).filter(Boolean);
+  const fieldTitles = Array.from(
+    new Set(entries.flatMap((entry) => (entry.customFields ?? []).map((field) => field.title.trim())))
+  ).filter(Boolean);
   if (!entries.length || !fieldTitles.length) {
     return (
       <View style={styles.centered}>
-        <ThemedText style={{ color: colors.icon }}>No items with custom fields to compare.</ThemedText>
+        <ThemedText style={{ color: colors.icon }}>
+          No items with custom fields to compare.
+        </ThemedText>
       </View>
     );
   }
   return (
     <ScrollView horizontal style={styles.compareContainer}>
       <View style={[styles.compareTable, { borderColor: colors.icon + '35' }]}>
-        <View style={[styles.compareRow, styles.compareHeaderRow, { borderBottomColor: colors.icon + '35' }]}>
+        <View
+          style={[
+            styles.compareRow,
+            styles.compareHeaderRow,
+            { borderBottomColor: colors.icon + '35' },
+          ]}
+        >
           <View style={[styles.compareCell, styles.compareTitleColumn]}>
             <ThemedText style={styles.compareHeaderText}>Title</ThemedText>
           </View>
@@ -712,7 +1240,7 @@ function CompareView({ entries }: { entries: ListEntry[] }) {
             {fieldTitles.map((fieldTitle) => (
               <View key={fieldTitle} style={styles.compareCell}>
                 <ThemedText numberOfLines={2}>
-                  {entry.customFields?.find((field) => field.title.trim() === fieldTitle)?.value || '—'}
+                  {entry.customFields?.find((field) => field.title.trim() === fieldTitle)?.value || '-'}
                 </ThemedText>
               </View>
             ))}
@@ -735,7 +1263,9 @@ function TierView({
   if (!tierRows.length) {
     return (
       <View style={styles.centered}>
-        <ThemedText style={{ color: colors.icon }}>No sublists to show as tiers. Create one from the view menu.</ThemedText>
+        <ThemedText style={{ color: colors.icon }}>
+          No sublists to show as tiers. Create one from the view menu.
+        </ThemedText>
       </View>
     );
   }
@@ -743,14 +1273,25 @@ function TierView({
     <ScrollView contentContainerStyle={styles.tierContent}>
       {tierRows.map((tier) => (
         <View key={tier.id} style={[styles.tierRow, { borderBottomColor: colors.icon + '25' }]}>
-          <View style={[styles.tierLabel, { backgroundColor: tier.color, borderRightColor: colors.icon + '25' }]}>
+          <View
+            style={[
+              styles.tierLabel,
+              { backgroundColor: tier.color, borderRightColor: colors.icon + '25' },
+            ]}
+          >
             <ThemedText style={styles.tierLabelText}>{tier.title}</ThemedText>
           </View>
-          <ScrollView horizontal contentContainerStyle={styles.tierItems} showsHorizontalScrollIndicator={false}>
+          <ScrollView
+            horizontal
+            contentContainerStyle={styles.tierItems}
+            showsHorizontalScrollIndicator={false}
+          >
             {(tier.list?.entries ?? []).map((entry) => (
               <Pressable key={entry.id} onPress={() => onOpenEntry(entry)} style={styles.tierItem}>
                 <ThumbnailImage imageUrl={entry.imageUrl} style={styles.tierImage} />
-                <ThemedText numberOfLines={2} style={styles.tierItemTitle}>{entry.title}</ThemedText>
+                <ThemedText numberOfLines={2} style={styles.tierItemTitle}>
+                  {entry.title}
+                </ThemedText>
               </Pressable>
             ))}
           </ScrollView>
@@ -760,7 +1301,15 @@ function TierView({
   );
 }
 
-function SublistPresetButton({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+function SublistPresetButton({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   return (
@@ -780,24 +1329,38 @@ function SublistPresetButton({ label, active, onPress }: { label: string; active
 }
 
 function labelForSort(value: ListSortMode) {
-  return value === 'updated-desc' ? 'Recent' : value === 'title-asc' ? 'A-Z' : value === 'rating-desc' ? 'Rating' : 'Status';
+  return value === 'manual'
+    ? 'Manual'
+    : value === 'updated-desc'
+      ? 'Recent'
+      : value === 'title-asc'
+        ? 'A-Z'
+        : value === 'rating-desc'
+          ? 'Rating'
+          : 'Status';
 }
 
 function labelForFilter(value: ListFilterMode) {
-  return value === 'all' ? 'All' : value === 'completed' ? 'Completed' : value === 'active' ? 'Active' : value === 'planned' ? 'Planned' : value === 'paused' ? 'Paused' : value === 'dropped' ? 'Dropped' : 'Archived';
+  return value === 'all'
+    ? 'All'
+    : value === 'completed'
+      ? 'Completed'
+      : value === 'active'
+        ? 'Active'
+        : value === 'planned'
+          ? 'Planned'
+          : value === 'paused'
+            ? 'Paused'
+            : value === 'dropped'
+              ? 'Dropped'
+              : 'Archived';
 }
 
-function buildEntryMeta(
-  entry: ListEntry,
-  itemUserDataByKey?: Record<string, ItemUserData>
-) {
+function buildEntryMeta(entry: ListEntry, itemUserDataByKey?: Record<string, ItemUserData>) {
   const parts = [entry.type === 'list' ? 'List' : entry.type, entry.status];
   const progress = formatProgressLabel(entry, itemUserDataByKey);
   if (progress) {
     parts.splice(1, 0, progress);
-  }
-  if (false && typeof entry.rating === 'number') {
-    parts.push(`★ ${entry.rating}`);
   }
   return parts.join(' · ');
 }
@@ -807,24 +1370,66 @@ const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   headerButtonsRow: { flexDirection: 'row', alignItems: 'center' },
   headerButton: { padding: 6, marginRight: 6 },
-  toolbar: { flexDirection: 'row', gap: 12, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4 },
-  toolbarButton: { flex: 1, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, gap: 2 },
+  toolbar: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  toolbarButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 2,
+  },
   listTagSection: { paddingHorizontal: 20, paddingBottom: 8, gap: 8 },
   listTagLabel: { fontSize: 13 },
   listTagWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   listTagChip: { borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
   listContent: { paddingHorizontal: 20, paddingTop: 4 },
-  row: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: 12 },
-  checkbox: { width: 24, height: 24, borderRadius: 12, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 12,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
   rowMain: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   rowImage: { width: 56, height: 80, borderRadius: 6 },
   rowInfo: { flex: 1, marginLeft: 14 },
   rowTitle: { fontSize: 16, fontWeight: '600', marginBottom: 4 },
   rowMetaWrap: { gap: 6 },
   rowMeta: { fontSize: 13 },
-  rightActionContainer: { width: 96, justifyContent: 'center', alignItems: 'stretch' },
-  deleteAction: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 4 },
-  deleteActionText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  rightActionContainer: {
+    width: 192,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'stretch',
+  },
+  infoAction: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  deleteAction: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  actionText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   gridContent: { paddingHorizontal: 14, paddingTop: 8 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   gridCard: { width: '48%' },
@@ -832,6 +1437,49 @@ const styles = StyleSheet.create({
   gridTitle: { fontSize: 14, fontWeight: '600', marginTop: 6 },
   gridMeta: { fontSize: 12, marginTop: 3 },
   placeholder: { paddingTop: 24, fontSize: 15 },
+  composerFooter: { paddingTop: 14, gap: 10 },
+  pendingMetaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  pendingChip: {
+    maxWidth: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  composerCard: {
+    borderWidth: 1,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+  },
+  composerInput: {
+    fontSize: 16,
+    paddingVertical: 12,
+  },
+  actionBarWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+  },
+  actionBar: {
+    width: '100%',
+    borderWidth: 1,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-evenly',
+    alignItems: 'center',
+  },
+  actionIconButton: {
+    width: 56,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+  },
   compareContainer: { flex: 1, paddingHorizontal: 20, paddingTop: 12 },
   compareTable: { borderWidth: 1, borderRadius: 10, overflow: 'hidden', marginBottom: 24 },
   compareRow: { flexDirection: 'row', borderBottomWidth: StyleSheet.hairlineWidth },
@@ -841,24 +1489,77 @@ const styles = StyleSheet.create({
   compareHeaderText: { fontSize: 14, fontWeight: '700' },
   tierContent: { paddingTop: 8, paddingBottom: 24 },
   tierRow: { flexDirection: 'row', minHeight: 112, borderBottomWidth: StyleSheet.hairlineWidth },
-  tierLabel: { width: 72, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8, borderRightWidth: StyleSheet.hairlineWidth },
+  tierLabel: {
+    width: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    borderRightWidth: StyleSheet.hairlineWidth,
+  },
   tierLabelText: { fontSize: 14, fontWeight: '700', textAlign: 'center' },
-  tierItems: { gap: 10, paddingHorizontal: 12, paddingVertical: 10, alignItems: 'center' },
+  tierItems: {
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
   tierItem: { width: 72 },
   tierImage: { width: 72, height: 102, borderRadius: 6 },
   tierItemTitle: { fontSize: 12, marginTop: 4 },
-  modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(8, 12, 20, 0.45)' },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(8, 12, 20, 0.45)',
+  },
   sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24 },
-  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
   sheetHeaderButton: { minWidth: 44, padding: 8, alignItems: 'center' },
   sheetTitle: { flex: 1, textAlign: 'center' },
   sheetBody: { flex: 1, paddingHorizontal: 20, paddingTop: 16, gap: 14 },
-  input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16 },
+  input: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+  },
   sublistPresetRow: { flexDirection: 'row', gap: 10 },
-  sublistPresetButton: { flex: 1, borderWidth: 1, borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
+  sublistPresetButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
   primaryButton: { borderRadius: 16, paddingVertical: 14, alignItems: 'center' },
   primaryButtonText: { fontSize: 16, fontWeight: '700' },
-  menuOverlay: { flex: 1, justifyContent: 'center', padding: 20, backgroundColor: 'rgba(0,0,0,0.28)' },
+  secondaryButton: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  menuOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: 20,
+    backgroundColor: 'rgba(0,0,0,0.28)',
+  },
   menuCard: { borderRadius: 18, borderWidth: 1, padding: 18, gap: 10 },
-  menuOption: { borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  menuOption: {
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
 });
