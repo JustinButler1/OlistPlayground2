@@ -6,6 +6,10 @@ export interface CatalogSearchItem {
   id: string;
   title: string;
   subtitle?: string;
+  location?: string;
+  author?: string;
+  progressLabel?: string;
+  tags?: string[];
   imageUrl?: string;
   type: ListEntryType;
   detailPath?: string;

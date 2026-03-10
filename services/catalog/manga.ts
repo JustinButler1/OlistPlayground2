@@ -7,6 +7,7 @@ interface JikanMangaSearchResponse {
   data?: Array<{
     mal_id: number;
     title: string;
+    title_english?: string | null;
     images?: {
       jpg?: { image_url?: string; small_image_url?: string };
       webp?: { image_url?: string; small_image_url?: string };
@@ -14,12 +15,21 @@ interface JikanMangaSearchResponse {
     chapters?: number | null;
     volumes?: number | null;
     score?: number | null;
+    type?: string | null;
     published?: {
       prop?: {
         from?: { year?: number };
         to?: { year?: number | null };
       };
     };
+    genres?: Array<{
+      mal_id: number;
+      name: string;
+    }>;
+    authors?: Array<{
+      mal_id: number;
+      name: string;
+    }>;
   }>;
 }
 
@@ -44,17 +54,24 @@ async function searchManga(query: string): Promise<CatalogSearchItem[]> {
       item.images?.jpg?.small_image_url ??
       item.images?.webp?.small_image_url;
     const year = item.published?.prop?.from?.year ?? item.published?.prop?.to?.year;
+    const location = [item.type, year].filter(Boolean).join(' | ');
+    const author = item.authors?.map((authorItem) => authorItem.name).join(', ');
+    const progressLabel = [
+      typeof item.volumes === 'number' ? `${item.volumes} volumes` : null,
+      typeof item.chapters === 'number' ? `${item.chapters} chapters` : null,
+    ]
+      .filter(Boolean)
+      .join(' | ');
+    const tags = (item.genres ?? []).map((genre) => genre.name);
 
     return {
       id: String(item.mal_id),
-      title: item.title,
-      subtitle: [
-        typeof item.volumes === 'number' ? `${item.volumes} vol` : null,
-        typeof item.chapters === 'number' ? `${item.chapters} ch` : null,
-        year,
-      ]
-        .filter(Boolean)
-        .join(' | '),
+      title: item.title_english?.trim() || item.title,
+      subtitle: [author, location, progressLabel].filter(Boolean).join(' | '),
+      location: location || undefined,
+      author: author || undefined,
+      progressLabel: progressLabel || undefined,
+      tags,
       imageUrl: imageUrl ?? undefined,
       type: 'manga',
       detailPath: `manga/${item.mal_id}`,

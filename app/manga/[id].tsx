@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
-import { Stack, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { Link, Stack, useLocalSearchParams } from 'expo-router';
+import { forwardRef, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -27,7 +27,11 @@ import { normalizeRating } from '@/lib/tracker-metadata';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ExpandableDescription } from '@/components/ExpandableDescription';
 import { ExpandableTags } from '@/components/ExpandableTags';
-import { Link } from 'expo-router';
+import {
+  buildSeededHref,
+  isAbortError,
+  readDetailSeed,
+} from '@/lib/detail-navigation';
 import { enqueueJikan } from '@/lib/jikan-queue';
 
 const JIKAN_API = 'https://api.jikan.moe/v4';
@@ -57,8 +61,8 @@ interface MangaDetails {
   relations?: { relation: string; entry: { mal_id: number; type: string; name: string }[] }[];
 }
 
-async function fetchMangaDetails(id: string): Promise<MangaDetails> {
-  const response = await fetch(`${JIKAN_API}/manga/${id}/full`);
+async function fetchMangaDetails(id: string, signal?: AbortSignal): Promise<MangaDetails> {
+  const response = await fetch(`${JIKAN_API}/manga/${id}/full`, { signal });
   if (!response.ok) {
     throw new Error('manga_fetch_failed');
   }
@@ -72,14 +76,14 @@ interface JikanMangaCharacterResp {
   role: string;
 }
 
-async function fetchMangaCharacters(id: string): Promise<JikanMangaCharacterResp[]> {
-  const response = await fetch(`${JIKAN_API}/manga/${id}/characters`);
+async function fetchMangaCharacters(id: string, signal?: AbortSignal): Promise<JikanMangaCharacterResp[]> {
+  const response = await fetch(`${JIKAN_API}/manga/${id}/characters`, { signal });
   if (!response.ok) return [];
   const json = await response.json();
   return (json.data ?? []).slice(0, 20);
 }
 
-function JikanDynamicImage({ type, id }: { type: 'anime' | 'manga' | 'authors', id: number }) {
+const JikanDynamicImage = forwardRef<Image, { type: 'anime' | 'manga' | 'authors', id: number }>(({ type, id }, ref) => {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -97,16 +101,23 @@ function JikanDynamicImage({ type, id }: { type: 'anime' | 'manga' | 'authors', 
 
   if (!imageUrl) {
     return (
-      <View style={styles.relatedImagePlaceholder}>
+      <View ref={ref as any} style={styles.relatedImagePlaceholder}>
         <IconSymbol name="photo" size={24} color="#888" />
       </View>
     );
   }
-  return <Image source={{ uri: imageUrl }} style={styles.relatedImage} contentFit="cover" />;
-}
+  return <Image ref={ref} source={{ uri: imageUrl }} style={styles.relatedImage} contentFit="cover" />;
+});
+JikanDynamicImage.displayName = 'JikanDynamicImage';
 
 export default function MangaDetailsScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{
+    id: string;
+    seedImageUrl?: string;
+    seedSubtitle?: string;
+    seedTitle?: string;
+  }>();
+  const { id } = params;
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
@@ -116,27 +127,52 @@ export default function MangaDetailsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [showImage, setShowImage] = useState(false);
   const [activeTab, setActiveTab] = useState<ItemDetailTabId>('details');
+  const seed = readDetailSeed(params);
 
   useEffect(() => {
     if (!id) {
       return;
     }
 
+    const controller = new AbortController();
+
     setLoading(true);
     setError(null);
-    Promise.all([
-      fetchMangaDetails(id),
-      fetchMangaCharacters(id)
-    ])
-      .then(([mangaData, charsData]) => {
+    setManga(null);
+    setCharacters([]);
+
+    fetchMangaDetails(id, controller.signal)
+      .then((mangaData) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
         setManga(mangaData);
-        setCharacters(charsData);
       })
-      .catch(() => setError('Failed to load manga details'))
-      .finally(() => setLoading(false));
+      .catch((caughtError) => {
+        if (!isAbortError(caughtError)) {
+          setError('Failed to load manga details');
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      });
+
+    fetchMangaCharacters(id, controller.signal)
+      .then((charsData) => {
+        if (!controller.signal.aborted) {
+          setCharacters(charsData);
+        }
+      })
+      .catch(() => {});
+
+    return () => controller.abort();
   }, [id]);
 
-  const imageUrl = manga?.images?.jpg?.large_image_url ?? manga?.images?.jpg?.image_url;
+  const imageUrl =
+    manga?.images?.jpg?.large_image_url ?? manga?.images?.jpg?.image_url ?? seed.imageUrl;
   const itemKey = id ? getItemUserDataKey('manga', id) : null;
   const communityRating = normalizeRating(manga?.score ?? undefined);
   const progressConfig =
@@ -161,6 +197,11 @@ export default function MangaDetailsScreen() {
   ]
     .filter(Boolean)
     .join(' | ');
+  const title = manga?.title ?? seed.title ?? 'Manga';
+  const subtitle =
+    manga && (manga.title_english || manga.title_japanese)
+      ? [manga.title_english, manga.title_japanese].filter(Boolean).join(' | ')
+      : seed.subtitle;
 
   if (!id) {
     return (
@@ -175,43 +216,43 @@ export default function MangaDetailsScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: manga?.title ?? 'Manga' }} />
+      <Stack.Screen options={{ title }} />
       <ThemedView style={styles.container}>
-        {loading ? (
-          <View style={styles.centered}>
-            <ActivityIndicator size="large" color={colors.tint} />
-          </View>
-        ) : error || !manga ? (
-          <View style={styles.centered}>
-            <ThemedText>{error ?? 'Manga not found.'}</ThemedText>
-          </View>
-        ) : (
-          <ScrollView
-            contentContainerStyle={[
-              styles.content,
-              { paddingBottom: insets.bottom + 24 },
-            ]}
-            showsVerticalScrollIndicator={false}
-          >
-            <Pressable onPress={() => imageUrl && setShowImage(true)}>
+        <ScrollView
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: insets.bottom + 24 },
+          ]}
+          showsVerticalScrollIndicator={false}
+        >
+          <Pressable onPress={() => imageUrl && setShowImage(true)} style={styles.heroWrap}>
+            <Link.AppleZoomTarget>
               <ThumbnailImage imageUrl={imageUrl} style={styles.hero} />
-            </Pressable>
-            <ItemDetailTabs activeTab={activeTab} onChange={setActiveTab} />
-            {activeTab === 'details' ? (
+            </Link.AppleZoomTarget>
+          </Pressable>
+          <View style={styles.headerBlock}>
+            <ThemedText type="title">{title}</ThemedText>
+            {subtitle ? <ThemedText style={{ color: colors.icon }}>{subtitle}</ThemedText> : null}
+            {meta ? <ThemedText style={{ color: colors.icon }}>{meta}</ThemedText> : null}
+            {communityRating ? (
+              <View style={styles.ratingRow}>
+                <ThemedText style={{ color: colors.icon }}>Community rating</ThemedText>
+                <RatingStars value={communityRating} showValue />
+              </View>
+            ) : null}
+          </View>
+          <ItemDetailTabs activeTab={activeTab} onChange={setActiveTab} />
+          {activeTab === 'details' ? (
+            loading ? (
+              <View style={styles.sectionState}>
+                <ActivityIndicator size="small" color={colors.tint} />
+              </View>
+            ) : error || !manga ? (
+              <View style={styles.sectionState}>
+                <ThemedText>{error ?? 'Manga not found.'}</ThemedText>
+              </View>
+            ) : (
               <>
-                <ThemedText type="title">{manga.title}</ThemedText>
-                {(manga.title_english || manga.title_japanese) && (
-                  <ThemedText style={{ color: colors.icon }}>
-                    {[manga.title_english, manga.title_japanese].filter(Boolean).join(' | ')}
-                  </ThemedText>
-                )}
-                {meta ? <ThemedText style={{ color: colors.icon }}>{meta}</ThemedText> : null}
-                {communityRating ? (
-                  <View style={styles.ratingRow}>
-                    <ThemedText style={{ color: colors.icon }}>Community rating</ThemedText>
-                    <RatingStars value={communityRating} showValue />
-                  </View>
-                ) : null}
                 {manga.genres?.length ? (
                   <ExpandableTags tags={manga.genres.map(g => ({ id: g.mal_id, name: g.name }))} />
                 ) : null}
@@ -223,17 +264,33 @@ export default function MangaDetailsScreen() {
                     <ThemedText type="subtitle">Related</ThemedText>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.relatedScroll}>
                       {manga.relations.flatMap(r => r.entry.map(e => ({ ...e, relation: r.relation }))).map((related, index) => {
-                        const href = related.type === 'anime' ? `/anime/${related.mal_id}` : related.type === 'manga' ? `/manga/${related.mal_id}` : null;
+                        const href =
+                          related.type === 'anime'
+                            ? `/anime/${related.mal_id}`
+                            : related.type === 'manga'
+                            ? `/manga/${related.mal_id}`
+                            : null;
                         if (!href) return null;
                         return (
-                          <Link key={`${related.type}-${related.mal_id}-${index}`} href={href as any} asChild>
-                            <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
-                              <JikanDynamicImage type={related.type as any} id={related.mal_id} />
-                              <View style={styles.relatedContent}>
-                                <ThemedText style={styles.relatedType} numberOfLines={1}>{related.relation}</ThemedText>
-                                <ThemedText style={styles.relatedTitle} numberOfLines={2}>{related.name}</ThemedText>
-                              </View>
-                            </Pressable>
+                          <Link
+                            key={`${related.type}-${related.mal_id}-${index}`}
+                            href={buildSeededHref(href, {
+                              title: related.name,
+                              subtitle: related.relation,
+                            })}
+                            asChild
+                          >
+                            <Link.Trigger>
+                              <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
+                                <Link.AppleZoom>
+                                  <JikanDynamicImage type={related.type as any} id={related.mal_id} />
+                                </Link.AppleZoom>
+                                <View style={styles.relatedContent}>
+                                  <ThemedText style={styles.relatedType} numberOfLines={1}>{related.relation}</ThemedText>
+                                  <ThemedText style={styles.relatedTitle} numberOfLines={2}>{related.name}</ThemedText>
+                                </View>
+                              </Pressable>
+                            </Link.Trigger>
                           </Link>
                         );
                       })}
@@ -247,20 +304,33 @@ export default function MangaDetailsScreen() {
                       {characters.map((charItem, index) => {
                         const char = charItem.character;
                         return (
-                          <Link key={`char-${char.mal_id}-${index}`} href={`/person/jikan-character/${char.mal_id}` as any} asChild>
-                            <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
-                              {char.images?.jpg?.image_url ? (
-                                <Image source={{ uri: char.images.jpg.image_url }} style={styles.relatedImage} contentFit="cover" />
-                              ) : (
-                                <View style={styles.relatedImagePlaceholder}>
-                                  <IconSymbol name="person.fill" size={24} color={colors.icon} />
+                          <Link
+                            key={`char-${char.mal_id}-${index}`}
+                            href={buildSeededHref(`/person/jikan-character/${char.mal_id}`, {
+                              title: char.name,
+                              subtitle: charItem.role,
+                              imageUrl: char.images?.jpg?.image_url,
+                              imageVariant: 'avatar',
+                            })}
+                            asChild
+                          >
+                            <Link.Trigger>
+                              <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
+                                <Link.AppleZoom>
+                                  {char.images?.jpg?.image_url ? (
+                                    <Image source={{ uri: char.images.jpg.image_url }} style={styles.relatedImage} contentFit="cover" />
+                                  ) : (
+                                    <View style={styles.relatedImagePlaceholder}>
+                                      <IconSymbol name="person.fill" size={24} color={colors.icon} />
+                                    </View>
+                                  )}
+                                </Link.AppleZoom>
+                                <View style={styles.relatedContent}>
+                                  <ThemedText style={styles.relatedTitle} numberOfLines={1}>{char.name}</ThemedText>
+                                  <ThemedText style={styles.relatedType} numberOfLines={1}>{charItem.role}</ThemedText>
                                 </View>
-                              )}
-                              <View style={styles.relatedContent}>
-                                <ThemedText style={styles.relatedTitle} numberOfLines={1}>{char.name}</ThemedText>
-                                <ThemedText style={styles.relatedType} numberOfLines={1}>{charItem.role}</ThemedText>
-                              </View>
-                            </Pressable>
+                              </Pressable>
+                            </Link.Trigger>
                           </Link>
                         );
                       })}
@@ -272,28 +342,38 @@ export default function MangaDetailsScreen() {
                     <ThemedText type="subtitle">Authors</ThemedText>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.relatedScroll}>
                       {manga.authors.map((author) => (
-                        <Link key={author.mal_id} href={`/person/jikan-author/${author.mal_id}` as any} asChild>
-                          <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
-                            <JikanDynamicImage type="authors" id={author.mal_id} />
-                            <View style={styles.relatedContent}>
-                              <ThemedText style={styles.relatedTitle} numberOfLines={2}>{author.name}</ThemedText>
-                            </View>
-                          </Pressable>
+                        <Link
+                          key={author.mal_id}
+                          href={buildSeededHref(`/person/jikan-author/${author.mal_id}`, {
+                            title: author.name,
+                          })}
+                          asChild
+                        >
+                          <Link.Trigger>
+                            <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
+                              <Link.AppleZoom>
+                                <JikanDynamicImage type="authors" id={author.mal_id} />
+                              </Link.AppleZoom>
+                              <View style={styles.relatedContent}>
+                                <ThemedText style={styles.relatedTitle} numberOfLines={2}>{author.name}</ThemedText>
+                              </View>
+                            </Pressable>
+                          </Link.Trigger>
                         </Link>
                       ))}
                     </ScrollView>
                   </View>
                 ) : null}
               </>
-            ) : itemKey ? (
-              <ItemUserDataPanel
-                itemKey={itemKey}
-                showRating
-                progressConfig={progressConfig}
-              />
-            ) : null}
-          </ScrollView>
-        )}
+            )
+          ) : itemKey ? (
+            <ItemUserDataPanel
+              itemKey={itemKey}
+              showRating
+              progressConfig={progressConfig}
+            />
+          ) : null}
+        </ScrollView>
       </ThemedView>
       <Modal visible={showImage} transparent animationType="fade" onRequestClose={() => setShowImage(false)}>
         <Pressable style={styles.imageOverlay} onPress={() => setShowImage(false)}>
@@ -320,14 +400,27 @@ const styles = StyleSheet.create({
     padding: 20,
     gap: 12,
   },
+  heroWrap: {
+    width: '100%',
+    maxWidth: 260,
+    alignSelf: 'center',
+  },
   hero: {
     width: '100%',
-    aspectRatio: 16 / 9,
+    aspectRatio: 2 / 3,
     borderRadius: 20,
+  },
+  headerBlock: {
+    gap: 6,
   },
   section: {
     gap: 8,
     marginTop: 8,
+  },
+  sectionState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 28,
   },
   ratingRow: {
     gap: 8,

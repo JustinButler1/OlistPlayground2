@@ -14,6 +14,8 @@ interface TmdbSearchResponse {
     vote_average?: number | null;
     release_date?: string;
     first_air_date?: string;
+    original_language?: string;
+    origin_country?: string[];
   }>;
 }
 
@@ -49,11 +51,17 @@ async function searchTmdb(query: string): Promise<CatalogSearchItem[]> {
       const type = item.media_type === 'movie' ? 'movie' : 'tv';
       const title = item.title ?? item.name ?? 'Untitled';
       const year = (type === 'movie' ? item.release_date : item.first_air_date)?.slice(0, 4);
+      const region =
+        type === 'tv' ? item.origin_country?.[0] : item.original_language?.toUpperCase();
+      const location = [type === 'movie' ? 'Movie' : 'TV', year, region].filter(Boolean).join(
+        ' | '
+      );
 
       return {
         id: String(item.id),
         title,
-        subtitle: [type === 'movie' ? 'Movie' : 'TV', year].filter(Boolean).join(' | '),
+        subtitle: location,
+        location: location || undefined,
         imageUrl: item.poster_path ? `${TMDB_IMAGE_BASE}${item.poster_path}` : undefined,
         type,
         detailPath: `tv-movie/${type}/${item.id}`,

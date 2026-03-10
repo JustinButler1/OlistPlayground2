@@ -1,5 +1,5 @@
 import { Image } from 'expo-image';
-import { useLocalSearchParams } from 'expo-router';
+import { Link, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -11,17 +11,21 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { RatingStars } from '@/components/tracker/RatingStars';
+import { ExpandableDescription } from '@/components/ExpandableDescription';
+import { ExpandableTags } from '@/components/ExpandableTags';
 import { ThumbnailImage } from '@/components/thumbnail-image';
+import { RatingStars } from '@/components/tracker/RatingStars';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import {
+  buildSeededHref,
+  isAbortError,
+  readDetailSeed,
+} from '@/lib/detail-navigation';
 import { normalizeRating } from '@/lib/tracker-metadata';
-import { ExpandableDescription } from '@/components/ExpandableDescription';
-import { ExpandableTags } from '@/components/ExpandableTags';
-import { Link } from 'expo-router';
 
 const IGDB_GAMES_ENDPOINT = 'https://api.igdb.com/v4/games';
 const IGDB_IMAGE_BASE = 'https://images.igdb.com/igdb/image/upload';
@@ -46,7 +50,10 @@ interface IgdbGameDetails {
   platforms?: IgdbPlatform[];
   genres?: { id: number; name: string }[];
   themes?: { id: number; name: string }[];
-  involved_companies?: { id: number; company: { id: number; name: string; logo?: IgdbCover } }[];
+  involved_companies?: {
+    id: number;
+    company: { id: number; name: string; logo?: IgdbCover };
+  }[];
   similar_games?: { id: number; name: string; cover?: IgdbCover }[];
   dlcs?: { id: number; name: string; cover?: IgdbCover }[];
   remakes?: { id: number; name: string; cover?: IgdbCover }[];
@@ -62,10 +69,11 @@ function getIgdbCredentials() {
   if (!clientId || !clientSecret) {
     throw new Error('missing_igdb_credentials');
   }
+
   return { clientId, clientSecret };
 }
 
-async function getIgdbAccessToken(): Promise<string> {
+async function getIgdbAccessToken(signal?: AbortSignal): Promise<string> {
   const now = Date.now();
   if (igdbAccessToken && igdbTokenExpiryMs > now + 60_000) {
     return igdbAccessToken;
@@ -79,6 +87,7 @@ async function getIgdbAccessToken(): Promise<string> {
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      signal,
     }
   );
 
@@ -96,6 +105,7 @@ function buildIgdbCoverUrl(cover?: IgdbCover) {
   if (!cover?.image_id) {
     return null;
   }
+
   return `${IGDB_IMAGE_BASE}/t_cover_big_2x/${cover.image_id}.jpg`;
 }
 
@@ -103,13 +113,14 @@ function formatIgdbYear(firstReleaseDate?: number) {
   if (!firstReleaseDate) {
     return null;
   }
+
   const date = new Date(firstReleaseDate * 1000);
   const year = date.getFullYear();
   return Number.isFinite(year) ? String(year) : null;
 }
 
-async function fetchGameDetails(id: string): Promise<IgdbGameDetails> {
-  const token = await getIgdbAccessToken();
+async function fetchGameDetails(id: string, signal?: AbortSignal): Promise<IgdbGameDetails> {
+  const token = await getIgdbAccessToken(signal);
   const { clientId } = getIgdbCredentials();
   const body = [
     'fields name, summary, cover.image_id, first_release_date, total_rating, platforms.name, genres.name, themes.name, involved_companies.company.name, involved_companies.company.logo.image_id, similar_games.name, similar_games.cover.image_id, dlcs.name, dlcs.cover.image_id, remakes.name, remakes.cover.image_id, expansions.name, expansions.cover.image_id ;',
@@ -118,6 +129,7 @@ async function fetchGameDetails(id: string): Promise<IgdbGameDetails> {
 
   const response = await fetch(IGDB_GAMES_ENDPOINT, {
     method: 'POST',
+    signal,
     headers: {
       'Client-ID': clientId,
       Authorization: `Bearer ${token}`,
@@ -135,14 +147,22 @@ async function fetchGameDetails(id: string): Promise<IgdbGameDetails> {
   if (!game) {
     throw new Error('Game not found');
   }
+
   return game;
 }
 
 export default function GameDetailsScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{
+    id: string;
+    seedImageUrl?: string;
+    seedSubtitle?: string;
+    seedTitle?: string;
+  }>();
+  const { id } = params;
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const seed = readDetailSeed(params);
   const [game, setGame] = useState<IgdbGameDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<null | string>(null);
@@ -152,11 +172,24 @@ export default function GameDetailsScreen() {
     if (!id) {
       return;
     }
+
+    const controller = new AbortController();
+
     setLoading(true);
     setError(null);
-    fetchGameDetails(id)
-      .then(setGame)
+    setGame(null);
+
+    fetchGameDetails(id, controller.signal)
+      .then((nextGame) => {
+        if (!controller.signal.aborted) {
+          setGame(nextGame);
+        }
+      })
       .catch((caughtError) => {
+        if (isAbortError(caughtError)) {
+          return;
+        }
+
         if (
           caughtError instanceof Error &&
           caughtError.message === 'missing_igdb_credentials'
@@ -166,16 +199,23 @@ export default function GameDetailsScreen() {
           setError('Failed to load game details');
         }
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      });
+
+    return () => controller.abort();
   }, [id]);
 
-  const imageUrl = game ? buildIgdbCoverUrl(game.cover) : null;
+  const imageUrl = (game ? buildIgdbCoverUrl(game.cover) : null) ?? seed.imageUrl ?? null;
   const year = game ? formatIgdbYear(game.first_release_date) : null;
   const rating =
     game && typeof game.total_rating === 'number' && game.total_rating > 0
       ? normalizeRating(game.total_rating)
       : null;
   const platforms = game?.platforms?.map((platform) => platform.name).filter(Boolean) ?? [];
+  const title = game?.name ?? seed.title ?? 'Game';
 
   if (!id) {
     return (
@@ -187,22 +227,9 @@ export default function GameDetailsScreen() {
     );
   }
 
-  if (loading || error) {
-    return (
-      <ThemedView style={styles.container}>
-        <View style={styles.centered}>
-          {loading ? (
-            <ActivityIndicator size="large" color={colors.tint} />
-          ) : (
-            <ThemedText style={styles.errorText}>{error}</ThemedText>
-          )}
-        </View>
-      </ThemedView>
-    );
-  }
-
   return (
     <ThemedView style={styles.container}>
+      <Stack.Screen options={{ title }} />
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
@@ -212,7 +239,9 @@ export default function GameDetailsScreen() {
           onPress={() => imageUrl && setFullScreenImageVisible(true)}
           style={({ pressed }) => [styles.heroImageWrap, pressed && imageUrl && { opacity: 0.9 }]}
         >
-          <ThumbnailImage imageUrl={imageUrl ?? undefined} style={styles.heroImage} contentFit="cover" />
+          <Link.AppleZoomTarget>
+            <ThumbnailImage imageUrl={imageUrl ?? undefined} style={styles.heroImage} contentFit="cover" />
+          </Link.AppleZoomTarget>
         </Pressable>
 
         <Modal
@@ -244,90 +273,157 @@ export default function GameDetailsScreen() {
         </Modal>
 
         <View style={styles.content}>
-          <ThemedText type="title" style={styles.title}>
-            {game?.name}
-          </ThemedText>
-
-          <View style={styles.metaRow}>
-            {year || platforms.length ? (
-              <ThemedText style={[styles.meta, { color: colors.icon }]}>
-                {year ?? 'Unknown year'}
-                {platforms.length ? ` · ${platforms.slice(0, 5).join(', ')}` : ''}
-              </ThemedText>
-            ) : null}
-            {rating !== null ? (
-              <RatingStars value={rating} showValue />
+          <View style={styles.headerBlock}>
+            <ThemedText type="title" style={styles.title}>
+              {title}
+            </ThemedText>
+            {!game && seed.subtitle ? (
+              <ThemedText style={[styles.meta, { color: colors.icon }]}>{seed.subtitle}</ThemedText>
             ) : null}
           </View>
-          
-          {game?.genres?.length || game?.themes?.length ? (
-            <ExpandableTags 
-              tags={[...(game.genres || []), ...(game.themes || [])].map(t => ({ id: t.id, name: t.name }))} 
-            />
-          ) : null}
 
-          {game?.summary ? (
-            <ExpandableDescription text={game.summary} />
-          ) : null}
-
-          {[
-            { title: 'Similar', data: game?.similar_games },
-            { title: 'DLCs', data: game?.dlcs },
-            { title: 'Remakes', data: game?.remakes },
-            { title: 'Expansions', data: game?.expansions },
-          ].map((section) => section.data && section.data.length > 0 ? (
-            <View key={section.title} style={styles.section}>
-              <ThemedText type="subtitle" style={styles.sectionTitle}>{section.title}</ThemedText>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.relatedScroll}>
-                {section.data.map((related, index) => {
-                  const itemImageUrl = buildIgdbCoverUrl(related.cover);
-                  return (
-                    <Link key={`${related.id}-${index}`} href={`/games/${related.id}` as any} asChild>
-                      <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
-                        {itemImageUrl ? (
-                          <Image source={{ uri: itemImageUrl }} style={styles.relatedImage} contentFit="cover" />
-                        ) : (
-                          <View style={styles.relatedImagePlaceholder}>
-                            <IconSymbol name="photo" size={24} color={colors.icon} />
-                          </View>
-                        )}
-                        <View style={styles.relatedContent}>
-                          <ThemedText style={styles.relatedTitle} numberOfLines={2}>{related.name}</ThemedText>
-                        </View>
-                      </Pressable>
-                    </Link>
-                  );
-                })}
-              </ScrollView>
+          {loading ? (
+            <View style={styles.sectionState}>
+              <ActivityIndicator size="small" color={colors.tint} />
             </View>
-          ) : null)}
-
-          {game?.involved_companies?.length ? (
-            <View style={styles.section}>
-              <ThemedText type="subtitle" style={styles.sectionTitle}>Companies</ThemedText>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.relatedScroll}>
-                {game.involved_companies.map((inv) => {
-                  const logoUrl = buildIgdbCoverUrl(inv.company.logo);
-                  return (
-                    <Link key={inv.id} href={`/person/igdb-company/${inv.company.id}` as any} asChild>
-                      <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
-                        {logoUrl ? (
-                          <Image source={{ uri: logoUrl }} style={styles.relatedImage} contentFit="contain" />
-                        ) : (
-                          <View style={styles.relatedImagePlaceholder}>
-                            <IconSymbol name="photo" size={24} color={colors.icon} />
-                          </View>
-                        )}
-                        <View style={styles.relatedContent}>
-                          <ThemedText style={styles.relatedTitle} numberOfLines={2}>{inv.company.name}</ThemedText>
-                        </View>
-                      </Pressable>
-                    </Link>
-                  );
-                })}
-              </ScrollView>
+          ) : error || !game ? (
+            <View style={styles.sectionState}>
+              <ThemedText style={styles.errorText}>{error ?? 'Game not found.'}</ThemedText>
             </View>
-          ) : null}
+          ) : (
+            <>
+              <View style={styles.metaRow}>
+                {year || platforms.length ? (
+                  <ThemedText style={[styles.meta, { color: colors.icon }]}>
+                    {year ?? 'Unknown year'}
+                    {platforms.length ? ` · ${platforms.slice(0, 5).join(', ')}` : ''}
+                  </ThemedText>
+                ) : null}
+                {rating !== null ? <RatingStars value={rating} showValue /> : null}
+              </View>
+
+              {game.genres?.length || game.themes?.length ? (
+                <ExpandableTags
+                  tags={[...(game.genres || []), ...(game.themes || [])].map((tag) => ({
+                    id: tag.id,
+                    name: tag.name,
+                  }))}
+                />
+              ) : null}
+
+              {game.summary ? <ExpandableDescription text={game.summary} /> : null}
+
+              {[
+                { title: 'Similar', data: game.similar_games },
+                { title: 'DLCs', data: game.dlcs },
+                { title: 'Remakes', data: game.remakes },
+                { title: 'Expansions', data: game.expansions },
+              ].map((section) =>
+                section.data && section.data.length > 0 ? (
+                  <View key={section.title} style={styles.section}>
+                    <ThemedText type="subtitle" style={styles.sectionTitle}>
+                      {section.title}
+                    </ThemedText>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.relatedScroll}
+                    >
+                      {section.data.map((related, index) => {
+                        const itemImageUrl = buildIgdbCoverUrl(related.cover);
+                        return (
+                          <Link
+                            key={`${related.id}-${index}`}
+                            href={buildSeededHref(`/games/${related.id}`, {
+                              title: related.name,
+                              imageUrl: itemImageUrl,
+                            })}
+                            asChild
+                          >
+                            <Link.Trigger>
+                              <Pressable
+                                style={StyleSheet.flatten([
+                                  styles.relatedCard,
+                                  { backgroundColor: colors.tint + '15' },
+                                ])}
+                              >
+                                <Link.AppleZoom>
+                                  {itemImageUrl ? (
+                                    <Image source={{ uri: itemImageUrl }} style={styles.relatedImage} contentFit="cover" />
+                                  ) : (
+                                    <View style={styles.relatedImagePlaceholder}>
+                                      <IconSymbol name="photo" size={24} color={colors.icon} />
+                                    </View>
+                                  )}
+                                </Link.AppleZoom>
+                                <View style={styles.relatedContent}>
+                                  <ThemedText style={styles.relatedTitle} numberOfLines={2}>
+                                    {related.name}
+                                  </ThemedText>
+                                </View>
+                              </Pressable>
+                            </Link.Trigger>
+                          </Link>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                ) : null
+              )}
+
+              {game.involved_companies?.length ? (
+                <View style={styles.section}>
+                  <ThemedText type="subtitle" style={styles.sectionTitle}>
+                    Companies
+                  </ThemedText>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.relatedScroll}
+                  >
+                    {game.involved_companies.map((inv) => {
+                      const logoUrl = buildIgdbCoverUrl(inv.company.logo);
+                      return (
+                        <Link
+                          key={inv.id}
+                          href={buildSeededHref(`/person/igdb-company/${inv.company.id}`, {
+                            title: inv.company.name,
+                            imageUrl: logoUrl,
+                            imageVariant: 'logo',
+                          })}
+                          asChild
+                        >
+                          <Link.Trigger>
+                            <Pressable
+                              style={StyleSheet.flatten([
+                                styles.relatedCard,
+                                { backgroundColor: colors.tint + '15' },
+                              ])}
+                            >
+                              <Link.AppleZoom>
+                                {logoUrl ? (
+                                  <Image source={{ uri: logoUrl }} style={styles.relatedImage} contentFit="contain" />
+                                ) : (
+                                  <View style={styles.relatedImagePlaceholder}>
+                                    <IconSymbol name="photo" size={24} color={colors.icon} />
+                                  </View>
+                                )}
+                              </Link.AppleZoom>
+                              <View style={styles.relatedContent}>
+                                <ThemedText style={styles.relatedTitle} numberOfLines={2}>
+                                  {inv.company.name}
+                                </ThemedText>
+                              </View>
+                            </Pressable>
+                          </Link.Trigger>
+                        </Link>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              ) : null}
+            </>
+          )}
         </View>
       </ScrollView>
     </ThemedView>
@@ -346,12 +442,15 @@ const styles = StyleSheet.create({
   },
   heroImageWrap: {
     width: '100%',
-    aspectRatio: 16 / 9,
+    maxWidth: 260,
+    alignSelf: 'center',
+    aspectRatio: 2 / 3,
   },
   heroImage: {
     width: '100%',
     height: '100%',
     backgroundColor: 'rgba(128,128,128,0.2)',
+    borderRadius: 20,
   },
   fullScreenOverlay: {
     flex: 1,
@@ -382,6 +481,10 @@ const styles = StyleSheet.create({
   content: {
     padding: 20,
   },
+  headerBlock: {
+    gap: 6,
+    marginBottom: 12,
+  },
   title: {
     marginBottom: 4,
   },
@@ -395,18 +498,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     flex: 1,
   },
-  score: {
-    fontSize: 16,
-    fontWeight: '700',
-  },
   sectionTitle: {
     fontSize: 18,
     marginBottom: 8,
-  },
-  synopsis: {
-    fontSize: 15,
-    lineHeight: 22,
-    opacity: 0.9,
   },
   centered: {
     flex: 1,
@@ -418,31 +512,13 @@ const styles = StyleSheet.create({
     color: '#e74c3c',
     textAlign: 'center',
   },
-  sectionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  sectionLabel: {
-    fontWeight: '600',
-    marginRight: 8,
-    color: '#888',
-  },
-  peopleScroll: {
-    gap: 8,
-  },
-  personLink: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    backgroundColor: 'rgba(128,128,128,0.1)',
-  },
-  personText: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
   section: {
     marginTop: 24,
+  },
+  sectionState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 28,
   },
   relatedScroll: {
     gap: 12,
@@ -454,14 +530,14 @@ const styles = StyleSheet.create({
   },
   relatedImagePlaceholder: {
     width: '100%',
-    aspectRatio: 2/3,
+    aspectRatio: 2 / 3,
     backgroundColor: 'rgba(128,128,128,0.2)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   relatedImage: {
     width: '100%',
-    aspectRatio: 2/3,
+    aspectRatio: 2 / 3,
     backgroundColor: 'rgba(128,128,128,0.2)',
   },
   relatedContent: {

@@ -7,6 +7,7 @@ interface JikanAnimeSearchResponse {
   data?: Array<{
     mal_id: number;
     title: string;
+    title_english?: string | null;
     images?: {
       jpg?: { image_url?: string; small_image_url?: string };
       webp?: { image_url?: string; small_image_url?: string };
@@ -15,6 +16,10 @@ interface JikanAnimeSearchResponse {
     score?: number | null;
     year?: number | null;
     type?: string | null;
+    genres?: Array<{
+      mal_id: number;
+      name: string;
+    }>;
   }>;
 }
 
@@ -38,13 +43,18 @@ async function searchAnime(query: string): Promise<CatalogSearchItem[]> {
       item.images?.webp?.image_url ??
       item.images?.jpg?.small_image_url ??
       item.images?.webp?.small_image_url;
+    const location = [item.type, item.year].filter(Boolean).join(' | ');
+    const progressLabel =
+      typeof item.episodes === 'number' ? `${item.episodes} episodes` : undefined;
+    const tags = (item.genres ?? []).map((genre) => genre.name);
 
     return {
       id: String(item.mal_id),
-      title: item.title,
-      subtitle: [item.type, item.episodes ? `${item.episodes} ep` : null, item.year]
-        .filter(Boolean)
-        .join(' | '),
+      title: item.title_english?.trim() || item.title,
+      subtitle: [location, progressLabel].filter(Boolean).join(' | '),
+      location: location || undefined,
+      progressLabel,
+      tags,
       imageUrl: imageUrl ?? undefined,
       type: 'anime',
       detailPath: `anime/${item.mal_id}`,

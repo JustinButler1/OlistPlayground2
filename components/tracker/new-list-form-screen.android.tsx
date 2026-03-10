@@ -1,8 +1,8 @@
 import { ContextMenu, ListItem, Picker } from '@expo/ui/jetpack-compose';
 import { ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 
-import type { NewListFormController } from '@/components/tracker/use-new-list-form';
 import { ThemedText } from '@/components/themed-text';
+import type { NewListFormController } from '@/components/tracker/use-new-list-form';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import {
   getListEntryTypeLabel,
@@ -41,7 +41,7 @@ export function NewListFormScreen({
         <TextInput
           multiline
           numberOfLines={3}
-          placeholder="Description"
+          placeholder="Description (optional)"
           style={[styles.textInput, styles.multilineInput]}
           value={form.description}
           onChangeText={form.setDescription}

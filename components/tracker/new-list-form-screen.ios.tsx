@@ -74,7 +74,7 @@ export function NewListFormScreen({
             key={`description-${form.formRevision}`}
             defaultValue={form.description}
             onChangeText={form.setDescription}
-            placeholder="Description"
+            placeholder="Description (optional)"
             multiline
             numberOfLines={3}
             modifiers={[textFieldStyle('plain')]}

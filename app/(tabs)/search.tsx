@@ -1,5 +1,4 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'expo-router';
 import {
   ActivityIndicator,
   Modal,
@@ -11,7 +10,6 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ThumbnailImage } from '@/components/thumbnail-image';
 import { ThemedText } from '@/components/themed-text';
 import { Colors } from '@/constants/theme';
 import { useEntryActions, useListsQuery } from '@/contexts/lists-context';
@@ -23,9 +21,13 @@ import {
   type CatalogSearchItem,
 } from '@/services/catalog';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { buildSeededDetailHref } from '@/lib/detail-navigation';
+import {
+  CatalogSearchResultRow,
+  CATALOG_SEARCH_RESULT_ROW_GAP,
+} from '@/components/tracker/catalog-search-result-row';
 
 export default function SearchScreen() {
-  const router = useRouter();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
@@ -49,12 +51,23 @@ export default function SearchScreen() {
       return;
     }
 
+    let active = true;
     const timeout = setTimeout(() => {
       setIsLoading(true);
       setError(null);
       void searchCatalog(category, trimmed)
-        .then((items) => setResults(items))
+        .then((items) => {
+          if (!active) {
+            return;
+          }
+
+          setResults(items);
+        })
         .catch((searchError) => {
+          if (!active) {
+            return;
+          }
+
           if (
             searchError instanceof Error &&
             searchError.message === 'missing_tmdb_api_key'
@@ -65,10 +78,17 @@ export default function SearchScreen() {
           }
           setResults([]);
         })
-        .finally(() => setIsLoading(false));
+        .finally(() => {
+          if (active) {
+            setIsLoading(false);
+          }
+        });
     }, 350);
 
-    return () => clearTimeout(timeout);
+    return () => {
+      active = false;
+      clearTimeout(timeout);
+    };
   }, [category, deferredSearchQuery]);
 
   const visibleLists = useMemo(
@@ -153,46 +173,36 @@ export default function SearchScreen() {
 
         <View style={styles.results}>
           {results.map((item) => (
-            <View
+            <CatalogSearchResultRow
               key={`${item.type}-${item.id}`}
-              style={[styles.resultRow, { borderBottomColor: colors.icon + '28' }]}
-            >
-              <Pressable
-                onPress={() => item.detailPath && router.push(`/${item.detailPath}` as never)}
-                style={({ pressed }) => [
-                  styles.resultMain,
-                  { opacity: pressed ? 0.82 : 1 },
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel={`Open ${item.title}`}
-              >
-                <ThumbnailImage imageUrl={item.imageUrl} style={styles.resultImage} />
-                <View style={styles.resultInfo}>
-                  <ThemedText style={styles.resultTitle} numberOfLines={2}>
-                    {item.title}
-                  </ThemedText>
-                  {item.subtitle ? (
-                    <ThemedText style={[styles.resultSubtitle, { color: colors.icon }]}>
-                      {item.subtitle}
-                    </ThemedText>
-                  ) : null}
-                </View>
-              </Pressable>
-              <Pressable
-                onPress={() => setPendingItem(item)}
-                style={({ pressed }) => [
-                  styles.addButton,
-                  {
-                    borderColor: colors.tint,
-                    opacity: pressed ? 0.82 : 1,
-                  },
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel={`Add ${item.title} to list`}
-              >
-                <IconSymbol name="plus" size={22} color={colors.tint} />
-              </Pressable>
-            </View>
+              item={item}
+              href={
+                item.detailPath
+                  ? buildSeededDetailHref(item.detailPath, {
+                      title: item.title,
+                      subtitle: item.subtitle,
+                      imageUrl: item.imageUrl,
+                      imageVariant: 'poster',
+                    })
+                  : undefined
+              }
+              rightAccessory={
+                <Pressable
+                  onPress={() => setPendingItem(item)}
+                  style={({ pressed }) => [
+                    styles.addButton,
+                    {
+                      borderColor: colors.tint,
+                      opacity: pressed ? 0.82 : 1,
+                    },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Add ${item.title} to list`}
+                >
+                  <IconSymbol name="plus" size={22} color={colors.tint} />
+                </Pressable>
+              }
+            />
           ))}
         </View>
       </ScrollView>
@@ -380,35 +390,7 @@ const styles = StyleSheet.create({
     color: '#cc3f3f',
   },
   results: {
-    gap: 0,
-  },
-  resultRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  resultMain: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  resultImage: {
-    width: 56,
-    height: 80,
-    borderRadius: 6,
-  },
-  resultInfo: {
-    flex: 1,
-    marginLeft: 14,
-  },
-  resultTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  resultSubtitle: {
-    fontSize: 13,
-    marginTop: 4,
+    gap: CATALOG_SEARCH_RESULT_ROW_GAP,
   },
   addButton: {
     width: 40,
@@ -417,7 +399,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 12,
+    alignSelf: 'center',
   },
   menuOverlay: {
     flex: 1,

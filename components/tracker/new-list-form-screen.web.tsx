@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 
-import type { NewListFormController } from '@/components/tracker/use-new-list-form';
 import { ThemedText } from '@/components/themed-text';
+import type { NewListFormController } from '@/components/tracker/use-new-list-form';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -59,7 +59,7 @@ export function NewListFormScreen({
         />
         <TextField
           colors={colors}
-          placeholder="Description"
+          placeholder="Description (optional)"
           value={form.description}
           onChangeText={form.setDescription}
           multiline

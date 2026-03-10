@@ -1,5 +1,5 @@
 import { Image } from 'expo-image';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Link, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -25,7 +25,7 @@ import { getItemUserDataKey } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { ExpandableDescription } from '@/components/ExpandableDescription';
 import { ExpandableTags } from '@/components/ExpandableTags';
-import { Link } from 'expo-router';
+import { isAbortError, readDetailSeed } from '@/lib/detail-navigation';
 
 const GOOGLE_BOOKS_BASE = 'https://www.googleapis.com/books/v1/volumes/';
 
@@ -56,13 +56,13 @@ interface GoogleBooksWork {
   };
 }
 
-async function fetchBookDetails(id: string): Promise<GoogleBooksWork> {
+async function fetchBookDetails(id: string, signal?: AbortSignal): Promise<GoogleBooksWork> {
   const apiKey = process.env.EXPO_PUBLIC_GOOGLE_BOOKS_API_KEY;
   const url = new URL(`${GOOGLE_BOOKS_BASE}${id}`);
   if (apiKey) {
     url.searchParams.append('key', apiKey);
   }
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), { signal });
   if (!res.ok) throw new Error('Failed to load book');
   return res.json();
 }
@@ -72,20 +72,18 @@ function getDescriptionText(work: GoogleBooksWork): string | null {
   return work.volumeInfo.description.replace(/<[^>]*>?/gm, '');
 }
 
-type DescriptionSegment =
-  | { type: 'text'; value: string }
-  | { type: 'link'; title: string; workKey: string };
-
-function parseDescriptionWithLinks(description: string): DescriptionSegment[] {
-  return [{ type: 'text', value: description }];
-}
-
 export default function BookDetailsScreen() {
-  const { id: slug } = useLocalSearchParams<{ id: string }>();
-  const router = useRouter();
+  const params = useLocalSearchParams<{
+    id: string;
+    seedImageUrl?: string;
+    seedSubtitle?: string;
+    seedTitle?: string;
+  }>();
+  const { id: slug } = params;
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const seed = readDetailSeed(params);
 
   const [work, setWork] = useState<GoogleBooksWork | null>(null);
   const [authorNames, setAuthorNames] = useState<string[]>([]);
@@ -100,20 +98,45 @@ export default function BookDetailsScreen() {
   useEffect(() => {
     if (!workKey) return;
 
+    const controller = new AbortController();
+
     setLoading(true);
     setError(null);
-    fetchBookDetails(workKey)
+    setWork(null);
+    setAuthorNames([]);
+
+    fetchBookDetails(workKey, controller.signal)
       .then((data) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
         setWork(data);
         setAuthorNames(data.volumeInfo?.authors ?? []);
       })
-      .catch(() => setError('Failed to load book details'))
-      .finally(() => setLoading(false));
+      .catch((caughtError) => {
+        if (!isAbortError(caughtError)) {
+          setError('Failed to load book details');
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      });
+
+    return () => controller.abort();
   }, [workKey]);
 
   const imageLinks = work?.volumeInfo?.imageLinks;
-  const imageUrl = (imageLinks?.extraLarge || imageLinks?.large || imageLinks?.medium || imageLinks?.thumbnail)?.replace('http:', 'https:') || null;
+  const imageUrl =
+    (imageLinks?.extraLarge || imageLinks?.large || imageLinks?.medium || imageLinks?.thumbnail)?.replace('http:', 'https:') ||
+    seed.imageUrl ||
+    null;
   const description = work ? getDescriptionText(work) : null;
+  const title = work?.volumeInfo?.title ?? seed.title ?? 'Book';
+  const subtitle =
+    work?.volumeInfo?.publishedDate ?? seed.subtitle ?? null;
 
   if (!slug) {
     return (
@@ -128,26 +151,9 @@ export default function BookDetailsScreen() {
     );
   }
 
-  if (loading || error) {
-    return (
-      <>
-        <Stack.Screen options={{ title: work?.volumeInfo?.title ?? 'Book' }} />
-        <ThemedView style={styles.container}>
-          <View style={styles.centered}>
-            {loading ? (
-              <ActivityIndicator size="large" color={colors.tint} />
-            ) : (
-              <ThemedText style={styles.errorText}>{error}</ThemedText>
-            )}
-          </View>
-        </ThemedView>
-      </>
-    );
-  }
-
   return (
     <>
-      <Stack.Screen options={{ title: work?.volumeInfo?.title ?? 'Book' }} />
+      <Stack.Screen options={{ title }} />
       <ThemedView style={styles.container}>
         <ScrollView
           style={styles.scroll}
@@ -158,11 +164,13 @@ export default function BookDetailsScreen() {
             onPress={() => imageUrl && setFullScreenImageVisible(true)}
             style={({ pressed }) => [styles.heroImageWrap, pressed && imageUrl && { opacity: 0.9 }]}
           >
-            <ThumbnailImage
-              imageUrl={imageUrl ?? undefined}
-              style={styles.heroImage}
-              contentFit="cover"
-            />
+            <Link.AppleZoomTarget>
+              <ThumbnailImage
+                imageUrl={imageUrl ?? undefined}
+                style={styles.heroImage}
+                contentFit="cover"
+              />
+            </Link.AppleZoomTarget>
           </Pressable>
           <ItemDetailTabs activeTab={activeTab} onChange={setActiveTab} />
 
@@ -199,28 +207,44 @@ export default function BookDetailsScreen() {
           </Modal>
 
           <View style={styles.content}>
-            {activeTab === 'details' ? (
-              <>
-                <ThemedText type="title" style={styles.title}>
-                  {work?.volumeInfo?.title}
-                </ThemedText>
+            <View style={styles.headerBlock}>
+              <ThemedText type="title" style={styles.title}>
+                {title}
+              </ThemedText>
 
-                {(work?.volumeInfo?.publishedDate || work?.volumeInfo?.pageCount) && (
+              {subtitle ? (
+                <ThemedText style={[styles.subtitle, { color: colors.icon }]}>
+                  {subtitle}
+                </ThemedText>
+              ) : null}
+            </View>
+            {activeTab === 'details' ? (
+              loading ? (
+                <View style={styles.sectionState}>
+                  <ActivityIndicator size="small" color={colors.tint} />
+                </View>
+              ) : error || !work ? (
+                <View style={styles.sectionState}>
+                  <ThemedText style={styles.errorText}>{error ?? 'Book not found.'}</ThemedText>
+                </View>
+              ) : (
+                <>
+                {(work.volumeInfo?.publishedDate || work.volumeInfo?.pageCount) && (
                   <View style={styles.metaRow}>
-                    {work?.volumeInfo?.publishedDate ? (
+                    {work.volumeInfo?.publishedDate ? (
                       <ThemedText style={[styles.subtitle, { color: colors.icon }]}>
                         {work.volumeInfo.publishedDate}
                       </ThemedText>
                     ) : null}
-                    {work?.volumeInfo?.pageCount ? (
-                      <ThemedText style={[styles.subtitle, { color: colors.icon, marginLeft: work?.volumeInfo?.publishedDate ? 8 : 0 }]}>
-                        {work?.volumeInfo?.publishedDate ? '| ' : ''}{work.volumeInfo.pageCount} pages
+                    {work.volumeInfo?.pageCount ? (
+                      <ThemedText style={[styles.subtitle, { color: colors.icon, marginLeft: work.volumeInfo?.publishedDate ? 8 : 0 }]}>
+                        {work.volumeInfo?.publishedDate ? '| ' : ''}{work.volumeInfo.pageCount} pages
                       </ThemedText>
                     ) : null}
                   </View>
                 )}
 
-                {work?.volumeInfo?.categories?.length ? (
+                {work.volumeInfo?.categories?.length ? (
                   <ExpandableTags tags={work.volumeInfo.categories.map((c, i) => ({ id: i, name: c }))} />
                 ) : null}
 
@@ -245,7 +269,8 @@ export default function BookDetailsScreen() {
                     </ScrollView>
                   </View>
                 ) : null}
-              </>
+                </>
+              )
             ) : itemKey ? (
               <ItemUserDataPanel
                 itemKey={itemKey}
@@ -314,6 +339,10 @@ const styles = StyleSheet.create({
   content: {
     padding: 20,
   },
+  headerBlock: {
+    gap: 4,
+    marginBottom: 16,
+  },
   title: {
     marginBottom: 4,
   },
@@ -352,6 +381,11 @@ const styles = StyleSheet.create({
   },
   section: {
     marginTop: 24,
+  },
+  sectionState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 28,
   },
   relatedScroll: {
     gap: 12,

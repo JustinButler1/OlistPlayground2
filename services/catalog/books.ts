@@ -12,8 +12,12 @@ interface GoogleBooksVolume {
   id: string;
   volumeInfo: {
     title: string;
+    subtitle?: string;
     authors?: string[];
     publishedDate?: string;
+    pageCount?: number;
+    publisher?: string;
+    categories?: string[];
     imageLinks?: {
       thumbnail?: string;
     };
@@ -50,16 +54,22 @@ async function searchBooks(query: string): Promise<CatalogSearchItem[]> {
   const json: GoogleBooksSearchResponse = await response.json();
 
   return (json.items ?? []).map((item) => {
-    const publishedYear = item.volumeInfo.publishedDate
-      ? new Date(item.volumeInfo.publishedDate).getFullYear()
-      : undefined;
+    const publishedYear = item.volumeInfo.publishedDate?.slice(0, 4);
+    const author = item.volumeInfo.authors?.join(', ');
+    const location = [item.volumeInfo.publisher, publishedYear].filter(Boolean).join(' | ');
+    const progressLabel =
+      typeof item.volumeInfo.pageCount === 'number'
+        ? `${item.volumeInfo.pageCount} pages`
+        : undefined;
 
     return {
       id: item.id,
-      title: item.volumeInfo.title,
-      subtitle: [item.volumeInfo.authors?.join(', '), publishedYear]
-        .filter(Boolean)
-        .join(' | '),
+      title: [item.volumeInfo.title, item.volumeInfo.subtitle].filter(Boolean).join(': '),
+      subtitle: [author, location, progressLabel].filter(Boolean).join(' | '),
+      location: location || undefined,
+      author: author || undefined,
+      progressLabel,
+      tags: item.volumeInfo.categories ?? [],
       imageUrl: item.volumeInfo.imageLinks?.thumbnail?.replace('http:', 'https:'),
       type: 'book',
       detailPath: `books/${bookKeyToSlug(item.id)}`,

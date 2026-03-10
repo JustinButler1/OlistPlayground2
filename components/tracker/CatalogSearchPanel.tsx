@@ -1,7 +1,6 @@
 import { startTransition, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
-import { ThumbnailImage } from '@/components/thumbnail-image';
 import { ThemedText } from '@/components/themed-text';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -11,6 +10,10 @@ import {
   type CatalogCategory,
   type CatalogSearchItem,
 } from '@/services/catalog';
+import {
+  CatalogSearchResultRow,
+  CATALOG_SEARCH_RESULT_ROW_GAP,
+} from '@/components/tracker/catalog-search-result-row';
 
 interface CatalogSearchPanelProps {
   onSelectItem: (item: CatalogSearchItem) => void;
@@ -49,17 +52,26 @@ export function CatalogSearchPanel({
       return;
     }
 
+    let active = true;
     const timeout = setTimeout(() => {
       setIsLoading(true);
       setError(null);
 
       void searchCatalog(category, trimmedQuery)
         .then((nextResults) => {
+          if (!active) {
+            return;
+          }
+
           startTransition(() => {
             setResults(nextResults);
           });
         })
         .catch((searchError) => {
+          if (!active) {
+            return;
+          }
+
           if (
             searchError instanceof Error &&
             searchError.message === 'missing_tmdb_api_key'
@@ -70,10 +82,17 @@ export function CatalogSearchPanel({
           }
           setResults([]);
         })
-        .finally(() => setIsLoading(false));
+        .finally(() => {
+          if (active) {
+            setIsLoading(false);
+          }
+        });
     }, 350);
 
-    return () => clearTimeout(timeout);
+    return () => {
+      active = false;
+      clearTimeout(timeout);
+    };
   }, [category, deferredQuery]);
 
   const emptyLabel = useMemo(() => {
@@ -151,30 +170,11 @@ export function CatalogSearchPanel({
           </ThemedText>
         ) : (
           results.map((item) => (
-            <Pressable
+            <CatalogSearchResultRow
               key={`${item.type}-${item.id}`}
+              item={item}
               onPress={() => onSelectItem(item)}
-              style={({ pressed }) => [
-                styles.resultRow,
-                {
-                  borderColor: colors.icon + '22',
-                  backgroundColor: colors.background,
-                  opacity: pressed ? 0.84 : 1,
-                },
-              ]}
-            >
-              <ThumbnailImage imageUrl={item.imageUrl} style={styles.resultImage} />
-              <View style={styles.resultContent}>
-                <ThemedText type="defaultSemiBold" numberOfLines={2}>
-                  {item.title}
-                </ThemedText>
-                {item.subtitle ? (
-                  <ThemedText style={[styles.resultSubtitle, { color: colors.icon }]}>
-                    {item.subtitle}
-                  </ThemedText>
-                ) : null}
-              </View>
-            </Pressable>
+            />
           ))
         )}
       </ScrollView>
@@ -208,28 +208,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   results: {
-    gap: 10,
+    gap: CATALOG_SEARCH_RESULT_ROW_GAP,
     paddingBottom: 12,
-  },
-  resultRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 12,
-  },
-  resultImage: {
-    width: 58,
-    height: 82,
-    borderRadius: 14,
-  },
-  resultContent: {
-    flex: 1,
-    gap: 4,
-  },
-  resultSubtitle: {
-    fontSize: 13,
   },
   emptyText: {
     paddingVertical: 16,

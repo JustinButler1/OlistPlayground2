@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
-import { Stack, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { Link, Stack, useLocalSearchParams } from 'expo-router';
+import { forwardRef, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -27,7 +27,11 @@ import { normalizeRating } from '@/lib/tracker-metadata';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ExpandableDescription } from '@/components/ExpandableDescription';
 import { ExpandableTags } from '@/components/ExpandableTags';
-import { Link } from 'expo-router';
+import {
+  buildSeededHref,
+  isAbortError,
+  readDetailSeed,
+} from '@/lib/detail-navigation';
 import { enqueueJikan } from '@/lib/jikan-queue';
 
 const JIKAN_API = 'https://api.jikan.moe/v4';
@@ -55,8 +59,8 @@ interface AnimeDetails {
   relations?: { relation: string; entry: { mal_id: number; type: string; name: string }[] }[];
 }
 
-async function fetchAnimeDetails(id: string): Promise<AnimeDetails> {
-  const response = await fetch(`${JIKAN_API}/anime/${id}/full`);
+async function fetchAnimeDetails(id: string, signal?: AbortSignal): Promise<AnimeDetails> {
+  const response = await fetch(`${JIKAN_API}/anime/${id}/full`, { signal });
   if (!response.ok) {
     throw new Error('anime_fetch_failed');
   }
@@ -71,14 +75,14 @@ interface JikanCharacterResp {
   voice_actors: { person: { mal_id: number; name: string; images: { jpg: { image_url: string } } }; language: string }[];
 }
 
-async function fetchAnimeCharacters(id: string): Promise<JikanCharacterResp[]> {
-  const response = await fetch(`${JIKAN_API}/anime/${id}/characters`);
+async function fetchAnimeCharacters(id: string, signal?: AbortSignal): Promise<JikanCharacterResp[]> {
+  const response = await fetch(`${JIKAN_API}/anime/${id}/characters`, { signal });
   if (!response.ok) return [];
   const json = await response.json();
   return (json.data ?? []).slice(0, 20);
 }
 
-function JikanDynamicImage({ type, id }: { type: 'anime' | 'manga' | 'producers', id: number }) {
+const JikanDynamicImage = forwardRef<Image, { type: 'anime' | 'manga' | 'producers', id: number }>(({ type, id }, ref) => {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -96,16 +100,23 @@ function JikanDynamicImage({ type, id }: { type: 'anime' | 'manga' | 'producers'
 
   if (!imageUrl) {
     return (
-      <View style={styles.relatedImagePlaceholder}>
+      <View ref={ref as any} style={styles.relatedImagePlaceholder}>
         <IconSymbol name="photo" size={24} color="#888" />
       </View>
     );
   }
-  return <Image source={{ uri: imageUrl }} style={styles.relatedImage} contentFit="cover" />;
-}
+  return <Image ref={ref} source={{ uri: imageUrl }} style={styles.relatedImage} contentFit="cover" />;
+});
+JikanDynamicImage.displayName = 'JikanDynamicImage';
 
 export default function AnimeDetailsScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{
+    id: string;
+    seedImageUrl?: string;
+    seedSubtitle?: string;
+    seedTitle?: string;
+  }>();
+  const { id } = params;
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
@@ -115,32 +126,62 @@ export default function AnimeDetailsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [showImage, setShowImage] = useState(false);
   const [activeTab, setActiveTab] = useState<ItemDetailTabId>('details');
+  const seed = readDetailSeed(params);
 
   useEffect(() => {
     if (!id) {
       return;
     }
 
+    const controller = new AbortController();
+
     setLoading(true);
     setError(null);
-    Promise.all([
-      fetchAnimeDetails(id),
-      fetchAnimeCharacters(id)
-    ])
-      .then(([animeData, charsData]) => {
+    setAnime(null);
+    setCharacters([]);
+
+    fetchAnimeDetails(id, controller.signal)
+      .then((animeData) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
         setAnime(animeData);
-        setCharacters(charsData);
       })
-      .catch(() => setError('Failed to load anime details'))
-      .finally(() => setLoading(false));
+      .catch((caughtError) => {
+        if (!isAbortError(caughtError)) {
+          setError('Failed to load anime details');
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      });
+
+    fetchAnimeCharacters(id, controller.signal)
+      .then((charsData) => {
+        if (!controller.signal.aborted) {
+          setCharacters(charsData);
+        }
+      })
+      .catch(() => {});
+
+    return () => controller.abort();
   }, [id]);
 
-  const imageUrl = anime?.images?.jpg?.large_image_url ?? anime?.images?.jpg?.image_url;
+  const imageUrl =
+    anime?.images?.jpg?.large_image_url ?? anime?.images?.jpg?.image_url ?? seed.imageUrl;
   const itemKey = id ? getItemUserDataKey('anime', id) : null;
   const communityRating = normalizeRating(anime?.score ?? undefined);
   const meta = [anime?.type, anime?.episodes ? `${anime.episodes} ep` : null, anime?.year, anime?.duration]
     .filter(Boolean)
     .join(' | ');
+  const title = anime?.title ?? seed.title ?? 'Anime';
+  const subtitle =
+    anime && (anime.title_english || anime.title_japanese)
+      ? [anime.title_english, anime.title_japanese].filter(Boolean).join(' | ')
+      : seed.subtitle;
 
   if (!id) {
     return (
@@ -155,43 +196,43 @@ export default function AnimeDetailsScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: anime?.title ?? 'Anime' }} />
+      <Stack.Screen options={{ title }} />
       <ThemedView style={styles.container}>
-        {loading ? (
-          <View style={styles.centered}>
-            <ActivityIndicator size="large" color={colors.tint} />
-          </View>
-        ) : error || !anime ? (
-          <View style={styles.centered}>
-            <ThemedText>{error ?? 'Anime not found.'}</ThemedText>
-          </View>
-        ) : (
-          <ScrollView
-            contentContainerStyle={[
-              styles.content,
-              { paddingBottom: insets.bottom + 24 },
-            ]}
-            showsVerticalScrollIndicator={false}
-          >
-            <Pressable onPress={() => imageUrl && setShowImage(true)}>
+        <ScrollView
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: insets.bottom + 24 },
+          ]}
+          showsVerticalScrollIndicator={false}
+        >
+          <Pressable onPress={() => imageUrl && setShowImage(true)} style={styles.heroWrap}>
+            <Link.AppleZoomTarget>
               <ThumbnailImage imageUrl={imageUrl} style={styles.hero} />
-            </Pressable>
-            <ItemDetailTabs activeTab={activeTab} onChange={setActiveTab} />
-            {activeTab === 'details' ? (
+            </Link.AppleZoomTarget>
+          </Pressable>
+          <View style={styles.headerBlock}>
+            <ThemedText type="title">{title}</ThemedText>
+            {subtitle ? <ThemedText style={{ color: colors.icon }}>{subtitle}</ThemedText> : null}
+            {meta ? <ThemedText style={{ color: colors.icon }}>{meta}</ThemedText> : null}
+            {communityRating ? (
+              <View style={styles.ratingRow}>
+                <ThemedText style={{ color: colors.icon }}>Community rating</ThemedText>
+                <RatingStars value={communityRating} showValue />
+              </View>
+            ) : null}
+          </View>
+          <ItemDetailTabs activeTab={activeTab} onChange={setActiveTab} />
+          {activeTab === 'details' ? (
+            loading ? (
+              <View style={styles.sectionState}>
+                <ActivityIndicator size="small" color={colors.tint} />
+              </View>
+            ) : error || !anime ? (
+              <View style={styles.sectionState}>
+                <ThemedText>{error ?? 'Anime not found.'}</ThemedText>
+              </View>
+            ) : (
               <>
-                <ThemedText type="title">{anime.title}</ThemedText>
-                {(anime.title_english || anime.title_japanese) && (
-                  <ThemedText style={{ color: colors.icon }}>
-                    {[anime.title_english, anime.title_japanese].filter(Boolean).join(' | ')}
-                  </ThemedText>
-                )}
-                {meta ? <ThemedText style={{ color: colors.icon }}>{meta}</ThemedText> : null}
-                {communityRating ? (
-                  <View style={styles.ratingRow}>
-                    <ThemedText style={{ color: colors.icon }}>Community rating</ThemedText>
-                    <RatingStars value={communityRating} showValue />
-                  </View>
-                ) : null}
                 {anime.genres?.length ? (
                   <ExpandableTags tags={anime.genres.map(g => ({ id: g.mal_id, name: g.name }))} />
                 ) : null}
@@ -203,17 +244,33 @@ export default function AnimeDetailsScreen() {
                     <ThemedText type="subtitle">Related</ThemedText>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.relatedScroll}>
                       {anime.relations.flatMap(r => r.entry.map(e => ({ ...e, relation: r.relation }))).map((related, index) => {
-                        const href = related.type === 'anime' ? `/anime/${related.mal_id}` : related.type === 'manga' ? `/manga/${related.mal_id}` : null;
+                        const href =
+                          related.type === 'anime'
+                            ? `/anime/${related.mal_id}`
+                            : related.type === 'manga'
+                            ? `/manga/${related.mal_id}`
+                            : null;
                         if (!href) return null;
                         return (
-                          <Link key={`${related.type}-${related.mal_id}-${index}`} href={href as any} asChild>
-                            <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
-                              <JikanDynamicImage type={related.type as any} id={related.mal_id} />
-                              <View style={styles.relatedContent}>
-                                <ThemedText style={styles.relatedType} numberOfLines={1}>{related.relation}</ThemedText>
-                                <ThemedText style={styles.relatedTitle} numberOfLines={2}>{related.name}</ThemedText>
-                              </View>
-                            </Pressable>
+                          <Link
+                            key={`${related.type}-${related.mal_id}-${index}`}
+                            href={buildSeededHref(href, {
+                              title: related.name,
+                              subtitle: related.relation,
+                            })}
+                            asChild
+                          >
+                            <Link.Trigger>
+                              <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
+                                <Link.AppleZoom>
+                                  <JikanDynamicImage type={related.type as any} id={related.mal_id} />
+                                </Link.AppleZoom>
+                                <View style={styles.relatedContent}>
+                                  <ThemedText style={styles.relatedType} numberOfLines={1}>{related.relation}</ThemedText>
+                                  <ThemedText style={styles.relatedTitle} numberOfLines={2}>{related.name}</ThemedText>
+                                </View>
+                              </Pressable>
+                            </Link.Trigger>
                           </Link>
                         );
                       })}
@@ -228,23 +285,36 @@ export default function AnimeDetailsScreen() {
                         const char = charItem.character;
                         const va = charItem.voice_actors?.find(v => v.language === 'Japanese') ?? charItem.voice_actors?.[0];
                         return (
-                          <Link key={`char-${char.mal_id}-${index}`} href={`/person/jikan-character/${char.mal_id}` as any} asChild>
-                            <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
-                              {char.images?.jpg?.image_url ? (
-                                <Image source={{ uri: char.images.jpg.image_url }} style={styles.relatedImage} contentFit="cover" />
-                              ) : (
-                                <View style={styles.relatedImagePlaceholder}>
-                                  <IconSymbol name="person.fill" size={24} color={colors.icon} />
+                          <Link
+                            key={`char-${char.mal_id}-${index}`}
+                            href={buildSeededHref(`/person/jikan-character/${char.mal_id}`, {
+                              title: char.name,
+                              subtitle: charItem.role,
+                              imageUrl: char.images?.jpg?.image_url,
+                              imageVariant: 'avatar',
+                            })}
+                            asChild
+                          >
+                            <Link.Trigger>
+                              <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
+                                <Link.AppleZoom>
+                                  {char.images?.jpg?.image_url ? (
+                                    <Image source={{ uri: char.images.jpg.image_url }} style={styles.relatedImage} contentFit="cover" />
+                                  ) : (
+                                    <View style={styles.relatedImagePlaceholder}>
+                                      <IconSymbol name="person.fill" size={24} color={colors.icon} />
+                                    </View>
+                                  )}
+                                </Link.AppleZoom>
+                                <View style={styles.relatedContent}>
+                                  <ThemedText style={styles.relatedTitle} numberOfLines={1}>{char.name}</ThemedText>
+                                  <ThemedText style={styles.relatedType} numberOfLines={1}>{charItem.role}</ThemedText>
+                                  {va && (
+                                    <ThemedText style={[styles.relatedType, { marginTop: 4 }]} numberOfLines={1}>VA: {va.person.name}</ThemedText>
+                                  )}
                                 </View>
-                              )}
-                              <View style={styles.relatedContent}>
-                                <ThemedText style={styles.relatedTitle} numberOfLines={1}>{char.name}</ThemedText>
-                                <ThemedText style={styles.relatedType} numberOfLines={1}>{charItem.role}</ThemedText>
-                                {va && (
-                                  <ThemedText style={[styles.relatedType, { marginTop: 4 }]} numberOfLines={1}>VA: {va.person.name}</ThemedText>
-                                )}
-                              </View>
-                            </Pressable>
+                              </Pressable>
+                            </Link.Trigger>
                           </Link>
                         );
                       })}
@@ -256,32 +326,42 @@ export default function AnimeDetailsScreen() {
                     <ThemedText type="subtitle">Producers</ThemedText>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.relatedScroll}>
                       {anime.producers.map((producer) => (
-                        <Link key={producer.mal_id} href={`/person/jikan-producer/${producer.mal_id}` as any} asChild>
-                          <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
-                            <JikanDynamicImage type="producers" id={producer.mal_id} />
-                            <View style={styles.relatedContent}>
-                              <ThemedText style={styles.relatedTitle} numberOfLines={2}>{producer.name}</ThemedText>
-                            </View>
-                          </Pressable>
+                        <Link
+                          key={producer.mal_id}
+                          href={buildSeededHref(`/person/jikan-producer/${producer.mal_id}`, {
+                            title: producer.name,
+                          })}
+                          asChild
+                        >
+                          <Link.Trigger>
+                            <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
+                              <Link.AppleZoom>
+                                <JikanDynamicImage type="producers" id={producer.mal_id} />
+                              </Link.AppleZoom>
+                              <View style={styles.relatedContent}>
+                                <ThemedText style={styles.relatedTitle} numberOfLines={2}>{producer.name}</ThemedText>
+                              </View>
+                            </Pressable>
+                          </Link.Trigger>
                         </Link>
                       ))}
                     </ScrollView>
                   </View>
                 ) : null}
               </>
-            ) : itemKey ? (
-              <ItemUserDataPanel
-                itemKey={itemKey}
-                showRating
-                progressConfig={{
-                  label: 'Episodes',
-                  unit: 'episode',
-                  total: anime?.episodes ?? undefined,
-                }}
-              />
-            ) : null}
-          </ScrollView>
-        )}
+            )
+          ) : itemKey ? (
+            <ItemUserDataPanel
+              itemKey={itemKey}
+              showRating
+              progressConfig={{
+                label: 'Episodes',
+                unit: 'episode',
+                total: anime?.episodes ?? undefined,
+              }}
+            />
+          ) : null}
+        </ScrollView>
       </ThemedView>
       <Modal visible={showImage} transparent animationType="fade" onRequestClose={() => setShowImage(false)}>
         <Pressable style={styles.imageOverlay} onPress={() => setShowImage(false)}>
@@ -308,14 +388,27 @@ const styles = StyleSheet.create({
     padding: 20,
     gap: 12,
   },
+  heroWrap: {
+    width: '100%',
+    maxWidth: 260,
+    alignSelf: 'center',
+  },
   hero: {
     width: '100%',
-    aspectRatio: 16 / 9,
+    aspectRatio: 2 / 3,
     borderRadius: 20,
+  },
+  headerBlock: {
+    gap: 6,
   },
   section: {
     gap: 8,
     marginTop: 8,
+  },
+  sectionState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 28,
   },
   ratingRow: {
     gap: 8,
