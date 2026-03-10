@@ -8,20 +8,23 @@ import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import {
   getListEntryTypeLabel,
-  getListFieldKindLabel,
-  LIST_ADDON_OPTIONS,
   LIST_ENTRY_TYPE_OPTIONS,
-  LIST_FIELD_KIND_OPTIONS,
 } from '@/lib/list-config-options';
 
 interface NewListFormScreenProps {
   form: NewListFormController;
+  openAddons?: () => void;
+  openCustomFields?: () => void;
 }
 
 type MenuKey = 'template' | 'entry-type' | `field-kind:${string}` | null;
 type ThemeColors = (typeof Colors)[keyof typeof Colors];
 
-export function NewListFormScreen({ form }: NewListFormScreenProps) {
+export function NewListFormScreen({
+  form,
+  openAddons,
+  openCustomFields,
+}: NewListFormScreenProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const [expandedMenu, setExpandedMenu] = useState<MenuKey>(null);
@@ -124,80 +127,27 @@ export function NewListFormScreen({ form }: NewListFormScreenProps) {
       </View>
 
       <View style={styles.section}>
-        <ThemedText type="defaultSemiBold">Add-ons</ThemedText>
+        <ThemedText type="defaultSemiBold">Customization</ThemedText>
         <View style={[styles.card, { borderColor: colors.icon + '25', backgroundColor: colors.background }]}>
-          {LIST_ADDON_OPTIONS.map((addon) => (
-            <View key={addon.id} style={styles.addonRow}>
-              <Pressable
-                onPress={() =>
-                  typeof window !== 'undefined' ? window.alert(`${addon.label}\n\n${addon.description}`) : null
-                }
-                style={({ pressed }) => [styles.infoButton, { opacity: pressed ? 0.7 : 1 }]}
-              >
-                <IconSymbol name="info.circle" size={18} color={colors.icon} />
-              </Pressable>
-              <ThemedText style={styles.addonLabel}>{addon.label}</ThemedText>
-              <Switch
-                value={form.draftConfig.addons.includes(addon.id)}
-                onValueChange={() => form.toggleAddon(addon.id)}
-              />
+          <Pressable onPress={openAddons} style={styles.customizationRow}>
+            <ThemedText>Add-ons</ThemedText>
+            <View style={styles.customizationTrailing}>
+              <ThemedText style={{ color: colors.icon }}>
+                {String(form.draftConfig.addons.length)}
+              </ThemedText>
+              <IconSymbol name="chevron.right" size={18} color={colors.icon} />
             </View>
-          ))}
-        </View>
-      </View>
-
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <ThemedText type="defaultSemiBold">Custom fields</ThemedText>
-          <Pressable onPress={form.addField}>
-            <ThemedText style={{ color: colors.tint }}>Add field</ThemedText>
+          </Pressable>
+          <Pressable onPress={openCustomFields} style={styles.customizationRow}>
+            <ThemedText>Custom fields</ThemedText>
+            <View style={styles.customizationTrailing}>
+              <ThemedText style={{ color: colors.icon }}>
+                {String(form.draftConfig.fieldDefinitions.length)}
+              </ThemedText>
+              <IconSymbol name="chevron.right" size={18} color={colors.icon} />
+            </View>
           </Pressable>
         </View>
-
-        {form.draftConfig.fieldDefinitions.length ? (
-          form.draftConfig.fieldDefinitions.map((field) => (
-            <View
-              key={field.id}
-              style={[
-                styles.fieldCard,
-                { borderColor: colors.icon + '25', backgroundColor: colors.background },
-              ]}
-            >
-              <TextField
-                colors={colors}
-                placeholder="Field label"
-                value={field.label}
-                onChangeText={(value) => form.updateField(field.id, { label: value })}
-              />
-              <SelectionBlock
-                colors={colors}
-                expanded={expandedMenu === `field-kind:${field.id}`}
-                label="Field kind"
-                value={getListFieldKindLabel(field.kind)}
-                options={LIST_FIELD_KIND_OPTIONS.map((option) => ({
-                  key: option.value,
-                  label: option.label,
-                  onPress: () => {
-                    form.updateFieldKind(field.id, option.value);
-                    setExpandedMenu(null);
-                  },
-                }))}
-                onToggle={() =>
-                  setExpandedMenu((current) =>
-                    current === `field-kind:${field.id}` ? null : `field-kind:${field.id}`
-                  )
-                }
-              />
-              <Pressable onPress={() => form.removeField(field.id)}>
-                <ThemedText style={{ color: '#C62828' }}>Remove field</ThemedText>
-              </Pressable>
-            </View>
-          ))
-        ) : (
-          <ThemedText style={{ color: colors.icon }}>
-            Add structured fields for setups like projects, books, or recipes.
-          </ThemedText>
-        )}
       </View>
 
       <View style={styles.section}>
@@ -410,19 +360,16 @@ const styles = StyleSheet.create({
     gap: 8,
     padding: 12,
   },
-  addonRow: {
+  customizationRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 12,
+    justifyContent: 'space-between',
+    paddingVertical: 10,
   },
-  infoButton: {
-    height: 28,
-    width: 28,
+  customizationTrailing: {
     alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addonLabel: {
-    flex: 1,
+    flexDirection: 'row',
+    gap: 6,
   },
   fieldCard: {
     borderRadius: 16,

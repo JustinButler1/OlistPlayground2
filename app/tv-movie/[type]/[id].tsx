@@ -364,53 +364,7 @@ export default function TvMovieDetailsScreen() {
                   <ExpandableDescription text={details.overview} />
                 ) : null}
 
-                {cast.length > 0 ? (
-                  <View style={styles.castSection}>
-                    <ThemedText type="subtitle" style={styles.sectionTitle}>
-                      Cast
-                    </ThemedText>
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={styles.castScroll}
-                    >
-                      {cast.map((member, index) => {
-                        const profileUri = member.profile_path
-                          ? `${TMDB_IMAGE_BASE}/w185${member.profile_path}`
-                          : null;
-                        return (
-                          <Link key={`${member.id}-${member.character}-${index}`} href={`/person/tmdb-person/${member.id}` as any} asChild>
-                            <Pressable style={StyleSheet.flatten([styles.castCard, { backgroundColor: colors.tint + '15' }])}>
-                              <View style={styles.castImageWrap}>
-                                {profileUri ? (
-                                  <Image
-                                    source={{ uri: profileUri }}
-                                    style={styles.castImage}
-                                    contentFit="cover"
-                                  />
-                                ) : (
-                                  <View style={[styles.castImage, styles.castImagePlaceholder]} />
-                                )}
-                              </View>
-                              <ThemedText
-                                style={[styles.castName, { color: colors.text }]}
-                                numberOfLines={2}
-                              >
-                                {member.name}
-                              </ThemedText>
-                              <ThemedText
-                                style={[styles.castCharacter, { color: colors.icon }]}
-                                numberOfLines={2}
-                              >
-                                {member.character}
-                              </ThemedText>
-                            </Pressable>
-                          </Link>
-                        );
-                      })}
-                    </ScrollView>
-                  </View>
-                ) : null}
+
 
                 {trailers.length > 0 ? (
                   <View style={styles.trailerSection}>
@@ -474,11 +428,69 @@ export default function TvMovieDetailsScreen() {
                     >
                       {recommendations.map((rec, index) => {
                         const href = `/tv-movie/${rec.media_type}/${rec.id}`;
+                        const imageUrl = rec.poster_path ? `${TMDB_IMAGE_BASE}/w185${rec.poster_path}` : null;
                         return (
                           <Link key={`${rec.id}-${index}`} href={href as any} asChild>
                             <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
-                              <ThemedText style={styles.relatedTitle} numberOfLines={2}>
-                                {rec.title || rec.name}
+                              {imageUrl ? (
+                                <Image source={{ uri: imageUrl }} style={styles.relatedImage} contentFit="cover" />
+                              ) : (
+                                <View style={styles.relatedImagePlaceholder}>
+                                  <IconSymbol name="photo" size={24} color={colors.icon} />
+                                </View>
+                              )}
+                              <View style={styles.relatedContent}>
+                                <ThemedText style={styles.relatedTitle} numberOfLines={2}>
+                                  {rec.title || rec.name}
+                                </ThemedText>
+                              </View>
+                            </Pressable>
+                          </Link>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                ) : null}
+
+                {cast.length > 0 ? (
+                  <View style={styles.castSection}>
+                    <ThemedText type="subtitle" style={styles.sectionTitle}>
+                      Cast
+                    </ThemedText>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.castScroll}
+                    >
+                      {cast.map((member, index) => {
+                        const profileUri = member.profile_path
+                          ? `${TMDB_IMAGE_BASE}/w185${member.profile_path}`
+                          : null;
+                        return (
+                          <Link key={`${member.id}-${member.character}-${index}`} href={`/person/tmdb-person/${member.id}` as any} asChild>
+                            <Pressable style={StyleSheet.flatten([styles.castCard, { backgroundColor: colors.tint + '15' }])}>
+                              <View style={styles.castImageWrap}>
+                                {profileUri ? (
+                                  <Image
+                                    source={{ uri: profileUri }}
+                                    style={styles.castImage}
+                                    contentFit="cover"
+                                  />
+                                ) : (
+                                  <View style={[styles.castImage, styles.castImagePlaceholder]} />
+                                )}
+                              </View>
+                              <ThemedText
+                                style={[styles.castName, { color: colors.text }]}
+                                numberOfLines={2}
+                              >
+                                {member.name}
+                              </ThemedText>
+                              <ThemedText
+                                style={[styles.castCharacter, { color: colors.icon }]}
+                                numberOfLines={2}
+                              >
+                                {member.character}
                               </ThemedText>
                             </Pressable>
                           </Link>
@@ -695,14 +707,27 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   relatedCard: {
-    width: 140,
-    padding: 12,
+    width: 120,
     marginRight: 12,
     borderRadius: 12,
+    overflow: 'hidden',
+  },
+  relatedImagePlaceholder: {
+    width: '100%',
+    aspectRatio: 2/3,
+    backgroundColor: 'rgba(128,128,128,0.2)',
     justifyContent: 'center',
+    alignItems: 'center',
+  },
+  relatedImage: {
+    width: '100%',
+    aspectRatio: 2/3,
+  },
+  relatedContent: {
+    padding: 8,
   },
   relatedTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
   },
 });

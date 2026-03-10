@@ -24,9 +24,11 @@ import { Colors } from '@/constants/theme';
 import { getItemUserDataKey } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { normalizeRating } from '@/lib/tracker-metadata';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ExpandableDescription } from '@/components/ExpandableDescription';
 import { ExpandableTags } from '@/components/ExpandableTags';
 import { Link } from 'expo-router';
+import { enqueueJikan } from '@/lib/jikan-queue';
 
 const JIKAN_API = 'https://api.jikan.moe/v4';
 
@@ -63,12 +65,52 @@ async function fetchAnimeDetails(id: string): Promise<AnimeDetails> {
   return json.data;
 }
 
+interface JikanCharacterResp {
+  character: { mal_id: number; name: string; images: { jpg: { image_url: string } } };
+  role: string;
+  voice_actors: { person: { mal_id: number; name: string; images: { jpg: { image_url: string } } }; language: string }[];
+}
+
+async function fetchAnimeCharacters(id: string): Promise<JikanCharacterResp[]> {
+  const response = await fetch(`${JIKAN_API}/anime/${id}/characters`);
+  if (!response.ok) return [];
+  const json = await response.json();
+  return (json.data ?? []).slice(0, 20);
+}
+
+function JikanDynamicImage({ type, id }: { type: 'anime' | 'manga' | 'producers', id: number }) {
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    enqueueJikan(async () => {
+      const resp = await fetch(`${JIKAN_API}/${type}/${id}`);
+      if (!resp.ok) return null;
+      const json = await resp.json();
+      return json.data?.images?.jpg?.image_url;
+    })
+      .then((url) => mounted && url && setImageUrl(url))
+      .catch(() => {});
+    return () => { mounted = false; };
+  }, [type, id]);
+
+  if (!imageUrl) {
+    return (
+      <View style={styles.relatedImagePlaceholder}>
+        <IconSymbol name="photo" size={24} color="#888" />
+      </View>
+    );
+  }
+  return <Image source={{ uri: imageUrl }} style={styles.relatedImage} contentFit="cover" />;
+}
+
 export default function AnimeDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const [anime, setAnime] = useState<AnimeDetails | null>(null);
+  const [characters, setCharacters] = useState<JikanCharacterResp[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showImage, setShowImage] = useState(false);
@@ -81,8 +123,14 @@ export default function AnimeDetailsScreen() {
 
     setLoading(true);
     setError(null);
-    void fetchAnimeDetails(id)
-      .then(setAnime)
+    Promise.all([
+      fetchAnimeDetails(id),
+      fetchAnimeCharacters(id)
+    ])
+      .then(([animeData, charsData]) => {
+        setAnime(animeData);
+        setCharacters(charsData);
+      })
       .catch(() => setError('Failed to load anime details'))
       .finally(() => setLoading(false));
   }, [id]);
@@ -144,20 +192,6 @@ export default function AnimeDetailsScreen() {
                     <RatingStars value={communityRating} showValue />
                   </View>
                 ) : null}
-                {anime.producers?.length ? (
-                  <View style={styles.sectionRow}>
-                    <ThemedText style={styles.sectionLabel}>Producers:</ThemedText>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.peopleScroll}>
-                      {anime.producers.map((producer) => (
-                        <Link key={producer.mal_id} href={`/person/jikan-producer/${producer.mal_id}` as any} asChild>
-                          <Pressable style={styles.personLink}>
-                            <ThemedText style={styles.personText}>{producer.name}</ThemedText>
-                          </Pressable>
-                        </Link>
-                      ))}
-                    </ScrollView>
-                  </View>
-                ) : null}
                 {anime.genres?.length ? (
                   <ExpandableTags tags={anime.genres.map(g => ({ id: g.mal_id, name: g.name }))} />
                 ) : null}
@@ -174,12 +208,63 @@ export default function AnimeDetailsScreen() {
                         return (
                           <Link key={`${related.type}-${related.mal_id}-${index}`} href={href as any} asChild>
                             <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
-                              <ThemedText style={styles.relatedType} numberOfLines={1}>{related.relation}</ThemedText>
-                              <ThemedText style={styles.relatedTitle} numberOfLines={2}>{related.name}</ThemedText>
+                              <JikanDynamicImage type={related.type as any} id={related.mal_id} />
+                              <View style={styles.relatedContent}>
+                                <ThemedText style={styles.relatedType} numberOfLines={1}>{related.relation}</ThemedText>
+                                <ThemedText style={styles.relatedTitle} numberOfLines={2}>{related.name}</ThemedText>
+                              </View>
                             </Pressable>
                           </Link>
                         );
                       })}
+                    </ScrollView>
+                  </View>
+                ) : null}
+                {characters.length > 0 ? (
+                  <View style={styles.section}>
+                    <ThemedText type="subtitle">Cast</ThemedText>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.relatedScroll}>
+                      {characters.map((charItem, index) => {
+                        const char = charItem.character;
+                        const va = charItem.voice_actors?.find(v => v.language === 'Japanese') ?? charItem.voice_actors?.[0];
+                        return (
+                          <Link key={`char-${char.mal_id}-${index}`} href={`/person/jikan-character/${char.mal_id}` as any} asChild>
+                            <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
+                              {char.images?.jpg?.image_url ? (
+                                <Image source={{ uri: char.images.jpg.image_url }} style={styles.relatedImage} contentFit="cover" />
+                              ) : (
+                                <View style={styles.relatedImagePlaceholder}>
+                                  <IconSymbol name="person.fill" size={24} color={colors.icon} />
+                                </View>
+                              )}
+                              <View style={styles.relatedContent}>
+                                <ThemedText style={styles.relatedTitle} numberOfLines={1}>{char.name}</ThemedText>
+                                <ThemedText style={styles.relatedType} numberOfLines={1}>{charItem.role}</ThemedText>
+                                {va && (
+                                  <ThemedText style={[styles.relatedType, { marginTop: 4 }]} numberOfLines={1}>VA: {va.person.name}</ThemedText>
+                                )}
+                              </View>
+                            </Pressable>
+                          </Link>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                ) : null}
+                {anime.producers?.length ? (
+                  <View style={styles.section}>
+                    <ThemedText type="subtitle">Producers</ThemedText>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.relatedScroll}>
+                      {anime.producers.map((producer) => (
+                        <Link key={producer.mal_id} href={`/person/jikan-producer/${producer.mal_id}` as any} asChild>
+                          <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
+                            <JikanDynamicImage type="producers" id={producer.mal_id} />
+                            <View style={styles.relatedContent}>
+                              <ThemedText style={styles.relatedTitle} numberOfLines={2}>{producer.name}</ThemedText>
+                            </View>
+                          </Pressable>
+                        </Link>
+                      ))}
                     </ScrollView>
                   </View>
                 ) : null}
@@ -282,18 +367,32 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   relatedCard: {
-    width: 140,
-    padding: 12,
+    width: 120,
     borderRadius: 12,
+    overflow: 'hidden',
+  },
+  relatedImagePlaceholder: {
+    width: '100%',
+    aspectRatio: 2/3,
+    backgroundColor: 'rgba(128,128,128,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  relatedImage: {
+    width: '100%',
+    aspectRatio: 2/3,
+  },
+  relatedContent: {
+    padding: 8,
   },
   relatedType: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     opacity: 0.7,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   relatedTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
   },
 });

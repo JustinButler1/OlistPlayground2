@@ -1,21 +1,25 @@
-import { ContextMenu, ListItem, Picker, Switch, TextButton } from '@expo/ui/jetpack-compose';
-import { ScrollView, StyleSheet, TextInput, View, Alert } from 'react-native';
+import { ContextMenu, ListItem, Picker } from '@expo/ui/jetpack-compose';
+import { ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 
 import type { NewListFormController } from '@/components/tracker/use-new-list-form';
 import { ThemedText } from '@/components/themed-text';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 import {
   getListEntryTypeLabel,
-  getListFieldKindLabel,
-  LIST_ADDON_OPTIONS,
   LIST_ENTRY_TYPE_OPTIONS,
-  LIST_FIELD_KIND_OPTIONS,
 } from '@/lib/list-config-options';
 
 interface NewListFormScreenProps {
   form: NewListFormController;
+  openAddons?: () => void;
+  openCustomFields?: () => void;
 }
 
-export function NewListFormScreen({ form }: NewListFormScreenProps) {
+export function NewListFormScreen({
+  form,
+  openAddons,
+  openCustomFields,
+}: NewListFormScreenProps) {
   return (
     <ScrollView
       style={styles.container}
@@ -91,60 +95,29 @@ export function NewListFormScreen({ form }: NewListFormScreenProps) {
       </View>
 
       <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <ThemedText type="defaultSemiBold">Add-ons</ThemedText>
-        </View>
+        <ThemedText type="defaultSemiBold">Customization</ThemedText>
         <View style={styles.listSurface}>
-          {LIST_ADDON_OPTIONS.map((addon) => (
-            <ListItem key={addon.id} headline={addon.label}>
-              <ListItem.Leading>
-                <TextButton onPress={() => Alert.alert(addon.label, addon.description)}>Info</TextButton>
-              </ListItem.Leading>
-              <ListItem.Trailing>
-                <Switch
-                  value={form.draftConfig.addons.includes(addon.id)}
-                  onValueChange={() => form.toggleAddon(addon.id)}
-                />
-              </ListItem.Trailing>
-            </ListItem>
-          ))}
+          <ListItem headline="Add-ons" onPress={openAddons}>
+            <ListItem.Trailing>
+              <View style={styles.trailingCluster}>
+                <ThemedText style={styles.trailingCount}>
+                  {String(form.draftConfig.addons.length)}
+                </ThemedText>
+                <IconSymbol name="chevron.right" size={18} color="#8A8F98" />
+              </View>
+            </ListItem.Trailing>
+          </ListItem>
+          <ListItem headline="Custom fields" onPress={openCustomFields}>
+            <ListItem.Trailing>
+              <View style={styles.trailingCluster}>
+                <ThemedText style={styles.trailingCount}>
+                  {String(form.draftConfig.fieldDefinitions.length)}
+                </ThemedText>
+                <IconSymbol name="chevron.right" size={18} color="#8A8F98" />
+              </View>
+            </ListItem.Trailing>
+          </ListItem>
         </View>
-      </View>
-
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <ThemedText type="defaultSemiBold">Custom fields</ThemedText>
-          <TextButton onPress={form.addField}>Add field</TextButton>
-        </View>
-        {form.draftConfig.fieldDefinitions.length ? (
-          form.draftConfig.fieldDefinitions.map((field) => (
-            <View key={field.id} style={styles.fieldCard}>
-              <FieldLabel>Field label</FieldLabel>
-              <TextInput
-                style={styles.textInput}
-                value={field.label}
-                onChangeText={(value) => form.updateField(field.id, { label: value })}
-                placeholder="Field label"
-              />
-              <SelectionRow
-                title="Field kind"
-                value={getListFieldKindLabel(field.kind)}
-                options={LIST_FIELD_KIND_OPTIONS.map((option) => ({
-                  label: option.label,
-                  onSelect: () => form.updateFieldKind(field.id, option.value),
-                }))}
-                selectedIndex={LIST_FIELD_KIND_OPTIONS.findIndex(
-                  (option) => option.value === field.kind
-                )}
-              />
-              <TextButton onPress={() => form.removeField(field.id)}>Remove field</TextButton>
-            </View>
-          ))
-        ) : (
-          <ThemedText style={styles.helpText}>
-            Add structured fields for setups like projects, books, or recipes.
-          </ThemedText>
-        )}
       </View>
 
       <View style={styles.section}>
@@ -260,6 +233,14 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   selectionAction: {
+    opacity: 0.65,
+  },
+  trailingCluster: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  trailingCount: {
     opacity: 0.65,
   },
   fieldCard: {

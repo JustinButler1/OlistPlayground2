@@ -52,7 +52,10 @@ export default function MyListsScreen() {
   }, [activeLists, filterMode, sortMode]);
 
   const openNewListRoute = useCallback(() => {
-    router.push('/my-lists/new-list');
+    router.push({
+      pathname: '/my-lists/new-list',
+      params: { sessionId: `${Date.now()}` },
+    });
   }, [router]);
 
   const openListDetail = useCallback(

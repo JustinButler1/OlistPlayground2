@@ -24,9 +24,11 @@ import { Colors } from '@/constants/theme';
 import { getItemUserDataKey } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { normalizeRating } from '@/lib/tracker-metadata';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ExpandableDescription } from '@/components/ExpandableDescription';
 import { ExpandableTags } from '@/components/ExpandableTags';
 import { Link } from 'expo-router';
+import { enqueueJikan } from '@/lib/jikan-queue';
 
 const JIKAN_API = 'https://api.jikan.moe/v4';
 
@@ -65,12 +67,51 @@ async function fetchMangaDetails(id: string): Promise<MangaDetails> {
   return json.data;
 }
 
+interface JikanMangaCharacterResp {
+  character: { mal_id: number; name: string; images: { jpg: { image_url: string } } };
+  role: string;
+}
+
+async function fetchMangaCharacters(id: string): Promise<JikanMangaCharacterResp[]> {
+  const response = await fetch(`${JIKAN_API}/manga/${id}/characters`);
+  if (!response.ok) return [];
+  const json = await response.json();
+  return (json.data ?? []).slice(0, 20);
+}
+
+function JikanDynamicImage({ type, id }: { type: 'anime' | 'manga' | 'authors', id: number }) {
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    enqueueJikan(async () => {
+      const resp = await fetch(`${JIKAN_API}/${type}/${id}`);
+      if (!resp.ok) return null;
+      const json = await resp.json();
+      return json.data?.images?.jpg?.image_url;
+    })
+      .then((url) => mounted && url && setImageUrl(url))
+      .catch(() => {});
+    return () => { mounted = false; };
+  }, [type, id]);
+
+  if (!imageUrl) {
+    return (
+      <View style={styles.relatedImagePlaceholder}>
+        <IconSymbol name="photo" size={24} color="#888" />
+      </View>
+    );
+  }
+  return <Image source={{ uri: imageUrl }} style={styles.relatedImage} contentFit="cover" />;
+}
+
 export default function MangaDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const [manga, setManga] = useState<MangaDetails | null>(null);
+  const [characters, setCharacters] = useState<JikanMangaCharacterResp[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showImage, setShowImage] = useState(false);
@@ -83,8 +124,14 @@ export default function MangaDetailsScreen() {
 
     setLoading(true);
     setError(null);
-    void fetchMangaDetails(id)
-      .then(setManga)
+    Promise.all([
+      fetchMangaDetails(id),
+      fetchMangaCharacters(id)
+    ])
+      .then(([mangaData, charsData]) => {
+        setManga(mangaData);
+        setCharacters(charsData);
+      })
       .catch(() => setError('Failed to load manga details'))
       .finally(() => setLoading(false));
   }, [id]);
@@ -159,20 +206,6 @@ export default function MangaDetailsScreen() {
                   </ThemedText>
                 )}
                 {meta ? <ThemedText style={{ color: colors.icon }}>{meta}</ThemedText> : null}
-                {manga.authors?.length ? (
-                  <View style={styles.sectionRow}>
-                    <ThemedText style={styles.sectionLabel}>Authors:</ThemedText>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.peopleScroll}>
-                      {manga.authors.map((author) => (
-                        <Link key={author.mal_id} href={`/person/jikan-author/${author.mal_id}` as any} asChild>
-                          <Pressable style={styles.personLink}>
-                            <ThemedText style={styles.personText}>{author.name}</ThemedText>
-                          </Pressable>
-                        </Link>
-                      ))}
-                    </ScrollView>
-                  </View>
-                ) : null}
                 {communityRating ? (
                   <View style={styles.ratingRow}>
                     <ThemedText style={{ color: colors.icon }}>Community rating</ThemedText>
@@ -195,12 +228,59 @@ export default function MangaDetailsScreen() {
                         return (
                           <Link key={`${related.type}-${related.mal_id}-${index}`} href={href as any} asChild>
                             <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
-                              <ThemedText style={styles.relatedType} numberOfLines={1}>{related.relation}</ThemedText>
-                              <ThemedText style={styles.relatedTitle} numberOfLines={2}>{related.name}</ThemedText>
+                              <JikanDynamicImage type={related.type as any} id={related.mal_id} />
+                              <View style={styles.relatedContent}>
+                                <ThemedText style={styles.relatedType} numberOfLines={1}>{related.relation}</ThemedText>
+                                <ThemedText style={styles.relatedTitle} numberOfLines={2}>{related.name}</ThemedText>
+                              </View>
                             </Pressable>
                           </Link>
                         );
                       })}
+                    </ScrollView>
+                  </View>
+                ) : null}
+                {characters.length > 0 ? (
+                  <View style={styles.section}>
+                    <ThemedText type="subtitle">Cast</ThemedText>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.relatedScroll}>
+                      {characters.map((charItem, index) => {
+                        const char = charItem.character;
+                        return (
+                          <Link key={`char-${char.mal_id}-${index}`} href={`/person/jikan-character/${char.mal_id}` as any} asChild>
+                            <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
+                              {char.images?.jpg?.image_url ? (
+                                <Image source={{ uri: char.images.jpg.image_url }} style={styles.relatedImage} contentFit="cover" />
+                              ) : (
+                                <View style={styles.relatedImagePlaceholder}>
+                                  <IconSymbol name="person.fill" size={24} color={colors.icon} />
+                                </View>
+                              )}
+                              <View style={styles.relatedContent}>
+                                <ThemedText style={styles.relatedTitle} numberOfLines={1}>{char.name}</ThemedText>
+                                <ThemedText style={styles.relatedType} numberOfLines={1}>{charItem.role}</ThemedText>
+                              </View>
+                            </Pressable>
+                          </Link>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                ) : null}
+                {manga.authors?.length ? (
+                  <View style={styles.section}>
+                    <ThemedText type="subtitle">Authors</ThemedText>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.relatedScroll}>
+                      {manga.authors.map((author) => (
+                        <Link key={author.mal_id} href={`/person/jikan-author/${author.mal_id}` as any} asChild>
+                          <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
+                            <JikanDynamicImage type="authors" id={author.mal_id} />
+                            <View style={styles.relatedContent}>
+                              <ThemedText style={styles.relatedTitle} numberOfLines={2}>{author.name}</ThemedText>
+                            </View>
+                          </Pressable>
+                        </Link>
+                      ))}
                     </ScrollView>
                   </View>
                 ) : null}
@@ -299,18 +379,32 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   relatedCard: {
-    width: 140,
-    padding: 12,
+    width: 120,
     borderRadius: 12,
+    overflow: 'hidden',
+  },
+  relatedImagePlaceholder: {
+    width: '100%',
+    aspectRatio: 2/3,
+    backgroundColor: 'rgba(128,128,128,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  relatedImage: {
+    width: '100%',
+    aspectRatio: 2/3,
+  },
+  relatedContent: {
+    padding: 8,
   },
   relatedType: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     opacity: 0.7,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   relatedTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
   },
 });

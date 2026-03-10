@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 
 import { useListActions, useListsQuery } from '@/contexts/lists-context';
 import {
@@ -15,6 +15,7 @@ import {
 export type NewListCreateMode = 'scratch' | 'template';
 
 export interface NewListFormController {
+  sessionId: string | null;
   formRevision: number;
   title: string;
   description: string;
@@ -40,9 +41,13 @@ export interface NewListFormController {
   setSaveAsTemplate: (value: boolean) => void;
   setTemplateTitle: (value: string) => void;
   setTemplateDescription: (value: string) => void;
+  beginSession: (sessionId: string) => void;
+  reset: () => void;
   cancel: () => void;
   submit: () => void;
 }
+
+const NewListFormContext = createContext<NewListFormController | null>(null);
 
 function createNewFieldDefinition(): ListFieldDefinition {
   return {
@@ -52,10 +57,11 @@ function createNewFieldDefinition(): ListFieldDefinition {
   };
 }
 
-export function useNewListForm(): NewListFormController {
+function useNewListFormController(): NewListFormController {
   const router = useRouter();
   const { listTemplates } = useListsQuery();
   const { createList, createListFromTemplate, saveListAsTemplate, updateList } = useListActions();
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [formRevision, setFormRevision] = useState(0);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -74,6 +80,7 @@ export function useNewListForm(): NewListFormController {
   }, []);
 
   const reset = useCallback(() => {
+    setSessionId(null);
     setTitle('');
     setDescription('');
     setCreateModeState('scratch');
@@ -84,6 +91,28 @@ export function useNewListForm(): NewListFormController {
     setTemplateDescription('');
     bumpRevision();
   }, [bumpRevision]);
+
+  const beginSession = useCallback(
+    (nextSessionId: string) => {
+      setSessionId((current) => {
+        if (current === nextSessionId) {
+          return current;
+        }
+
+        setTitle('');
+        setDescription('');
+        setCreateModeState('scratch');
+        setSelectedTemplateId(null);
+        setDraftConfig(createListConfig(DEFAULT_LIST_CONFIG));
+        setSaveAsTemplate(false);
+        setTemplateTitle('');
+        setTemplateDescription('');
+        bumpRevision();
+        return nextSessionId;
+      });
+    },
+    [bumpRevision]
+  );
 
   const updateConfig = useCallback((updater: (current: ListConfig) => ListConfig) => {
     setDraftConfig((current) => createListConfig(updater(current)));
@@ -264,6 +293,7 @@ export function useNewListForm(): NewListFormController {
 
   return useMemo(
     () => ({
+      sessionId,
       formRevision,
       title,
       description,
@@ -289,11 +319,14 @@ export function useNewListForm(): NewListFormController {
       setSaveAsTemplate,
       setTemplateTitle,
       setTemplateDescription,
+      beginSession,
+      reset,
       cancel,
       submit,
     }),
     [
       addField,
+      beginSession,
       cancel,
       canSubmit,
       createMode,
@@ -302,7 +335,9 @@ export function useNewListForm(): NewListFormController {
       formRevision,
       listTemplates,
       removeField,
+      reset,
       saveAsTemplate,
+      sessionId,
       selectTemplate,
       selectedTemplate,
       selectedTemplateId,
@@ -317,4 +352,17 @@ export function useNewListForm(): NewListFormController {
       updateFieldKind,
     ]
   );
+}
+
+export function NewListFormProvider({ children }: { children: React.ReactNode }) {
+  const value = useNewListFormController();
+  return <NewListFormContext.Provider value={value}>{children}</NewListFormContext.Provider>;
+}
+
+export function useNewListForm(): NewListFormController {
+  const context = useContext(NewListFormContext);
+  if (!context) {
+    throw new Error('useNewListForm must be used within NewListFormProvider');
+  }
+  return context;
 }

@@ -205,25 +205,16 @@ export default function BookDetailsScreen() {
                   {work?.volumeInfo?.title}
                 </ThemedText>
 
-                {(authorNames.length > 0 || work?.volumeInfo?.publishedDate) && (
+                {(work?.volumeInfo?.publishedDate || work?.volumeInfo?.pageCount) && (
                   <View style={styles.metaRow}>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.peopleScroll}>
-                      {authorNames.map((authorName, index) => (
-                        <Link key={index} href={`/person/google-books-author/${encodeURIComponent(authorName)}` as any} asChild>
-                          <Pressable style={styles.personLink}>
-                            <ThemedText style={styles.subtitle}>{authorName}</ThemedText>
-                          </Pressable>
-                        </Link>
-                      ))}
-                    </ScrollView>
                     {work?.volumeInfo?.publishedDate ? (
-                      <ThemedText style={[styles.subtitle, { color: colors.icon, marginLeft: 8 }]}>
-                        | {work.volumeInfo.publishedDate}
+                      <ThemedText style={[styles.subtitle, { color: colors.icon }]}>
+                        {work.volumeInfo.publishedDate}
                       </ThemedText>
                     ) : null}
                     {work?.volumeInfo?.pageCount ? (
-                      <ThemedText style={[styles.subtitle, { color: colors.icon, marginLeft: 8 }]}>
-                        | {work.volumeInfo.pageCount} pages
+                      <ThemedText style={[styles.subtitle, { color: colors.icon, marginLeft: work?.volumeInfo?.publishedDate ? 8 : 0 }]}>
+                        {work?.volumeInfo?.publishedDate ? '| ' : ''}{work.volumeInfo.pageCount} pages
                       </ThemedText>
                     ) : null}
                   </View>
@@ -235,6 +226,24 @@ export default function BookDetailsScreen() {
 
                 {description ? (
                   <ExpandableDescription text={description} />
+                ) : null}
+                
+                {authorNames.length > 0 ? (
+                  <View style={styles.section}>
+                    <ThemedText type="subtitle">Authors</ThemedText>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.relatedScroll}>
+                      {authorNames.map((authorName, index) => (
+                        <Pressable key={index} style={[styles.relatedCard, { backgroundColor: colors.tint + '15' }]}>
+                          <View style={styles.relatedImagePlaceholder}>
+                            <IconSymbol name="photo" size={24} color={colors.icon} />
+                          </View>
+                          <View style={styles.relatedContent}>
+                            <ThemedText style={styles.relatedTitle} numberOfLines={2}>{authorName}</ThemedText>
+                          </View>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  </View>
                 ) : null}
               </>
             ) : itemKey ? (
@@ -341,9 +350,33 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     marginBottom: 16,
   },
-  peopleScroll: {
-    gap: 8,
+  section: {
+    marginTop: 24,
   },
-  personLink: {
+  relatedScroll: {
+    gap: 12,
+  },
+  relatedCard: {
+    width: 120,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  relatedImagePlaceholder: {
+    width: '100%',
+    aspectRatio: 2/3,
+    backgroundColor: 'rgba(128,128,128,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  relatedImage: {
+    width: '100%',
+    aspectRatio: 2/3,
+  },
+  relatedContent: {
+    padding: 8,
+  },
+  relatedTitle: {
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

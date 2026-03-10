@@ -46,7 +46,7 @@ interface IgdbGameDetails {
   platforms?: IgdbPlatform[];
   genres?: { id: number; name: string }[];
   themes?: { id: number; name: string }[];
-  involved_companies?: { id: number; company: { id: number; name: string } }[];
+  involved_companies?: { id: number; company: { id: number; name: string; logo?: IgdbCover } }[];
   similar_games?: { id: number; name: string; cover?: IgdbCover }[];
   dlcs?: { id: number; name: string; cover?: IgdbCover }[];
   remakes?: { id: number; name: string; cover?: IgdbCover }[];
@@ -112,7 +112,7 @@ async function fetchGameDetails(id: string): Promise<IgdbGameDetails> {
   const token = await getIgdbAccessToken();
   const { clientId } = getIgdbCredentials();
   const body = [
-    'fields name, summary, cover.image_id, first_release_date, total_rating, platforms.name, genres.name, themes.name, involved_companies.company.name, similar_games.name, similar_games.cover.image_id, dlcs.name, dlcs.cover.image_id, remakes.name, remakes.cover.image_id, expansions.name, expansions.cover.image_id ;',
+    'fields name, summary, cover.image_id, first_release_date, total_rating, platforms.name, genres.name, themes.name, involved_companies.company.name, involved_companies.company.logo.image_id, similar_games.name, similar_games.cover.image_id, dlcs.name, dlcs.cover.image_id, remakes.name, remakes.cover.image_id, expansions.name, expansions.cover.image_id ;',
     `where id = ${id} ;`,
   ].join(' ');
 
@@ -260,21 +260,6 @@ export default function GameDetailsScreen() {
             ) : null}
           </View>
           
-          {game?.involved_companies?.length ? (
-            <View style={styles.sectionRow}>
-              <ThemedText style={styles.sectionLabel}>Companies:</ThemedText>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.peopleScroll}>
-                {game.involved_companies.map((inv) => (
-                  <Link key={inv.id} href={`/person/igdb-company/${inv.company.id}` as any} asChild>
-                    <Pressable style={styles.personLink}>
-                      <ThemedText style={styles.personText}>{inv.company.name}</ThemedText>
-                    </Pressable>
-                  </Link>
-                ))}
-              </ScrollView>
-            </View>
-          ) : null}
-
           {game?.genres?.length || game?.themes?.length ? (
             <ExpandableTags 
               tags={[...(game.genres || []), ...(game.themes || [])].map(t => ({ id: t.id, name: t.name }))} 
@@ -294,16 +279,55 @@ export default function GameDetailsScreen() {
             <View key={section.title} style={styles.section}>
               <ThemedText type="subtitle" style={styles.sectionTitle}>{section.title}</ThemedText>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.relatedScroll}>
-                {section.data.map((related, index) => (
-                  <Link key={`${related.id}-${index}`} href={`/games/${related.id}` as any} asChild>
-                    <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
-                      <ThemedText style={styles.relatedTitle} numberOfLines={2}>{related.name}</ThemedText>
-                    </Pressable>
-                  </Link>
-                ))}
+                {section.data.map((related, index) => {
+                  const itemImageUrl = buildIgdbCoverUrl(related.cover);
+                  return (
+                    <Link key={`${related.id}-${index}`} href={`/games/${related.id}` as any} asChild>
+                      <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
+                        {itemImageUrl ? (
+                          <Image source={{ uri: itemImageUrl }} style={styles.relatedImage} contentFit="cover" />
+                        ) : (
+                          <View style={styles.relatedImagePlaceholder}>
+                            <IconSymbol name="photo" size={24} color={colors.icon} />
+                          </View>
+                        )}
+                        <View style={styles.relatedContent}>
+                          <ThemedText style={styles.relatedTitle} numberOfLines={2}>{related.name}</ThemedText>
+                        </View>
+                      </Pressable>
+                    </Link>
+                  );
+                })}
               </ScrollView>
             </View>
           ) : null)}
+
+          {game?.involved_companies?.length ? (
+            <View style={styles.section}>
+              <ThemedText type="subtitle" style={styles.sectionTitle}>Companies</ThemedText>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.relatedScroll}>
+                {game.involved_companies.map((inv) => {
+                  const logoUrl = buildIgdbCoverUrl(inv.company.logo);
+                  return (
+                    <Link key={inv.id} href={`/person/igdb-company/${inv.company.id}` as any} asChild>
+                      <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
+                        {logoUrl ? (
+                          <Image source={{ uri: logoUrl }} style={styles.relatedImage} contentFit="contain" />
+                        ) : (
+                          <View style={styles.relatedImagePlaceholder}>
+                            <IconSymbol name="photo" size={24} color={colors.icon} />
+                          </View>
+                        )}
+                        <View style={styles.relatedContent}>
+                          <ThemedText style={styles.relatedTitle} numberOfLines={2}>{inv.company.name}</ThemedText>
+                        </View>
+                      </Pressable>
+                    </Link>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          ) : null}
         </View>
       </ScrollView>
     </ThemedView>
@@ -424,12 +448,27 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   relatedCard: {
-    width: 140,
-    padding: 12,
+    width: 120,
     borderRadius: 12,
+    overflow: 'hidden',
+  },
+  relatedImagePlaceholder: {
+    width: '100%',
+    aspectRatio: 2/3,
+    backgroundColor: 'rgba(128,128,128,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  relatedImage: {
+    width: '100%',
+    aspectRatio: 2/3,
+    backgroundColor: 'rgba(128,128,128,0.2)',
+  },
+  relatedContent: {
+    padding: 8,
   },
   relatedTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
   },
 });
