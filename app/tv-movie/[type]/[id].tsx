@@ -26,6 +26,9 @@ import { Colors } from '@/constants/theme';
 import { getItemUserDataKey } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { normalizeRating } from '@/lib/tracker-metadata';
+import { ExpandableDescription } from '@/components/ExpandableDescription';
+import { ExpandableTags } from '@/components/ExpandableTags';
+import { Link } from 'expo-router';
 
 const TMDB_API_BASE = 'https://api.themoviedb.org/3';
 const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p';
@@ -91,6 +94,14 @@ interface TmdbCastMember {
   order: number;
 }
 
+interface TmdbRecommendation {
+  id: number;
+  title?: string;
+  name?: string;
+  poster_path: string | null;
+  media_type: string;
+}
+
 function getTmdbApiKey(): string | null {
   const key = process.env.EXPO_PUBLIC_TMDB_API_KEY?.trim();
   return key ? key : null;
@@ -144,6 +155,20 @@ async function fetchTmdbCredits(type: TmdbType, id: string): Promise<TmdbCastMem
     .slice(0, 20);
 }
 
+async function fetchTmdbRecommendations(type: TmdbType, id: string): Promise<TmdbRecommendation[]> {
+  const apiKey = getTmdbApiKey();
+  if (!apiKey) return [];
+
+  const endpoint = type === 'movie' ? 'movie' : 'tv';
+  const response = await fetch(
+    `${TMDB_API_BASE}/${endpoint}/${id}/recommendations?api_key=${encodeURIComponent(apiKey)}&language=en-US`
+  );
+  if (!response.ok) return [];
+
+  const json: { results?: TmdbRecommendation[] } = await response.json();
+  return (json.results ?? []).slice(0, 10);
+}
+
 function isMovie(details: TmdbDetails): details is TmdbMovieDetails {
   return 'title' in details && 'release_date' in details;
 }
@@ -157,6 +182,7 @@ export default function TvMovieDetailsScreen() {
   const [details, setDetails] = useState<TmdbDetails | null>(null);
   const [trailers, setTrailers] = useState<TmdbVideo[]>([]);
   const [cast, setCast] = useState<TmdbCastMember[]>([]);
+  const [recommendations, setRecommendations] = useState<TmdbRecommendation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [fullScreenImageVisible, setFullScreenImageVisible] = useState(false);
@@ -174,11 +200,13 @@ export default function TvMovieDetailsScreen() {
       fetchTmdbDetails(mediaType, id),
       fetchTmdbVideos(mediaType, id),
       fetchTmdbCredits(mediaType, id),
+      fetchTmdbRecommendations(mediaType, id),
     ])
-      .then(([detailsData, trailersData, castData]) => {
+      .then(([detailsData, trailersData, castData, recommendationsData]) => {
         setDetails(detailsData);
         setTrailers(trailersData);
         setCast(castData);
+        setRecommendations(recommendationsData);
       })
       .catch(() => setError('Failed to load details'))
       .finally(() => setLoading(false));
@@ -329,27 +357,11 @@ export default function TvMovieDetailsScreen() {
                 ) : null}
 
                 {details?.genres?.length ? (
-                  <View style={styles.genres}>
-                    {details.genres.map((genre) => (
-                      <View
-                        key={genre.id}
-                        style={[styles.genreChip, { backgroundColor: colors.tint + '20' }]}
-                      >
-                        <ThemedText style={[styles.genreText, { color: colors.tint }]}>
-                          {genre.name}
-                        </ThemedText>
-                      </View>
-                    ))}
-                  </View>
+                  <ExpandableTags tags={details.genres} />
                 ) : null}
 
                 {details?.overview ? (
-                  <>
-                    <ThemedText type="subtitle" style={styles.sectionTitle}>
-                      Overview
-                    </ThemedText>
-                    <ThemedText style={styles.synopsis}>{details.overview}</ThemedText>
-                  </>
+                  <ExpandableDescription text={details.overview} />
                 ) : null}
 
                 {cast.length > 0 ? (
@@ -362,39 +374,38 @@ export default function TvMovieDetailsScreen() {
                       showsHorizontalScrollIndicator={false}
                       contentContainerStyle={styles.castScroll}
                     >
-                      {cast.map((member) => {
+                      {cast.map((member, index) => {
                         const profileUri = member.profile_path
                           ? `${TMDB_IMAGE_BASE}/w185${member.profile_path}`
                           : null;
                         return (
-                          <View
-                            key={`${member.id}-${member.character}`}
-                            style={[styles.castCard, { backgroundColor: colors.tint + '15' }]}
-                          >
-                            <View style={styles.castImageWrap}>
-                              {profileUri ? (
-                                <Image
-                                  source={{ uri: profileUri }}
-                                  style={styles.castImage}
-                                  contentFit="cover"
-                                />
-                              ) : (
-                                <View style={[styles.castImage, styles.castImagePlaceholder]} />
-                              )}
-                            </View>
-                            <ThemedText
-                              style={[styles.castName, { color: colors.text }]}
-                              numberOfLines={2}
-                            >
-                              {member.name}
-                            </ThemedText>
-                            <ThemedText
-                              style={[styles.castCharacter, { color: colors.icon }]}
-                              numberOfLines={2}
-                            >
-                              {member.character}
-                            </ThemedText>
-                          </View>
+                          <Link key={`${member.id}-${member.character}-${index}`} href={`/person/tmdb-person/${member.id}` as any} asChild>
+                            <Pressable style={StyleSheet.flatten([styles.castCard, { backgroundColor: colors.tint + '15' }])}>
+                              <View style={styles.castImageWrap}>
+                                {profileUri ? (
+                                  <Image
+                                    source={{ uri: profileUri }}
+                                    style={styles.castImage}
+                                    contentFit="cover"
+                                  />
+                                ) : (
+                                  <View style={[styles.castImage, styles.castImagePlaceholder]} />
+                                )}
+                              </View>
+                              <ThemedText
+                                style={[styles.castName, { color: colors.text }]}
+                                numberOfLines={2}
+                              >
+                                {member.name}
+                              </ThemedText>
+                              <ThemedText
+                                style={[styles.castCharacter, { color: colors.icon }]}
+                                numberOfLines={2}
+                              >
+                                {member.character}
+                              </ThemedText>
+                            </Pressable>
+                          </Link>
                         );
                       })}
                     </ScrollView>
@@ -445,6 +456,32 @@ export default function TvMovieDetailsScreen() {
                               {trailer.name}
                             </ThemedText>
                           </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                ) : null}
+
+                {recommendations.length > 0 ? (
+                  <View style={styles.trailerSection}>
+                    <ThemedText type="subtitle" style={styles.sectionTitle}>
+                      Related
+                    </ThemedText>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.trailerScroll}
+                    >
+                      {recommendations.map((rec, index) => {
+                        const href = `/tv-movie/${rec.media_type}/${rec.id}`;
+                        return (
+                          <Link key={`${rec.id}-${index}`} href={href as any} asChild>
+                            <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
+                              <ThemedText style={styles.relatedTitle} numberOfLines={2}>
+                                {rec.title || rec.name}
+                              </ThemedText>
+                            </Pressable>
+                          </Link>
                         );
                       })}
                     </ScrollView>
@@ -656,5 +693,16 @@ const styles = StyleSheet.create({
   errorText: {
     color: '#e74c3c',
     textAlign: 'center',
+  },
+  relatedCard: {
+    width: 140,
+    padding: 12,
+    marginRight: 12,
+    borderRadius: 12,
+    justifyContent: 'center',
+  },
+  relatedTitle: {
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

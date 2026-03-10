@@ -23,6 +23,9 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { getItemUserDataKey } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { ExpandableDescription } from '@/components/ExpandableDescription';
+import { ExpandableTags } from '@/components/ExpandableTags';
+import { Link } from 'expo-router';
 
 const GOOGLE_BOOKS_BASE = 'https://www.googleapis.com/books/v1/volumes/';
 
@@ -41,6 +44,8 @@ interface GoogleBooksWork {
     description?: string;
     publishedDate?: string;
     authors?: string[];
+    pageCount?: number;
+    categories?: string[];
     imageLinks?: {
       thumbnail?: string;
       small?: string;
@@ -201,34 +206,35 @@ export default function BookDetailsScreen() {
                 </ThemedText>
 
                 {(authorNames.length > 0 || work?.volumeInfo?.publishedDate) && (
-                  <ThemedText style={[styles.subtitle, { color: colors.icon }]}>
-                    {authorNames.length > 0 ? authorNames.join(', ') : ''}
-                    {authorNames.length > 0 && work?.volumeInfo?.publishedDate ? ' | ' : ''}
-                    {work?.volumeInfo?.publishedDate ?? ''}
-                  </ThemedText>
+                  <View style={styles.metaRow}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.peopleScroll}>
+                      {authorNames.map((authorName, index) => (
+                        <Link key={index} href={`/person/google-books-author/${encodeURIComponent(authorName)}` as any} asChild>
+                          <Pressable style={styles.personLink}>
+                            <ThemedText style={styles.subtitle}>{authorName}</ThemedText>
+                          </Pressable>
+                        </Link>
+                      ))}
+                    </ScrollView>
+                    {work?.volumeInfo?.publishedDate ? (
+                      <ThemedText style={[styles.subtitle, { color: colors.icon, marginLeft: 8 }]}>
+                        | {work.volumeInfo.publishedDate}
+                      </ThemedText>
+                    ) : null}
+                    {work?.volumeInfo?.pageCount ? (
+                      <ThemedText style={[styles.subtitle, { color: colors.icon, marginLeft: 8 }]}>
+                        | {work.volumeInfo.pageCount} pages
+                      </ThemedText>
+                    ) : null}
+                  </View>
                 )}
 
+                {work?.volumeInfo?.categories?.length ? (
+                  <ExpandableTags tags={work.volumeInfo.categories.map((c, i) => ({ id: i, name: c }))} />
+                ) : null}
+
                 {description ? (
-                  <>
-                    <ThemedText type="subtitle" style={styles.sectionTitle}>
-                      Description
-                    </ThemedText>
-                    <ThemedText style={styles.synopsis}>
-                      {parseDescriptionWithLinks(description).map((segment, index) =>
-                        segment.type === 'text' ? (
-                          <ThemedText key={index}>{segment.value}</ThemedText>
-                        ) : (
-                          <ThemedText
-                            key={index}
-                            style={[styles.descriptionLink, { color: colors.tint }]}
-                            onPress={() => router.push(`/books/${bookKeyToSlug(segment.workKey)}` as any)}
-                          >
-                            {segment.title}
-                          </ThemedText>
-                        )
-                      )}
-                    </ThemedText>
-                  </>
+                  <ExpandableDescription text={description} />
                 ) : null}
               </>
             ) : itemKey ? (
@@ -328,5 +334,16 @@ const styles = StyleSheet.create({
   errorText: {
     color: '#e74c3c',
     textAlign: 'center',
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    marginBottom: 16,
+  },
+  peopleScroll: {
+    gap: 8,
+  },
+  personLink: {
   },
 });

@@ -4,42 +4,16 @@ import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react
 import { ThemedText } from '@/components/themed-text';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
-import type {
-  ListAddonId,
-  ListConfig,
-  ListEntryType,
-  ListFieldDefinition,
-  ListFieldKind,
-} from '@/data/mock-lists';
+import type { ListAddonId, ListConfig, ListFieldDefinition, ListFieldKind } from '@/data/mock-lists';
 import { createListConfig } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-
-const ADDON_OPTIONS: { id: ListAddonId; label: string; hint: string }[] = [
-  { id: 'status', label: 'Status', hint: 'Planned, active, completed, dropped' },
-  { id: 'progress', label: 'Progress', hint: 'Track numbers like 3/12 or 45%' },
-  { id: 'rating', label: 'Rating', hint: 'Score items directly in the list' },
-  { id: 'tags', label: 'Tags', hint: 'Flexible labels for filtering and grouping later' },
-  { id: 'notes', label: 'Notes', hint: 'Per-item notes and context' },
-  { id: 'reminders', label: 'Reminders', hint: 'Schedule local reminders on entries' },
-  { id: 'cover', label: 'Custom Cover', hint: 'Attach your own image to entries' },
-  { id: 'links', label: 'Links', hint: 'Useful for sources, stores, and references' },
-  { id: 'custom-fields', label: 'Custom Fields', hint: 'Define your own metadata fields' },
-  { id: 'sublists', label: 'Sublists', hint: 'Nest lists inside other lists' },
-  { id: 'compare', label: 'Compare View', hint: 'Compare custom fields side by side' },
-  { id: 'tier', label: 'Tier View', hint: 'Treat sublists as ordered tiers' },
-];
-
-const ENTRY_TYPE_OPTIONS: Exclude<ListEntryType, 'game' | 'list'>[] = [
-  'custom',
-  'book',
-  'anime',
-  'manga',
-  'movie',
-  'tv',
-  'link',
-];
-
-const FIELD_KIND_OPTIONS: ListFieldKind[] = ['text', 'number', 'url'];
+import {
+  getListEntryTypeLabel,
+  getListFieldKindLabel,
+  LIST_ADDON_OPTIONS,
+  LIST_ENTRY_TYPE_OPTIONS,
+  LIST_FIELD_KIND_OPTIONS,
+} from '@/lib/list-config-options';
 
 interface ListConfigurationEditorProps {
   config: ListConfig;
@@ -123,7 +97,7 @@ export function ListConfigurationEditor({
             },
           ]}
         >
-          <ThemedText>{config.defaultEntryType}</ThemedText>
+          <ThemedText>{getListEntryTypeLabel(config.defaultEntryType)}</ThemedText>
           <IconSymbol name="chevron.down" size={18} color={colors.icon} />
         </Pressable>
       </View>
@@ -131,7 +105,7 @@ export function ListConfigurationEditor({
       <View style={styles.section}>
         <ThemedText type="defaultSemiBold">Add-ons</ThemedText>
         <View style={styles.addonList}>
-          {ADDON_OPTIONS.map((addon) => {
+          {LIST_ADDON_OPTIONS.map((addon) => {
             const enabled = config.addons.includes(addon.id);
             return (
               <Pressable
@@ -148,7 +122,7 @@ export function ListConfigurationEditor({
                 <View style={styles.addonText}>
                   <ThemedText>{addon.label}</ThemedText>
                   <ThemedText style={[styles.addonHint, { color: colors.icon }]}>
-                    {addon.hint}
+                    {addon.description}
                   </ThemedText>
                 </View>
                 <View
@@ -215,7 +189,7 @@ export function ListConfigurationEditor({
                       },
                     ]}
                   >
-                    <ThemedText>{field.kind}</ThemedText>
+                    <ThemedText>{getListFieldKindLabel(field.kind)}</ThemedText>
                     <IconSymbol name="chevron.down" size={16} color={colors.icon} />
                   </Pressable>
                   <Pressable
@@ -238,7 +212,10 @@ export function ListConfigurationEditor({
       <SelectionMenu
         visible={menuVisible === 'entry-type'}
         title="Default item type"
-        options={ENTRY_TYPE_OPTIONS.map((value) => ({ value, label: value }))}
+        options={LIST_ENTRY_TYPE_OPTIONS.map((option) => ({
+          value: option.value,
+          label: option.label,
+        }))}
         selectedValue={config.defaultEntryType}
         onClose={() => setMenuVisible(null)}
         onSelect={(value) => {
@@ -255,7 +232,10 @@ export function ListConfigurationEditor({
           key={field.id}
           visible={menuVisible === `field-kind:${field.id}`}
           title={`Field type: ${field.label || 'Untitled field'}`}
-          options={FIELD_KIND_OPTIONS.map((value) => ({ value, label: value }))}
+          options={LIST_FIELD_KIND_OPTIONS.map((option) => ({
+            value: option.value,
+            label: option.label,
+          }))}
           selectedValue={field.kind}
           onClose={() => setMenuVisible(null)}
           onSelect={(value) => {

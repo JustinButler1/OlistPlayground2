@@ -24,6 +24,9 @@ import { Colors } from '@/constants/theme';
 import { getItemUserDataKey } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { normalizeRating } from '@/lib/tracker-metadata';
+import { ExpandableDescription } from '@/components/ExpandableDescription';
+import { ExpandableTags } from '@/components/ExpandableTags';
+import { Link } from 'expo-router';
 
 const JIKAN_API = 'https://api.jikan.moe/v4';
 
@@ -45,6 +48,9 @@ interface AnimeDetails {
     };
   };
   genres?: { mal_id: number; name: string }[];
+  studios?: { mal_id: number; name: string; type: string }[];
+  producers?: { mal_id: number; name: string; type: string }[];
+  relations?: { relation: string; entry: { mal_id: number; type: string; name: string }[] }[];
 }
 
 async function fetchAnimeDetails(id: string): Promise<AnimeDetails> {
@@ -138,22 +144,43 @@ export default function AnimeDetailsScreen() {
                     <RatingStars value={communityRating} showValue />
                   </View>
                 ) : null}
-                {anime.genres?.length ? (
-                  <View style={styles.genreRow}>
-                    {anime.genres.map((genre) => (
-                      <View
-                        key={genre.mal_id}
-                        style={[styles.genreChip, { backgroundColor: colors.tint + '14' }]}
-                      >
-                        <ThemedText style={{ color: colors.tint }}>{genre.name}</ThemedText>
-                      </View>
-                    ))}
+                {anime.producers?.length ? (
+                  <View style={styles.sectionRow}>
+                    <ThemedText style={styles.sectionLabel}>Producers:</ThemedText>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.peopleScroll}>
+                      {anime.producers.map((producer) => (
+                        <Link key={producer.mal_id} href={`/person/jikan-producer/${producer.mal_id}` as any} asChild>
+                          <Pressable style={styles.personLink}>
+                            <ThemedText style={styles.personText}>{producer.name}</ThemedText>
+                          </Pressable>
+                        </Link>
+                      ))}
+                    </ScrollView>
                   </View>
                 ) : null}
+                {anime.genres?.length ? (
+                  <ExpandableTags tags={anime.genres.map(g => ({ id: g.mal_id, name: g.name }))} />
+                ) : null}
                 {anime.synopsis ? (
+                  <ExpandableDescription text={anime.synopsis} />
+                ) : null}
+                {anime.relations?.length ? (
                   <View style={styles.section}>
-                    <ThemedText type="subtitle">Synopsis</ThemedText>
-                    <ThemedText>{anime.synopsis}</ThemedText>
+                    <ThemedText type="subtitle">Related</ThemedText>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.relatedScroll}>
+                      {anime.relations.flatMap(r => r.entry.map(e => ({ ...e, relation: r.relation }))).map((related, index) => {
+                        const href = related.type === 'anime' ? `/anime/${related.mal_id}` : related.type === 'manga' ? `/manga/${related.mal_id}` : null;
+                        if (!href) return null;
+                        return (
+                          <Link key={`${related.type}-${related.mal_id}-${index}`} href={href as any} asChild>
+                            <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
+                              <ThemedText style={styles.relatedType} numberOfLines={1}>{related.relation}</ThemedText>
+                              <ThemedText style={styles.relatedTitle} numberOfLines={2}>{related.name}</ThemedText>
+                            </Pressable>
+                          </Link>
+                        );
+                      })}
+                    </ScrollView>
                   </View>
                 ) : null}
               </>
@@ -227,5 +254,46 @@ const styles = StyleSheet.create({
   fullImage: {
     width: '100%',
     height: '100%',
+  },
+  sectionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  sectionLabel: {
+    fontWeight: '600',
+    marginRight: 8,
+    color: '#888',
+  },
+  peopleScroll: {
+    gap: 8,
+  },
+  personLink: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: 'rgba(128,128,128,0.1)',
+  },
+  personText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  relatedScroll: {
+    gap: 12,
+  },
+  relatedCard: {
+    width: 140,
+    padding: 12,
+    borderRadius: 12,
+  },
+  relatedType: {
+    fontSize: 12,
+    fontWeight: '700',
+    opacity: 0.7,
+    marginBottom: 4,
+  },
+  relatedTitle: {
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
