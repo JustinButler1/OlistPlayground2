@@ -2,6 +2,10 @@ import { startTransition, useDeferredValue, useEffect, useMemo, useState } from 
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import {
+  CATALOG_SEARCH_RESULT_ROW_GAP,
+  CatalogSearchResultRow,
+} from '@/components/tracker/catalog-search-result-row';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import {
@@ -10,10 +14,6 @@ import {
   type CatalogCategory,
   type CatalogSearchItem,
 } from '@/services/catalog';
-import {
-  CatalogSearchResultRow,
-  CATALOG_SEARCH_RESULT_ROW_GAP,
-} from '@/components/tracker/catalog-search-result-row';
 
 interface CatalogSearchPanelProps {
   onSelectItem: (item: CatalogSearchItem) => void;
@@ -97,7 +97,7 @@ export function CatalogSearchPanel({
 
   const emptyLabel = useMemo(() => {
     if (!query.trim()) {
-      return 'Search anime, manga, books, TV, or movies.';
+      return 'Search lists, media or people.';
     }
     if (isLoading) {
       return 'Searching...';

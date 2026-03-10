@@ -25,11 +25,6 @@ export default function TabLayout() {
         <NativeTabs.Trigger.Label>My Lists</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="search" role="search">
-        <NativeTabs.Trigger.Icon sf="magnifyingglass" md="search" />
-        <NativeTabs.Trigger.Label>Search</NativeTabs.Trigger.Label>
-      </NativeTabs.Trigger>
-
       <NativeTabs.Trigger name="explore">
         <NativeTabs.Trigger.Icon
           sf={{ default: 'paperplane', selected: 'paperplane.fill' }}
@@ -44,6 +39,11 @@ export default function TabLayout() {
           md="person"
         />
         <NativeTabs.Trigger.Label>Profile</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+
+      <NativeTabs.Trigger name="search" role="search">
+        <NativeTabs.Trigger.Icon sf="magnifyingglass" md="search" />
+        <NativeTabs.Trigger.Label>Search</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );
