@@ -1,10 +1,33 @@
-import { Form, Host, Picker, Section, Text, TextField, Toggle } from '@expo/ui/swift-ui';
-import { pickerStyle, tag, textFieldStyle } from '@expo/ui/swift-ui/modifiers';
+import {
+  Button,
+  Form,
+  Host,
+  HStack,
+  Menu,
+  Picker,
+  Section,
+  Spacer,
+  Text,
+  TextField,
+  Toggle,
+} from '@expo/ui/swift-ui';
+import {
+  controlSize,
+  buttonStyle,
+  disabled as disabledModifier,
+  labelStyle,
+  labelsHidden,
+  pickerStyle,
+  tag,
+  textFieldStyle,
+} from '@expo/ui/swift-ui/modifiers';
+import { Fragment } from 'react';
 
 import type { NewListFormController } from '@/components/tracker/use-new-list-form';
 import {
   LIST_ADDON_OPTIONS,
   LIST_ENTRY_TYPE_OPTIONS,
+  LIST_FIELD_KIND_OPTIONS,
 } from '@/lib/list-config-options';
 
 const EMPTY_TEMPLATE_VALUE = '__empty-template__';
@@ -91,20 +114,67 @@ export function NewListFormScreen({ form }: NewListFormScreenProps) {
 
         <Section title="Add-ons">
           {LIST_ADDON_OPTIONS.map((addon) => (
-            <Toggle
-              key={addon.id}
-              isOn={form.draftConfig.addons.includes(addon.id)}
-              onIsOnChange={() => form.toggleAddon(addon.id)}
-              label={addon.label}
-            />
+            <HStack key={addon.id} spacing={12}>
+              <Menu
+                label="Info"
+                systemImage="info.circle"
+                modifiers={[controlSize('small'), labelStyle('iconOnly')]}
+              >
+                <Button label={addon.description} modifiers={[disabledModifier(true)]} />
+              </Menu>
+              <Text>{addon.label}</Text>
+              <Spacer />
+              <Toggle
+                isOn={form.draftConfig.addons.includes(addon.id)}
+                onIsOnChange={() => form.toggleAddon(addon.id)}
+                label=""
+                modifiers={[labelsHidden()]}
+              />
+            </HStack>
           ))}
         </Section>
 
         <Section title="Custom fields">
-          <Text>
-            Temporarily using the fallback implementation for custom field editing while isolating
-            the native crash.
-          </Text>
+          <Button label="Add field" onPress={form.addField} modifiers={[buttonStyle('plain')]} />
+          {form.draftConfig.fieldDefinitions.length ? (
+            <>
+              {form.draftConfig.fieldDefinitions.map((field) => (
+                <Fragment key={field.id}>
+                  <TextField
+                    key={`field-${field.id}-${form.formRevision}`}
+                    defaultValue={field.label}
+                    onChangeText={(value) => form.updateField(field.id, { label: value })}
+                    placeholder="Field label"
+                    modifiers={[textFieldStyle('roundedBorder')]}
+                  />
+                  <Picker
+                    key={`field-kind-${field.id}`}
+                    label="Field kind"
+                    selection={field.kind}
+                    onSelectionChange={(value) =>
+                      form.updateFieldKind(field.id, value as typeof field.kind)
+                    }
+                    modifiers={[pickerStyle('menu')]}
+                  >
+                    {LIST_FIELD_KIND_OPTIONS.map((option) => (
+                      <Text key={option.value} modifiers={[tag(option.value)]}>
+                        {option.label}
+                      </Text>
+                    ))}
+                  </Picker>
+                  <Button
+                    key={`field-remove-${field.id}`}
+                    label="Remove field"
+                    role="destructive"
+                    onPress={() => form.removeField(field.id)}
+                    modifiers={[buttonStyle('plain')]}
+                  />
+                </Fragment>
+              ))}
+            </>
+          ) : (
+            <Text>Add structured fields for setups like projects, books, or recipes.</Text>
+          )}
         </Section>
 
         <Section title="Template">
