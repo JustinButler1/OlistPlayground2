@@ -1,6 +1,7 @@
 import { Stack } from 'expo-router';
 import { Pressable } from 'react-native';
 
+import { NewListFormScreen as IOSNewListFormScreen } from '@/components/tracker/new-list-form-screen.ios';
 import { NewListFormScreen as NewListFormFallbackScreen } from '@/components/tracker/new-list-form-screen.web';
 import { useNewListForm } from '@/components/tracker/use-new-list-form';
 import { ThemedText } from '@/components/themed-text';
@@ -11,6 +12,8 @@ export default function NewListRoute() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const form = useNewListForm();
+  const ScreenComponent =
+    process.env.EXPO_OS === 'ios' ? IOSNewListFormScreen : NewListFormFallbackScreen;
 
   return (
     <>
@@ -48,7 +51,7 @@ export default function NewListRoute() {
           ),
         }}
       />
-      <NewListFormFallbackScreen form={form} />
+      <ScreenComponent form={form} />
     </>
   );
 }
