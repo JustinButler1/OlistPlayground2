@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { Colors } from '@/constants/theme';
+import { Colors, ThemePalette } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export default function ContentFilterInfoSheet() {
@@ -88,7 +88,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   badgeText: {
-    color: '#04111f',
+    color: ThemePalette.white,
     fontSize: 20,
     fontWeight: '700',
   },
@@ -116,7 +116,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   closeButtonText: {
-    color: '#04111f',
+    color: ThemePalette.white,
     fontSize: 16,
     fontWeight: '700',
   },

@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { Colors } from '@/constants/theme';
+import { Colors, ThemePalette } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 const FILTER_SECTIONS = [
@@ -185,7 +185,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   primaryButtonText: {
-    color: '#04111f',
+    color: ThemePalette.white,
     fontSize: 16,
     fontWeight: '700',
   },

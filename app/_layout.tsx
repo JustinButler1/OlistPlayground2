@@ -13,11 +13,11 @@ const LightTheme = {
   ...DefaultTheme,
   colors: {
     ...DefaultTheme.colors,
-    primary: ThemePalette.nebulaBlue,
-    background: ThemePalette.starlightWhite,
-    card: ThemePalette.starlightWhite,
-    text: ThemePalette.deepSpaceBlack,
-    border: ThemePalette.cosmicPurple,
+    primary: ThemePalette.primaryBrand,
+    background: ThemePalette.paper,
+    card: ThemePalette.paper,
+    text: ThemePalette.ink,
+    border: ThemePalette.secondaryAccent,
   },
 };
 
@@ -25,11 +25,11 @@ const DarkThemeCustom = {
   ...DarkTheme,
   colors: {
     ...DarkTheme.colors,
-    primary: ThemePalette.stellarTeal,
-    background: ThemePalette.deepSpaceBlack,
-    card: ThemePalette.deepSpaceBlack,
-    text: ThemePalette.starlightWhite,
-    border: ThemePalette.cosmicPurple,
+    primary: ThemePalette.primaryAccent,
+    background: ThemePalette.baseBackground,
+    card: ThemePalette.baseBackground,
+    text: ThemePalette.white,
+    border: ThemePalette.secondaryBrand,
   },
 };
 

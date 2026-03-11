@@ -1,16 +1,12 @@
 import { Stack } from 'expo-router';
 import { ScrollView, StyleSheet } from 'react-native';
 
+import { TabRootBackground } from '@/components/tab-root-background';
 import { ThemedText } from '@/components/themed-text';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export default function ExploreScreen() {
-  const colorScheme = useColorScheme();
-  const colors = Colors[colorScheme ?? 'light'];
-
   return (
-    <>
+    <TabRootBackground>
       <Stack.Screen
         options={{
           headerShown: true,
@@ -21,19 +17,20 @@ export default function ExploreScreen() {
       />
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
-        style={[styles.container, { backgroundColor: colors.background }]}
+        style={styles.container}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
         <ThemedText style={styles.placeholder}>Explore content goes here.</ThemedText>
       </ScrollView>
-    </>
+    </TabRootBackground>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: 'transparent',
   },
   content: {
     alignItems: 'center',

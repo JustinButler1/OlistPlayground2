@@ -35,7 +35,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { getEffectiveEntryRating } from '@/lib/tracker-metadata';
 import { formatProgressLabel, sortEntries } from '@/lib/tracker-selectors';
 
-const TIER_COLORS = ['#E8A598', '#FFCC80', '#FFF59D', '#AED581', '#81C784', '#4DD0E1', '#64B5F6'];
+const TIER_COLORS = ['#2A1B60', '#3A227A', '#4E2899', '#5F34B0', '#1A5E85', '#139EC1', '#68C7DB'];
 const COMPOSER_TOOLBAR_HEIGHT = 76;
 const COMPOSER_TOOLBAR_OFFSET = 20;
 
@@ -49,7 +49,10 @@ export default function ListDetailScreen() {
   const listRef = useRef<FlatList<ListEntry>>(null);
   const composerInputRef = useRef<TextInput>(null);
   const headerSearchBarRef = useRef<HeaderSearchBarRef>(null);
-  const composerAccessoryId = 'list-entry-composer-action-bar';
+  const composerAccessoryId = useMemo(
+    () => `list-entry-composer-action-bar-${String(id ?? 'unknown').replace(/[^A-Za-z0-9_-]/g, '-')}`,
+    [id]
+  );
   const { activeLists, itemUserDataByKey } = useListsQuery();
   const {
     createList,
@@ -83,9 +86,18 @@ export default function ListDetailScreen() {
   const [tagSheetVisible, setTagSheetVisible] = useState(false);
   const [linkSheetVisible, setLinkSheetVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [composerAccessoryVisible, setComposerAccessoryVisible] = useState(false);
+  const [composerInputMounted, setComposerInputMounted] = useState(false);
+  const [composerFocusPending, setComposerFocusPending] = useState(false);
+
+  const setComposerInputNode = useCallback((node: TextInput | null) => {
+    composerInputRef.current = node;
+    setComposerInputMounted(!!node);
+  }, []);
 
   const collapseComposer = useCallback(() => {
     setComposerVisible(false);
+    setComposerFocusPending(false);
     setComposerText('');
     setPendingTagsText('');
     setPendingLinkUrl('');
@@ -106,7 +118,7 @@ export default function ListDetailScreen() {
     });
     const hideSubscription = Keyboard.addListener(hideEvent, () => {
       setKeyboardHeight(0);
-      if (!searchVisible && !tagSheetVisible && !linkSheetVisible) {
+      if (process.env.EXPO_OS !== 'ios' && !searchVisible && !tagSheetVisible && !linkSheetVisible) {
         collapseComposer();
       }
     });
@@ -117,16 +129,12 @@ export default function ListDetailScreen() {
     };
   }, [collapseComposer, linkSheetVisible, searchVisible, tagSheetVisible]);
 
-  function queueComposerFocus() {
-    setTimeout(() => composerInputRef.current?.focus(), 60);
-  }
-
   const openComposer = useCallback(() => {
     if (preferences.viewMode !== 'list') {
       setListPreferences({ viewMode: 'list' });
     }
     setComposerVisible(true);
-    queueComposerFocus();
+    setComposerFocusPending(true);
   }, [preferences.viewMode, setListPreferences]);
 
   const openListSearch = useCallback(() => {
@@ -173,7 +181,6 @@ export default function ListDetailScreen() {
 
     const timeout = setTimeout(() => {
       listRef.current?.scrollToEnd({ animated: true });
-      composerInputRef.current?.focus();
     }, 80);
 
     return () => clearTimeout(timeout);
@@ -190,6 +197,44 @@ export default function ListDetailScreen() {
 
     return () => clearTimeout(timeout);
   }, [composerVisible, keyboardHeight, preferences.viewMode]);
+
+  useEffect(() => {
+    if (!isIos || !composerVisible || preferences.viewMode !== 'list' || !composerInputMounted) {
+      setComposerAccessoryVisible(false);
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      setComposerAccessoryVisible(true);
+    }, 0);
+
+    return () => clearTimeout(timeout);
+  }, [composerInputMounted, composerVisible, isIos, preferences.viewMode]);
+
+  useEffect(() => {
+    if (!composerFocusPending || !composerVisible || preferences.viewMode !== 'list' || !composerInputMounted) {
+      return;
+    }
+
+    if (isIos && !composerAccessoryVisible) {
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      listRef.current?.scrollToEnd({ animated: true });
+      composerInputRef.current?.focus();
+      setComposerFocusPending(false);
+    }, 40);
+
+    return () => clearTimeout(timeout);
+  }, [
+    composerAccessoryVisible,
+    composerFocusPending,
+    composerInputMounted,
+    composerVisible,
+    isIos,
+    preferences.viewMode,
+  ]);
 
   const tierRows = useMemo(
     () =>
@@ -233,7 +278,7 @@ export default function ListDetailScreen() {
     setComposerVisible(true);
     setComposerText('');
     clearPendingComposerMetadata();
-    queueComposerFocus();
+    setComposerFocusPending(true);
   }
 
   function buildPendingTags() {
@@ -764,7 +809,7 @@ export default function ListDetailScreen() {
                     ]}
                   >
                     <TextInput
-                      ref={composerInputRef}
+                      ref={setComposerInputNode}
                       style={[styles.composerInput, { color: colors.text }]}
                       placeholder="Add an item"
                       placeholderTextColor={colors.icon}
@@ -784,7 +829,7 @@ export default function ListDetailScreen() {
 
         <ComposerActionBar
           accessoryId={composerAccessoryId}
-          visible={composerVisible}
+          visible={composerAccessoryVisible}
           colors={colors}
           bottom={actionBarBottom}
           onLinkPress={() => setLinkSheetVisible(true)}

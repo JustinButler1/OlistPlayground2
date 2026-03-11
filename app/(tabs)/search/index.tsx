@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { TabRootBackground } from '@/components/tab-root-background';
 import { ThemedText } from '@/components/themed-text';
 import {
   CATALOG_SEARCH_RESULT_ROW_GAP,
@@ -21,7 +22,7 @@ import {
 } from '@/components/tracker/catalog-search-result-row';
 import { SearchControlRow } from '@/components/tracker/search-control-row';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors } from '@/constants/theme';
+import { Colors, ThemePalette } from '@/constants/theme';
 import { useEntryActions, useListsQuery } from '@/contexts/lists-context';
 import type { TrackerList } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -458,7 +459,7 @@ export default function SearchScreen() {
   }
 
   return (
-    <>
+    <TabRootBackground>
       <Stack.Screen
         options={{
           title: 'Search',
@@ -738,7 +739,7 @@ export default function SearchScreen() {
           </Pressable>
         </Pressable>
       </Modal>
-    </>
+    </TabRootBackground>
   );
 }
 
@@ -802,6 +803,7 @@ function SelectionMenu({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: 'transparent',
   },
   content: {
     paddingHorizontal: 20,
@@ -835,7 +837,7 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   warningBadgeText: {
-    color: '#04111f',
+    color: ThemePalette.white,
     fontSize: 17,
     fontWeight: '700',
   },

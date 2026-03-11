@@ -2,6 +2,8 @@ import { ContextMenu, ListItem, Picker } from '@expo/ui/jetpack-compose';
 import { ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { Colors } from '@/constants/theme';
+import { useColorScheme } from '@/hooks/use-color-scheme';
 import type { NewListFormController } from '@/components/tracker/use-new-list-form';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import {
@@ -22,6 +24,9 @@ export function NewListFormScreen({
   openAutomation,
   openCustomFields,
 }: NewListFormScreenProps) {
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme ?? 'light'];
+
   return (
     <ScrollView
       style={styles.container}
@@ -35,7 +40,11 @@ export function NewListFormScreen({
         <TextInput
           autoFocus
           placeholder="Title"
-          style={styles.textInput}
+          placeholderTextColor={colors.icon}
+          style={[
+            styles.textInput,
+            { borderColor: colors.icon + '40', color: colors.text, backgroundColor: colors.background },
+          ]}
           value={form.title}
           onChangeText={form.setTitle}
         />
@@ -44,7 +53,12 @@ export function NewListFormScreen({
           multiline
           numberOfLines={3}
           placeholder="Description (optional)"
-          style={[styles.textInput, styles.multilineInput]}
+          placeholderTextColor={colors.icon}
+          style={[
+            styles.textInput,
+            styles.multilineInput,
+            { borderColor: colors.icon + '40', color: colors.text, backgroundColor: colors.background },
+          ]}
           value={form.description}
           onChangeText={form.setDescription}
         />
@@ -98,14 +112,14 @@ export function NewListFormScreen({
 
       <View style={styles.section}>
         <ThemedText type="defaultSemiBold">Customization</ThemedText>
-        <View style={styles.listSurface}>
+        <View style={[styles.listSurface, { borderColor: colors.icon + '24', backgroundColor: colors.background }]}>
           <ListItem headline="Add-ons" onPress={openAddons}>
             <ListItem.Trailing>
               <View style={styles.trailingCluster}>
                 <ThemedText style={styles.trailingCount}>
                   {String(form.draftConfig.addons.length)}
                 </ThemedText>
-                <IconSymbol name="chevron.right" size={18} color="#8A8F98" />
+                <IconSymbol name="chevron.right" size={18} color={colors.icon} />
               </View>
             </ListItem.Trailing>
           </ListItem>
@@ -115,7 +129,7 @@ export function NewListFormScreen({
                 <ThemedText style={styles.trailingCount}>
                   {String(form.draftConfig.automationBlocks.length)}
                 </ThemedText>
-                <IconSymbol name="chevron.right" size={18} color="#8A8F98" />
+                <IconSymbol name="chevron.right" size={18} color={colors.icon} />
               </View>
             </ListItem.Trailing>
           </ListItem>
@@ -125,7 +139,7 @@ export function NewListFormScreen({
                 <ThemedText style={styles.trailingCount}>
                   {String(form.draftConfig.fieldDefinitions.length)}
                 </ThemedText>
-                <IconSymbol name="chevron.right" size={18} color="#8A8F98" />
+                <IconSymbol name="chevron.right" size={18} color={colors.icon} />
               </View>
             </ListItem.Trailing>
           </ListItem>
@@ -134,7 +148,7 @@ export function NewListFormScreen({
 
       <View style={styles.section}>
         <ThemedText type="defaultSemiBold">Template</ThemedText>
-        <View style={styles.listSurface}>
+        <View style={[styles.listSurface, { borderColor: colors.icon + '24', backgroundColor: colors.background }]}>
           <ListItem headline="Save setup as template">
             <ListItem.Trailing>
               <Switch value={form.saveAsTemplate} onValueChange={form.setSaveAsTemplate} />
@@ -146,14 +160,23 @@ export function NewListFormScreen({
           <View style={styles.templateFields}>
             <FieldLabel>Template title</FieldLabel>
             <TextInput
-              style={styles.textInput}
+              placeholderTextColor={colors.icon}
+              style={[
+                styles.textInput,
+                { borderColor: colors.icon + '40', color: colors.text, backgroundColor: colors.background },
+              ]}
               value={form.templateTitle}
               onChangeText={form.setTemplateTitle}
               placeholder="Template title"
             />
             <FieldLabel>Template description</FieldLabel>
             <TextInput
-              style={[styles.textInput, styles.multilineInput]}
+              placeholderTextColor={colors.icon}
+              style={[
+                styles.textInput,
+                styles.multilineInput,
+                { borderColor: colors.icon + '40', color: colors.text, backgroundColor: colors.background },
+              ]}
               multiline
               numberOfLines={2}
               value={form.templateDescription}
@@ -182,10 +205,13 @@ function SelectionRow({
   options: { label: string; onSelect: () => void }[];
   selectedIndex?: number | null;
 }) {
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme ?? 'light'];
+
   return (
     <ContextMenu>
       <ContextMenu.Trigger>
-        <View style={styles.listSurface}>
+        <View style={[styles.listSurface, { borderColor: colors.icon + '24', backgroundColor: colors.background }]}>
           <ListItem headline={title} supportingText={value}>
             <ListItem.Trailing>
               <ThemedText style={styles.selectionAction}>Choose</ThemedText>
@@ -227,7 +253,6 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   textInput: {
-    borderColor: '#C7CBD1',
     borderRadius: 12,
     borderWidth: 1,
     fontSize: 16,
@@ -239,7 +264,6 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   listSurface: {
-    borderColor: '#E0E3E8',
     borderRadius: 16,
     borderWidth: 1,
     overflow: 'hidden',
@@ -256,7 +280,6 @@ const styles = StyleSheet.create({
     opacity: 0.65,
   },
   fieldCard: {
-    borderColor: '#E0E3E8',
     borderRadius: 16,
     borderWidth: 1,
     gap: 10,

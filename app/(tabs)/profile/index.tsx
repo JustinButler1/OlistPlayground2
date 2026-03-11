@@ -1,6 +1,7 @@
 import { Stack, useRouter } from 'expo-router';
 import { Alert, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
+import { TabRootBackground } from '@/components/tab-root-background';
 import { ThemedText } from '@/components/themed-text';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
@@ -38,7 +39,7 @@ export default function ProfileScreen() {
   };
 
   return (
-    <>
+    <TabRootBackground>
       <Stack.Screen
         options={{
           headerShown: true,
@@ -49,7 +50,7 @@ export default function ProfileScreen() {
       />
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
-        style={[styles.container, { backgroundColor: colors.background }]}
+        style={styles.container}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
@@ -115,13 +116,14 @@ export default function ProfileScreen() {
           </Pressable>
         </View>
       </ScrollView>
-    </>
+    </TabRootBackground>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: 'transparent',
   },
   content: {
     gap: 16,

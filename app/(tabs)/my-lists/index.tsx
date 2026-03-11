@@ -5,6 +5,7 @@ import { Alert, Animated, FlatList, Modal, Platform, Pressable, StyleSheet, View
 import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { TabRootBackground } from '@/components/tab-root-background';
 import { ThemedText } from '@/components/themed-text';
 import { FilterSortControlRow } from '@/components/tracker/filter-sort-control-row';
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -117,7 +118,7 @@ export default function MyListsScreen() {
     filterMode === 'all' ? 'All Lists' : filterMode === 'progress' ? 'Progress' : 'Sublists';
 
   return (
-    <>
+    <TabRootBackground>
       <Stack.Screen
         options={{
           headerRight: () => (
@@ -134,7 +135,7 @@ export default function MyListsScreen() {
       />
       <FlatList
         contentInsetAdjustmentBehavior="automatic"
-        style={[styles.container, { backgroundColor: colors.background }]}
+        style={styles.container}
         data={items}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => {
@@ -249,7 +250,7 @@ export default function MyListsScreen() {
           />
         </>
       ) : null}
-    </>
+    </TabRootBackground>
   );
 }
 
@@ -313,6 +314,7 @@ function SelectionMenu({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: 'transparent',
   },
   headerButton: {
     justifyContent: 'center',
