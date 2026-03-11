@@ -1,3 +1,4 @@
+import { BlurView } from 'expo-blur';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import {
   FlatList,
@@ -9,6 +10,14 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
+import Animated, {
+  Extrapolation,
+  interpolate,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+  type SharedValue,
+} from 'react-native-reanimated';
 
 import {
   Pagination,
@@ -19,7 +28,12 @@ export interface VerticalPaginationCarouselProps<ItemT> {
   data: readonly ItemT[];
   activeIndex: number;
   onActiveIndexChange: (index: number) => void;
-  renderItem: (info: { item: ItemT; index: number; pageHeight: number }) => ReactElement;
+  renderItem: (info: {
+    item: ItemT;
+    index: number;
+    pageHeight: number;
+    blurOverlay: ReactElement;
+  }) => ReactElement;
   keyExtractor?: (item: ItemT, index: number) => string;
   scrollEnabled?: boolean;
   pageSpacing?: number;
@@ -27,7 +41,86 @@ export interface VerticalPaginationCarouselProps<ItemT> {
   pageStyle?: StyleProp<ViewStyle>;
   style?: StyleProp<ViewStyle>;
   paginationStyle?: StyleProp<ViewStyle>;
+  cardBlurIntensity?: number;
   paginationProps?: Omit<PaginationProps, 'activeIndex' | 'totalItems' | 'onIndexChange'>;
+}
+
+const AnimatedBlurView = Animated.createAnimatedComponent(BlurView);
+
+function CarouselPage<ItemT>({
+  index,
+  item,
+  itemHeight,
+  pageSize,
+  pageSpacing,
+  pageStyle,
+  renderItem,
+  scrollOffset,
+  cardBlurIntensity,
+  isLast,
+}: {
+  index: number;
+  item: ItemT;
+  itemHeight: number;
+  pageSize: number;
+  pageSpacing: number;
+  pageStyle?: StyleProp<ViewStyle>;
+  renderItem: (info: {
+    item: ItemT;
+    index: number;
+    pageHeight: number;
+    blurOverlay: ReactElement;
+  }) => ReactElement;
+  scrollOffset: SharedValue<number>;
+  cardBlurIntensity: number;
+  isLast: boolean;
+}) {
+  const blurStyle = useAnimatedStyle(() => {
+    const pagePosition = pageSize > 0 ? scrollOffset.value / pageSize : 0;
+    const blurOpacity = interpolate(
+      Math.abs(pagePosition - index),
+      [0, 0.18, 0.75],
+      [0, 0.18, 0.72],
+      Extrapolation.CLAMP
+    );
+
+    return {
+      opacity: blurOpacity,
+    };
+  });
+
+  const blurOverlay = (
+    <AnimatedBlurView
+      intensity={cardBlurIntensity}
+      pointerEvents="none"
+      style={[StyleSheet.absoluteFillObject, blurStyle]}
+      tint="default"
+    />
+  );
+
+  return (
+    <View
+      style={[
+        styles.pageOuter,
+        {
+          height: pageSize,
+        },
+      ]}
+    >
+      <View
+        style={[
+          styles.page,
+          {
+            height: itemHeight,
+            marginBottom: isLast ? 0 : pageSpacing,
+          },
+          pageStyle,
+        ]}
+      >
+        {renderItem({ item, index, pageHeight: itemHeight, blurOverlay })}
+      </View>
+    </View>
+  );
 }
 
 export function VerticalPaginationCarousel<ItemT>({
@@ -42,10 +135,12 @@ export function VerticalPaginationCarousel<ItemT>({
   pageStyle,
   style,
   paginationStyle,
+  cardBlurIntensity = 88,
   paginationProps,
 }: VerticalPaginationCarouselProps<ItemT>) {
   const listRef = useRef<FlatList<ItemT>>(null);
   const [viewportHeight, setViewportHeight] = useState(0);
+  const scrollOffset = useSharedValue(0);
   const clampedIndex = Math.min(Math.max(activeIndex, 0), Math.max(data.length - 1, 0));
   const itemHeight = Math.max(viewportHeight - itemVerticalInset * 2, 0);
   const pageSize = itemHeight + pageSpacing;
@@ -80,6 +175,12 @@ export function VerticalPaginationCarousel<ItemT>({
     }
   };
 
+  const handleScroll = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      scrollOffset.value = event.contentOffset.y;
+    },
+  });
+
   return (
     <View style={[styles.root, style]}>
       <Pagination
@@ -91,32 +192,23 @@ export function VerticalPaginationCarousel<ItemT>({
       />
       <View onLayout={handleLayout} style={styles.viewport}>
         {viewportHeight > 0 && itemHeight > 0 ? (
-          <FlatList
+          <Animated.FlatList
             ref={listRef}
             data={data}
             keyExtractor={(item, index) => keyExtractor?.(item, index) ?? `page-${index}`}
             renderItem={({ item, index }) => (
-              <View
-                style={[
-                  styles.pageOuter,
-                  {
-                    height: pageSize,
-                  },
-                ]}
-              >
-                <View
-                  style={[
-                    styles.page,
-                    {
-                      height: itemHeight,
-                      marginBottom: index === data.length - 1 ? 0 : pageSpacing,
-                    },
-                    pageStyle,
-                  ]}
-                >
-                  {renderItem({ item, index, pageHeight: itemHeight })}
-                </View>
-              </View>
+              <CarouselPage
+                cardBlurIntensity={cardBlurIntensity}
+                index={index}
+                isLast={index === data.length - 1}
+                item={item}
+                itemHeight={itemHeight}
+                pageSize={pageSize}
+                pageSpacing={pageSpacing}
+                pageStyle={pageStyle}
+                renderItem={renderItem}
+                scrollOffset={scrollOffset}
+              />
             )}
             snapToInterval={pageSize}
             decelerationRate="fast"
@@ -125,7 +217,9 @@ export function VerticalPaginationCarousel<ItemT>({
             scrollEnabled={scrollEnabled}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
+            onScroll={handleScroll}
             onMomentumScrollEnd={handleMomentumScrollEnd}
+            scrollEventThrottle={16}
             contentContainerStyle={{
               paddingVertical: Math.max((viewportHeight - itemHeight - pageSpacing) / 2, 0),
             }}
@@ -168,5 +262,6 @@ const styles = StyleSheet.create({
   },
   page: {
     width: '100%',
+    overflow: 'hidden',
   },
 });

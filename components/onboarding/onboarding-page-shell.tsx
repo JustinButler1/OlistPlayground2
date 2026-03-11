@@ -13,6 +13,7 @@ interface OnboardingPageShellProps {
   description: string;
   children: ReactNode;
   footer: ReactNode;
+  blurOverlay?: ReactNode;
 }
 
 export function OnboardingPageShell({
@@ -22,6 +23,7 @@ export function OnboardingPageShell({
   description,
   children,
   footer,
+  blurOverlay,
 }: OnboardingPageShellProps) {
   return (
     <View
@@ -54,6 +56,7 @@ export function OnboardingPageShell({
       </View>
       <View style={styles.body}>{children}</View>
       <View style={styles.footer}>{footer}</View>
+      {blurOverlay}
     </View>
   );
 }
@@ -63,6 +66,7 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 28,
     borderWidth: 1,
+    overflow: 'hidden',
     paddingHorizontal: 20,
     paddingVertical: 22,
     gap: 20,

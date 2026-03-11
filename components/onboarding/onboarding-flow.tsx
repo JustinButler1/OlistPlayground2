@@ -1,6 +1,6 @@
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   KeyboardAvoidingView,
   Pressable,
@@ -13,10 +13,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BirthdayPicker } from '@/components/onboarding/birthday-picker';
 import { OnboardingPageShell } from '@/components/onboarding/onboarding-page-shell';
-import { ThumbnailImage } from '@/components/thumbnail-image';
 import { VerticalPaginationCarousel } from '@/components/reacticx/vertical-pagination-carousel';
 import { TabRootBackground } from '@/components/tab-root-background';
 import { ThemedText } from '@/components/themed-text';
+import { ThumbnailImage } from '@/components/thumbnail-image';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import {
   ONBOARDING_INTEREST_OPTIONS,
@@ -106,7 +106,7 @@ function FooterActions({
         <ActionButton
           colors={colors}
           label="Back"
-          onPress={onBack ?? (() => {})}
+          onPress={onBack ?? (() => { })}
           variant="secondary"
         />
       ) : (
@@ -166,12 +166,13 @@ export function OnboardingFlow() {
       return label ? [label] : [];
     });
 
-  const renderStep = (step: OnboardingStep) => {
+  const renderStep = (step: OnboardingStep, blurOverlay: ReactNode) => {
     switch (step) {
       case 'intro':
         return (
           <OnboardingPageShell
             badge="Local only"
+            blurOverlay={blurOverlay}
             colors={colors}
             description="This flow only opens from Profile. Nothing checks at startup, nothing requires an account, and you can revisit it any time."
             footer={
@@ -218,6 +219,7 @@ export function OnboardingFlow() {
         return (
           <OnboardingPageShell
             badge="Profile"
+            blurOverlay={blurOverlay}
             colors={colors}
             description="Add a display name and optional image for the local profile card."
             footer={
@@ -275,6 +277,7 @@ export function OnboardingFlow() {
         return (
           <OnboardingPageShell
             badge="Birthday"
+            blurOverlay={blurOverlay}
             colors={colors}
             description="Birthday is optional and stays local to this device."
             footer={
@@ -315,6 +318,7 @@ export function OnboardingFlow() {
         return (
           <OnboardingPageShell
             badge="Interests"
+            blurOverlay={blurOverlay}
             colors={colors}
             description="Pick the topics you want Olist to remember. These selections are saved locally only for now."
             footer={
@@ -380,6 +384,7 @@ export function OnboardingFlow() {
         return (
           <OnboardingPageShell
             badge="Pro stub"
+            blurOverlay={blurOverlay}
             colors={colors}
             description="This final page only saves your local onboarding state. Pro behavior is still a placeholder."
             footer={
@@ -469,7 +474,7 @@ export function OnboardingFlow() {
               activeDotColor: colors.tint,
               inactiveDotColor: colors.icon + '3a',
             }}
-            renderItem={({ item }) => renderStep(item)}
+            renderItem={({ item, blurOverlay }) => renderStep(item, blurOverlay)}
             scrollEnabled={!isCarouselLocked}
             style={styles.carousel}
           />
@@ -529,6 +534,7 @@ const styles = StyleSheet.create({
   },
   page: {
     paddingHorizontal: 20,
+    paddingTop: 50,
   },
   featureStack: {
     flex: 1,
