@@ -150,10 +150,12 @@ export default function ListDetailScreen() {
   }, [preferences.viewMode, setListPreferences]);
 
   const closeListSearch = useCallback(() => {
-    listSearchInputRef.current?.blur();
-    Keyboard.dismiss();
     setListSearchQuery('');
-    setListSearchVisible(false);
+    requestAnimationFrame(() => {
+      listSearchInputRef.current?.blur();
+      Keyboard.dismiss();
+      setListSearchVisible(false);
+    });
   }, []);
 
   const toggleListSearch = useCallback(() => {
@@ -515,6 +517,7 @@ export default function ListDetailScreen() {
       <Stack.Screen
         options={{
           title: list.title,
+          headerBackVisible: true,
           headerTransparent: true,
           headerRight: isIos
             ? undefined
