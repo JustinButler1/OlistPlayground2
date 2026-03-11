@@ -16,6 +16,7 @@ import {
   ItemDetailTabs,
   type ItemDetailTabId,
 } from '@/components/tracker/ItemDetailTabs';
+import { BlurredImageBackground } from '@/components/blurred-image-background';
 import { ItemUserDataPanel } from '@/components/tracker/ItemUserDataPanel';
 import { RatingStars } from '@/components/tracker/RatingStars';
 import { ThemedText } from '@/components/themed-text';
@@ -321,22 +322,39 @@ export default function TvMovieDetailsScreen() {
   if (!id || !mediaType) {
     return (
       <>
-        <Stack.Screen options={{ title: mediaType === 'movie' ? 'Movie' : 'TV' }} />
-        <ThemedView style={styles.container}>
-          <View style={styles.centered}>
-            <ThemedText style={styles.errorText}>Invalid TV/Movie ID</ThemedText>
-          </View>
-        </ThemedView>
+        <Stack.Screen
+          options={{
+            title: mediaType === 'movie' ? 'Movie' : 'TV',
+            headerShadowVisible: false,
+            headerTintColor: colorScheme === 'dark' ? '#fff' : colors.text,
+            headerTransparent: true,
+          }}
+        />
+        <BlurredImageBackground imageUrl={seed.imageUrl}>
+          <ThemedView style={[styles.container, { backgroundColor: 'transparent' }]}>
+            <View style={styles.centered}>
+              <ThemedText style={styles.errorText}>Invalid TV/Movie ID</ThemedText>
+            </View>
+          </ThemedView>
+        </BlurredImageBackground>
       </>
     );
   }
 
   return (
     <>
-      <Stack.Screen options={{ title: headerTitle }} />
-      <ThemedView style={styles.container}>
+      <Stack.Screen
+        options={{
+          title: headerTitle,
+          headerShadowVisible: false,
+          headerTintColor: colorScheme === 'dark' ? '#fff' : colors.text,
+          headerTransparent: true,
+        }}
+      />
+      <BlurredImageBackground imageUrl={imageUrl}>
         <ScrollView
           style={styles.scroll}
+          contentInsetAdjustmentBehavior="automatic"
           contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
           showsVerticalScrollIndicator={false}
         >
@@ -610,7 +628,7 @@ export default function TvMovieDetailsScreen() {
             ) : null}
           </View>
         </ScrollView>
-      </ThemedView>
+      </BlurredImageBackground>
     </>
   );
 }
@@ -626,14 +644,13 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
   },
   heroImageWrap: {
-    width: '100%',
-    maxWidth: 260,
+    width: 180,
+    height: 270,
     alignSelf: 'center',
-    aspectRatio: 2 / 3,
   },
   heroImage: {
-    width: '100%',
-    height: '100%',
+    width: 180,
+    height: 270,
     backgroundColor: 'rgba(128,128,128,0.2)',
     borderRadius: 20,
   },

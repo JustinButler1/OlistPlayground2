@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ExpandableDescription } from '@/components/ExpandableDescription';
 import { ExpandableTags } from '@/components/ExpandableTags';
+import { BlurredImageBackground } from '@/components/blurred-image-background';
 import { ThumbnailImage } from '@/components/thumbnail-image';
 import { RatingStars } from '@/components/tracker/RatingStars';
 import { ThemedText } from '@/components/themed-text';
@@ -219,19 +220,39 @@ export default function GameDetailsScreen() {
 
   if (!id) {
     return (
-      <ThemedView style={styles.container}>
-        <View style={styles.centered}>
-          <ThemedText style={styles.errorText}>Invalid game ID</ThemedText>
-        </View>
-      </ThemedView>
+      <>
+        <Stack.Screen
+          options={{
+            title: 'Game',
+            headerShadowVisible: false,
+            headerTintColor: colorScheme === 'dark' ? '#fff' : colors.text,
+            headerTransparent: true,
+          }}
+        />
+        <BlurredImageBackground imageUrl={seed.imageUrl}>
+          <ThemedView style={[styles.container, { backgroundColor: 'transparent' }]}>
+            <View style={styles.centered}>
+              <ThemedText style={styles.errorText}>Invalid game ID</ThemedText>
+            </View>
+          </ThemedView>
+        </BlurredImageBackground>
+      </>
     );
   }
 
   return (
-    <ThemedView style={styles.container}>
-      <Stack.Screen options={{ title }} />
+    <BlurredImageBackground imageUrl={imageUrl}>
+      <Stack.Screen
+        options={{
+          title,
+          headerShadowVisible: false,
+          headerTintColor: colorScheme === 'dark' ? '#fff' : colors.text,
+          headerTransparent: true,
+        }}
+      />
       <ScrollView
         style={styles.scroll}
+        contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
         showsVerticalScrollIndicator={false}
       >
@@ -426,7 +447,7 @@ export default function GameDetailsScreen() {
           )}
         </View>
       </ScrollView>
-    </ThemedView>
+    </BlurredImageBackground>
   );
 }
 
@@ -441,14 +462,13 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
   },
   heroImageWrap: {
-    width: '100%',
-    maxWidth: 260,
+    width: 180,
+    height: 270,
     alignSelf: 'center',
-    aspectRatio: 2 / 3,
   },
   heroImage: {
-    width: '100%',
-    height: '100%',
+    width: 180,
+    height: 270,
     backgroundColor: 'rgba(128,128,128,0.2)',
     borderRadius: 20,
   },

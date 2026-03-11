@@ -15,6 +15,7 @@ import {
   ItemDetailTabs,
   type ItemDetailTabId,
 } from '@/components/tracker/ItemDetailTabs';
+import { BlurredImageBackground } from '@/components/blurred-image-background';
 import { ItemUserDataPanel } from '@/components/tracker/ItemUserDataPanel';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -141,22 +142,39 @@ export default function BookDetailsScreen() {
   if (!slug) {
     return (
       <>
-        <Stack.Screen options={{ title: 'Book' }} />
-        <ThemedView style={styles.container}>
-          <View style={styles.centered}>
-            <ThemedText style={styles.errorText}>Invalid book</ThemedText>
-          </View>
-        </ThemedView>
+        <Stack.Screen
+          options={{
+            title: 'Book',
+            headerShadowVisible: false,
+            headerTintColor: colorScheme === 'dark' ? '#fff' : colors.text,
+            headerTransparent: true,
+          }}
+        />
+        <BlurredImageBackground imageUrl={seed.imageUrl}>
+          <ThemedView style={[styles.container, { backgroundColor: 'transparent' }]}>
+            <View style={styles.centered}>
+              <ThemedText style={styles.errorText}>Invalid book</ThemedText>
+            </View>
+          </ThemedView>
+        </BlurredImageBackground>
       </>
     );
   }
 
   return (
     <>
-      <Stack.Screen options={{ title }} />
-      <ThemedView style={styles.container}>
+      <Stack.Screen
+        options={{
+          title,
+          headerShadowVisible: false,
+          headerTintColor: colorScheme === 'dark' ? '#fff' : colors.text,
+          headerTransparent: true,
+        }}
+      />
+      <BlurredImageBackground imageUrl={imageUrl}>
         <ScrollView
           style={styles.scroll}
+          contentInsetAdjustmentBehavior="automatic"
           contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
           showsVerticalScrollIndicator={false}
         >
@@ -284,7 +302,7 @@ export default function BookDetailsScreen() {
             ) : null}
           </View>
         </ScrollView>
-      </ThemedView>
+      </BlurredImageBackground>
     </>
   );
 }
@@ -300,15 +318,15 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
   },
   heroImageWrap: {
-    width: '100%',
-    aspectRatio: 2 / 3,
-    maxHeight: 400,
+    width: 180,
+    height: 270,
     alignSelf: 'center',
   },
   heroImage: {
-    width: '100%',
-    height: '100%',
+    width: 180,
+    height: 270,
     backgroundColor: 'rgba(128,128,128,0.2)',
+    borderRadius: 20,
   },
   fullScreenOverlay: {
     flex: 1,

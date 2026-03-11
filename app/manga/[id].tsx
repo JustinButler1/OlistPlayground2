@@ -15,6 +15,7 @@ import {
   ItemDetailTabs,
   type ItemDetailTabId,
 } from '@/components/tracker/ItemDetailTabs';
+import { BlurredImageBackground } from '@/components/blurred-image-background';
 import { ItemUserDataPanel } from '@/components/tracker/ItemUserDataPanel';
 import { RatingStars } from '@/components/tracker/RatingStars';
 import { ThumbnailImage } from '@/components/thumbnail-image';
@@ -206,19 +207,36 @@ export default function MangaDetailsScreen() {
   if (!id) {
     return (
       <>
-        <Stack.Screen options={{ title: 'Manga' }} />
-        <ThemedView style={styles.centered}>
-          <ThemedText>Invalid manga ID.</ThemedText>
-        </ThemedView>
+        <Stack.Screen
+          options={{
+            title: 'Manga',
+            headerShadowVisible: false,
+            headerTintColor: colorScheme === 'dark' ? '#fff' : colors.text,
+            headerTransparent: true,
+          }}
+        />
+        <BlurredImageBackground imageUrl={seed.imageUrl}>
+          <ThemedView style={[styles.centered, { backgroundColor: 'transparent' }]}>
+            <ThemedText>Invalid manga ID.</ThemedText>
+          </ThemedView>
+        </BlurredImageBackground>
       </>
     );
   }
 
   return (
     <>
-      <Stack.Screen options={{ title }} />
-      <ThemedView style={styles.container}>
+      <Stack.Screen
+        options={{
+          title,
+          headerShadowVisible: false,
+          headerTintColor: colorScheme === 'dark' ? '#fff' : colors.text,
+          headerTransparent: true,
+        }}
+      />
+      <BlurredImageBackground imageUrl={imageUrl}>
         <ScrollView
+          contentInsetAdjustmentBehavior="automatic"
           contentContainerStyle={[
             styles.content,
             { paddingBottom: insets.bottom + 24 },
@@ -374,7 +392,7 @@ export default function MangaDetailsScreen() {
             />
           ) : null}
         </ScrollView>
-      </ThemedView>
+      </BlurredImageBackground>
       <Modal visible={showImage} transparent animationType="fade" onRequestClose={() => setShowImage(false)}>
         <Pressable style={styles.imageOverlay} onPress={() => setShowImage(false)}>
           {imageUrl ? (
@@ -401,13 +419,13 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   heroWrap: {
-    width: '100%',
-    maxWidth: 260,
+    width: 180,
+    height: 270,
     alignSelf: 'center',
   },
   hero: {
-    width: '100%',
-    aspectRatio: 2 / 3,
+    width: 180,
+    height: 270,
     borderRadius: 20,
   },
   headerBlock: {
