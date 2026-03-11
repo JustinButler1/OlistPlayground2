@@ -315,8 +315,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerButton: {
-    marginRight: 8,
-    padding: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   listHeader: {
     paddingBottom: 14,
@@ -332,8 +332,6 @@ const styles = StyleSheet.create({
   },
   resultRow: {
     alignItems: 'center',
-    borderBottomColor: 'rgba(128,128,128,0.3)',
-    borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     paddingVertical: 12,
   },

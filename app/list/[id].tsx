@@ -436,54 +436,54 @@ export default function ListDetailScreen() {
           headerSearchBarOptions:
             isIos && listSearchVisible
               ? {
-                  ref: headerSearchBarRef,
-                  autoCapitalize: 'none',
-                  hideNavigationBar: false,
-                  hideWhenScrolling: false,
-                  obscureBackground: false,
-                  onCancelButtonPress: () => {
-                    if (!listSearchQuery.trim()) {
-                      setListSearchVisible(false);
-                    }
-                  },
-                  onChangeText: (event) => {
-                    setListSearchQuery(event.nativeEvent.text);
-                  },
-                  onClose: () => {
-                    if (!listSearchQuery.trim()) {
-                      setListSearchVisible(false);
-                    }
-                  },
-                  onSearchButtonPress: (event) => {
-                    setListSearchQuery(event.nativeEvent.text);
-                  },
-                  placeholder: 'Search this list',
-                }
+                ref: headerSearchBarRef,
+                autoCapitalize: 'none',
+                hideNavigationBar: false,
+                hideWhenScrolling: false,
+                obscureBackground: false,
+                onCancelButtonPress: () => {
+                  if (!listSearchQuery.trim()) {
+                    setListSearchVisible(false);
+                  }
+                },
+                onChangeText: (event) => {
+                  setListSearchQuery(event.nativeEvent.text);
+                },
+                onClose: () => {
+                  if (!listSearchQuery.trim()) {
+                    setListSearchVisible(false);
+                  }
+                },
+                onSearchButtonPress: (event) => {
+                  setListSearchQuery(event.nativeEvent.text);
+                },
+                placeholder: 'Search this list',
+              }
               : undefined,
           headerRight: isIos
             ? undefined
             : () => (
-                <View style={styles.headerButtonsRow}>
-                  <Pressable
-                    onPress={openComposer}
-                    style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.7 : 1 }]}
-                  >
-                    <IconSymbol name="plus" size={24} color={colors.tint} />
-                  </Pressable>
-                  <Pressable
-                    onPress={openListSearch}
-                    style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.7 : 1 }]}
-                  >
-                    <IconSymbol name="magnifyingglass" size={22} color={colors.tint} />
-                  </Pressable>
-                  <Pressable
-                    onPress={() => setMenuVisible('view')}
-                    style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.7 : 1 }]}
-                  >
-                    <IconSymbol name="ellipsis.circle" size={24} color={colors.tint} />
-                  </Pressable>
-                </View>
-              ),
+              <View style={styles.headerButtonsRow}>
+                <Pressable
+                  onPress={openComposer}
+                  style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.7 : 1 }]}
+                >
+                  <IconSymbol name="plus" size={24} color={colors.tint} />
+                </Pressable>
+                <Pressable
+                  onPress={openListSearch}
+                  style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.7 : 1 }]}
+                >
+                  <IconSymbol name="magnifyingglass" size={22} color={colors.tint} />
+                </Pressable>
+                <Pressable
+                  onPress={() => setMenuVisible('view')}
+                  style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.7 : 1 }]}
+                >
+                  <IconSymbol name="ellipsis.circle" size={24} color={colors.tint} />
+                </Pressable>
+              </View>
+            ),
         }}
       />
       {isIos && !listSearchVisible ? (
@@ -601,12 +601,12 @@ export default function ListDetailScreen() {
               { value: 'all', label: 'All' },
               ...(hasStatus
                 ? [
-                    { value: 'active', label: 'Active' },
-                    { value: 'planned', label: 'Planned' },
-                    { value: 'completed', label: 'Completed' },
-                    { value: 'paused', label: 'Paused' },
-                    { value: 'dropped', label: 'Dropped' },
-                  ]
+                  { value: 'active', label: 'Active' },
+                  { value: 'planned', label: 'Planned' },
+                  { value: 'completed', label: 'Completed' },
+                  { value: 'paused', label: 'Paused' },
+                  { value: 'dropped', label: 'Dropped' },
+                ]
                 : []),
               { value: 'archived', label: 'Archived' },
             ]}
@@ -992,11 +992,11 @@ export default function ListDetailScreen() {
                         progress:
                           item.totalProgress && item.progressUnit
                             ? {
-                                current: undefined,
-                                total: item.totalProgress,
-                                unit: item.progressUnit,
-                                updatedAt: Date.now(),
-                              }
+                              current: undefined,
+                              total: item.totalProgress,
+                              unit: item.progressUnit,
+                              updatedAt: Date.now(),
+                            }
                             : undefined,
                       })
                     }
@@ -1638,7 +1638,6 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderBottomWidth: StyleSheet.hairlineWidth,
     paddingVertical: 12,
   },
   checkbox: {
