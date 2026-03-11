@@ -1,6 +1,7 @@
+import { useQueries } from '@tanstack/react-query';
 import { router, Stack } from 'expo-router';
 import SQLiteAsyncStorage from 'expo-sqlite/kv-store';
-import { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActionSheetIOS,
   ActivityIndicator,
@@ -25,8 +26,10 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, ThemePalette } from '@/constants/theme';
 import { useEntryActions, useListsQuery } from '@/contexts/lists-context';
 import type { TrackerList } from '@/data/mock-lists';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { buildSeededDetailHref } from '@/lib/detail-navigation';
+import { apiQueryKeys } from '@/services/api-query-keys';
 import {
   searchCatalog,
   type CatalogCategory,
@@ -300,15 +303,13 @@ export default function SearchScreen() {
   const { activeLists } = useListsQuery();
   const { addEntryToList } = useEntryActions();
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<CatalogSearchItem[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [pendingItem, setPendingItem] = useState<CatalogSearchItem | null>(null);
   const [mediaScope, setMediaScope] = useState<SearchMediaScope>('all-media');
   const [sortId, setSortId] = useState<SearchSortId>('title');
   const [selectionMenu, setSelectionMenu] = useState<SelectionMenuState | null>(null);
   const [isContentNoticeVisible, setIsContentNoticeVisible] = useState(true);
-  const deferredSearchQuery = useDeferredValue(query);
+  const debouncedQuery = useDebouncedValue(query, 350);
+  const trimmedQuery = debouncedQuery.trim();
 
   const visibleLists = useMemo(
     () => activeLists.filter((list) => !list.archivedAt),
@@ -318,6 +319,7 @@ export default function SearchScreen() {
   const sortOptions = SEARCH_SORT_OPTIONS[mediaScope];
   const selectedScopeLabel =
     SEARCH_SCOPE_OPTIONS.find((option) => option.id === mediaScope)?.label ?? 'All Media';
+  const remoteCategories = SEARCH_SCOPE_TO_CATEGORIES[mediaScope];
 
   useEffect(() => {
     let cancelled = false;
@@ -345,86 +347,64 @@ export default function SearchScreen() {
     }
   }, [sortId, sortOptions]);
 
-  useEffect(() => {
-    const trimmed = deferredSearchQuery.trim();
-    if (!trimmed) {
-      setResults([]);
-      setIsLoading(false);
-      setError(null);
-      return;
+  const remoteSearchQueries = useQueries({
+    queries: remoteCategories.map((category) => ({
+      queryKey: apiQueryKeys.catalog.search(category, trimmedQuery),
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        searchCatalog(category, trimmedQuery, signal),
+      enabled: trimmedQuery.length > 0,
+      staleTime: 1000 * 60 * 5,
+    })),
+  });
+
+  const localListResults = useMemo(
+    () =>
+      trimmedQuery && (mediaScope === 'all-media' || mediaScope === 'list')
+        ? searchListsLocally(visibleLists, trimmedQuery)
+        : [],
+    [mediaScope, trimmedQuery, visibleLists]
+  );
+
+  const results = useMemo(
+    () => [
+      ...localListResults,
+      ...remoteSearchQueries.flatMap((remoteQuery) => remoteQuery.data ?? []),
+    ],
+    [localListResults, remoteSearchQueries]
+  );
+
+  const isWaitingForDebounce = query.trim().length > 0 && query.trim() !== trimmedQuery;
+  const isLoading =
+    isWaitingForDebounce ||
+    remoteSearchQueries.some((remoteQuery) => remoteQuery.isPending || remoteQuery.isFetching);
+
+  const error = useMemo(() => {
+    if (!trimmedQuery) {
+      return null;
     }
 
-    const localListResults =
-      mediaScope === 'all-media' || mediaScope === 'list'
-        ? searchListsLocally(visibleLists, trimmed)
-        : [];
-    const remoteCategories = SEARCH_SCOPE_TO_CATEGORIES[mediaScope];
+    let nextError: string | null = null;
 
-    if (remoteCategories.length === 0) {
-      setResults(localListResults);
-      setIsLoading(false);
-      setError(null);
-      return;
-    }
+    remoteSearchQueries.forEach((remoteQuery) => {
+      if (!(remoteQuery.error instanceof Error)) {
+        return;
+      }
 
-    let active = true;
-    const timeout = setTimeout(() => {
-      setIsLoading(true);
-      setError(null);
+      if (remoteQuery.error.message === 'missing_tmdb_api_key') {
+        nextError =
+          mediaScope === 'movie-tv'
+            ? 'TMDB is not configured in this build environment.'
+            : 'TV and movie results are unavailable in this build environment.';
+        return;
+      }
 
-      void Promise.allSettled(
-        remoteCategories.map((category) => searchCatalog(category, trimmed))
-      )
-        .then((settledResults) => {
-          if (!active) {
-            return;
-          }
+      if (!nextError) {
+        nextError = 'Search failed. Check your connection and try again.';
+      }
+    });
 
-          const nextItems = [...localListResults];
-          let nextError: string | null = null;
-
-          settledResults.forEach((result) => {
-            if (result.status === 'fulfilled') {
-              nextItems.push(...result.value);
-              return;
-            }
-
-            if (
-              result.reason instanceof Error &&
-              result.reason.message === 'missing_tmdb_api_key'
-            ) {
-              nextError =
-                mediaScope === 'movie-tv'
-                  ? 'TMDB is not configured in this build environment.'
-                  : 'TV and movie results are unavailable in this build environment.';
-            } else if (!nextError) {
-              nextError = 'Search failed. Check your connection and try again.';
-            }
-          });
-
-          setResults(nextItems);
-          setError(nextError);
-        })
-        .catch(() => {
-          if (!active) {
-            return;
-          }
-
-          setResults(localListResults);
-          setError('Search failed. Check your connection and try again.');
-        })
-        .finally(() => {
-          if (active) {
-            setIsLoading(false);
-          }
-        });
-    }, 350);
-
-    return () => {
-      active = false;
-      clearTimeout(timeout);
-    };
-  }, [deferredSearchQuery, mediaScope, visibleLists]);
+    return nextError;
+  }, [mediaScope, remoteSearchQueries, trimmedQuery]);
 
   const sortedResults = useMemo(
     () => sortSearchResults(results, sortId, visibleLists),

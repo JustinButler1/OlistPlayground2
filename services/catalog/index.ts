@@ -33,8 +33,9 @@ function dedupeCatalogSearchItems(items: CatalogSearchItem[]): CatalogSearchItem
 
 export async function searchCatalog(
   category: CatalogCategory,
-  query: string
+  query: string,
+  signal?: AbortSignal
 ): Promise<CatalogSearchItem[]> {
-  const items = await catalogAdapterById[category].search(query);
+  const items = await catalogAdapterById[category].search(query, signal);
   return dedupeCatalogSearchItems(items);
 }

@@ -1,5 +1,6 @@
+import { useQuery } from '@tanstack/react-query';
 import { Stack, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -23,7 +24,8 @@ import { getItemUserDataKey } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { ExpandableDescription } from '@/components/ExpandableDescription';
 import { ExpandableTags } from '@/components/ExpandableTags';
-import { isAbortError, readDetailSeed } from '@/lib/detail-navigation';
+import { readDetailSeed } from '@/lib/detail-navigation';
+import { apiQueryKeys } from '@/services/api-query-keys';
 
 const GOOGLE_BOOKS_BASE = 'https://www.googleapis.com/books/v1/volumes/';
 
@@ -82,48 +84,20 @@ export default function BookDetailsScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const seed = readDetailSeed(params);
-
-  const [work, setWork] = useState<GoogleBooksWork | null>(null);
-  const [authorNames, setAuthorNames] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ItemDetailTabId>('details');
 
   const workKey = slug ? slugToBookKey(slug) : null;
   const itemKey = workKey ? getItemUserDataKey('book', workKey) : null;
-
-  useEffect(() => {
-    if (!workKey) return;
-
-    const controller = new AbortController();
-
-    setLoading(true);
-    setError(null);
-    setWork(null);
-    setAuthorNames([]);
-
-    fetchBookDetails(workKey, controller.signal)
-      .then((data) => {
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        setWork(data);
-        setAuthorNames(data.volumeInfo?.authors ?? []);
-      })
-      .catch((caughtError) => {
-        if (!isAbortError(caughtError)) {
-          setError('Failed to load book details');
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
-      });
-
-    return () => controller.abort();
-  }, [workKey]);
+  const workQuery = useQuery({
+    queryKey: apiQueryKeys.book.detail(workKey ?? ''),
+    queryFn: ({ signal }) => fetchBookDetails(workKey!, signal),
+    enabled: Boolean(workKey),
+    staleTime: 1000 * 60 * 10,
+  });
+  const work = workQuery.data ?? null;
+  const authorNames = work?.volumeInfo?.authors ?? [];
+  const loading = workQuery.isPending;
+  const error = workQuery.isError ? 'Failed to load book details' : null;
 
   const imageLinks = work?.volumeInfo?.imageLinks;
   const imageUrl =

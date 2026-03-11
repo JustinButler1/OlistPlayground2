@@ -1,6 +1,7 @@
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { Image } from 'expo-image';
 import { Link, Stack, useLocalSearchParams } from 'expo-router';
-import { forwardRef, useEffect, useState } from 'react';
+import { forwardRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -28,10 +29,10 @@ import { ExpandableDescription } from '@/components/ExpandableDescription';
 import { ExpandableTags } from '@/components/ExpandableTags';
 import {
   buildSeededHref,
-  isAbortError,
   readDetailSeed,
 } from '@/lib/detail-navigation';
 import { enqueueJikan } from '@/lib/jikan-queue';
+import { apiQueryKeys } from '@/services/api-query-keys';
 
 const JIKAN_API = 'https://api.jikan.moe/v4';
 
@@ -82,20 +83,18 @@ async function fetchAnimeCharacters(id: string, signal?: AbortSignal): Promise<J
 }
 
 const JikanDynamicImage = forwardRef<Image, { type: 'anime' | 'manga' | 'producers', id: number }>(({ type, id }, ref) => {
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-    enqueueJikan(async () => {
-      const resp = await fetch(`${JIKAN_API}/${type}/${id}`);
-      if (!resp.ok) return null;
-      const json = await resp.json();
-      return json.data?.images?.jpg?.image_url;
-    })
-      .then((url) => mounted && url && setImageUrl(url))
-      .catch(() => {});
-    return () => { mounted = false; };
-  }, [type, id]);
+  const imageQuery = useQuery({
+    queryKey: apiQueryKeys.jikan.image(type, id),
+    queryFn: ({ signal }) =>
+      enqueueJikan(async () => {
+        const resp = await fetch(`${JIKAN_API}/${type}/${id}`, { signal });
+        if (!resp.ok) return null;
+        const json = await resp.json();
+        return json.data?.images?.jpg?.image_url ?? null;
+      }),
+    staleTime: 1000 * 60 * 10,
+  });
+  const imageUrl = imageQuery.data ?? null;
 
   if (!imageUrl) {
     return (
@@ -119,54 +118,28 @@ export default function AnimeDetailsScreen() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const [anime, setAnime] = useState<AnimeDetails | null>(null);
-  const [characters, setCharacters] = useState<JikanCharacterResp[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ItemDetailTabId>('details');
   const seed = readDetailSeed(params);
-
-  useEffect(() => {
-    if (!id) {
-      return;
-    }
-
-    const controller = new AbortController();
-
-    setLoading(true);
-    setError(null);
-    setAnime(null);
-    setCharacters([]);
-
-    fetchAnimeDetails(id, controller.signal)
-      .then((animeData) => {
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        setAnime(animeData);
-      })
-      .catch((caughtError) => {
-        if (!isAbortError(caughtError)) {
-          setError('Failed to load anime details');
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
-      });
-
-    fetchAnimeCharacters(id, controller.signal)
-      .then((charsData) => {
-        if (!controller.signal.aborted) {
-          setCharacters(charsData);
-        }
-      })
-      .catch(() => {});
-
-    return () => controller.abort();
-  }, [id]);
+  const [animeQuery, charactersQuery] = useQueries({
+    queries: [
+      {
+        queryKey: apiQueryKeys.anime.detail(id ?? ''),
+        queryFn: ({ signal }) => fetchAnimeDetails(id!, signal),
+        enabled: Boolean(id),
+        staleTime: 1000 * 60 * 10,
+      },
+      {
+        queryKey: apiQueryKeys.anime.characters(id ?? ''),
+        queryFn: ({ signal }) => fetchAnimeCharacters(id!, signal),
+        enabled: Boolean(id) && activeTab === 'details',
+        staleTime: 1000 * 60 * 10,
+      },
+    ],
+  });
+  const anime = animeQuery.data ?? null;
+  const characters = charactersQuery.data ?? [];
+  const loading = animeQuery.isPending;
+  const error = animeQuery.isError ? 'Failed to load anime details' : null;
 
   const imageUrl =
     anime?.images?.jpg?.large_image_url ?? anime?.images?.jpg?.image_url ?? seed.imageUrl;

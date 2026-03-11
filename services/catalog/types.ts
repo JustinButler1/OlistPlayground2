@@ -22,5 +22,5 @@ export interface CatalogSearchItem {
 export interface CatalogAdapter {
   id: CatalogCategory;
   label: string;
-  search(query: string): Promise<CatalogSearchItem[]>;
+  search(query: string, signal?: AbortSignal): Promise<CatalogSearchItem[]>;
 }

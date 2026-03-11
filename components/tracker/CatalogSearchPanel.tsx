@@ -1,4 +1,5 @@
-import { startTransition, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -7,7 +8,9 @@ import {
   CatalogSearchResultRow,
 } from '@/components/tracker/catalog-search-result-row';
 import { Colors } from '@/constants/theme';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { apiQueryKeys } from '@/services/api-query-keys';
 import {
   catalogAdapters,
   searchCatalog,
@@ -34,66 +37,29 @@ export function CatalogSearchPanel({
   const colors = Colors[colorScheme ?? 'light'];
   const [category, setCategory] = useState<CatalogCategory>(initialCategory);
   const [query, setQuery] = useState(initialQuery);
-  const [results, setResults] = useState<CatalogSearchItem[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const deferredQuery = useDeferredValue(query);
+  const debouncedQuery = useDebouncedValue(query, 350);
+  const trimmedQuery = debouncedQuery.trim();
 
   useEffect(() => {
     setQuery(initialQuery);
   }, [initialQuery]);
 
-  useEffect(() => {
-    const trimmedQuery = deferredQuery.trim();
-    if (!trimmedQuery) {
-      setResults([]);
-      setError(null);
-      setIsLoading(false);
-      return;
-    }
+  const searchQuery = useQuery({
+    queryKey: apiQueryKeys.catalog.search(category, trimmedQuery),
+    queryFn: ({ signal }) => searchCatalog(category, trimmedQuery, signal),
+    enabled: trimmedQuery.length > 0,
+    staleTime: 1000 * 60 * 5,
+  });
 
-    let active = true;
-    const timeout = setTimeout(() => {
-      setIsLoading(true);
-      setError(null);
-
-      void searchCatalog(category, trimmedQuery)
-        .then((nextResults) => {
-          if (!active) {
-            return;
-          }
-
-          startTransition(() => {
-            setResults(nextResults);
-          });
-        })
-        .catch((searchError) => {
-          if (!active) {
-            return;
-          }
-
-          if (
-            searchError instanceof Error &&
-            searchError.message === 'missing_tmdb_api_key'
-          ) {
-            setError('TMDB is not configured in this build environment.');
-          } else {
-            setError('Search failed. Check your connection and try again.');
-          }
-          setResults([]);
-        })
-        .finally(() => {
-          if (active) {
-            setIsLoading(false);
-          }
-        });
-    }, 350);
-
-    return () => {
-      active = false;
-      clearTimeout(timeout);
-    };
-  }, [category, deferredQuery]);
+  const isWaitingForDebounce = query.trim().length > 0 && query.trim() !== trimmedQuery;
+  const isLoading = isWaitingForDebounce || searchQuery.isFetching;
+  const results = searchQuery.data ?? [];
+  const error =
+    searchQuery.error instanceof Error && searchQuery.error.message === 'missing_tmdb_api_key'
+      ? 'TMDB is not configured in this build environment.'
+      : searchQuery.isError
+      ? 'Search failed. Check your connection and try again.'
+      : null;
 
   const emptyLabel = useMemo(() => {
     if (!query.trim()) {

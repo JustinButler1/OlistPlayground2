@@ -24,7 +24,7 @@ function getTmdbApiKey(): string | null {
   return key || null;
 }
 
-async function searchTmdb(query: string): Promise<CatalogSearchItem[]> {
+async function searchTmdb(query: string, signal?: AbortSignal): Promise<CatalogSearchItem[]> {
   if (!query.trim()) {
     return [];
   }
@@ -37,7 +37,8 @@ async function searchTmdb(query: string): Promise<CatalogSearchItem[]> {
   const response = await fetch(
     `${TMDB_SEARCH_MULTI}?api_key=${encodeURIComponent(apiKey)}&query=${encodeURIComponent(
       query.trim()
-    )}&include_adult=false&page=1`
+    )}&include_adult=false&page=1`,
+    { signal }
   );
   if (!response.ok) {
     throw new Error('tmdb_search_failed');

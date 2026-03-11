@@ -1,6 +1,7 @@
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { Image } from 'expo-image';
 import { Link, Stack, useLocalSearchParams } from 'expo-router';
-import { forwardRef, useEffect, useState } from 'react';
+import { forwardRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -28,10 +29,10 @@ import { ExpandableDescription } from '@/components/ExpandableDescription';
 import { ExpandableTags } from '@/components/ExpandableTags';
 import {
   buildSeededHref,
-  isAbortError,
   readDetailSeed,
 } from '@/lib/detail-navigation';
 import { enqueueJikan } from '@/lib/jikan-queue';
+import { apiQueryKeys } from '@/services/api-query-keys';
 
 const JIKAN_API = 'https://api.jikan.moe/v4';
 
@@ -83,20 +84,18 @@ async function fetchMangaCharacters(id: string, signal?: AbortSignal): Promise<J
 }
 
 const JikanDynamicImage = forwardRef<Image, { type: 'anime' | 'manga' | 'authors', id: number }>(({ type, id }, ref) => {
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-    enqueueJikan(async () => {
-      const resp = await fetch(`${JIKAN_API}/${type}/${id}`);
-      if (!resp.ok) return null;
-      const json = await resp.json();
-      return json.data?.images?.jpg?.image_url;
-    })
-      .then((url) => mounted && url && setImageUrl(url))
-      .catch(() => {});
-    return () => { mounted = false; };
-  }, [type, id]);
+  const imageQuery = useQuery({
+    queryKey: apiQueryKeys.jikan.image(type, id),
+    queryFn: ({ signal }) =>
+      enqueueJikan(async () => {
+        const resp = await fetch(`${JIKAN_API}/${type}/${id}`, { signal });
+        if (!resp.ok) return null;
+        const json = await resp.json();
+        return json.data?.images?.jpg?.image_url ?? null;
+      }),
+    staleTime: 1000 * 60 * 10,
+  });
+  const imageUrl = imageQuery.data ?? null;
 
   if (!imageUrl) {
     return (
@@ -120,54 +119,28 @@ export default function MangaDetailsScreen() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const [manga, setManga] = useState<MangaDetails | null>(null);
-  const [characters, setCharacters] = useState<JikanMangaCharacterResp[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ItemDetailTabId>('details');
   const seed = readDetailSeed(params);
-
-  useEffect(() => {
-    if (!id) {
-      return;
-    }
-
-    const controller = new AbortController();
-
-    setLoading(true);
-    setError(null);
-    setManga(null);
-    setCharacters([]);
-
-    fetchMangaDetails(id, controller.signal)
-      .then((mangaData) => {
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        setManga(mangaData);
-      })
-      .catch((caughtError) => {
-        if (!isAbortError(caughtError)) {
-          setError('Failed to load manga details');
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
-      });
-
-    fetchMangaCharacters(id, controller.signal)
-      .then((charsData) => {
-        if (!controller.signal.aborted) {
-          setCharacters(charsData);
-        }
-      })
-      .catch(() => {});
-
-    return () => controller.abort();
-  }, [id]);
+  const [mangaQuery, charactersQuery] = useQueries({
+    queries: [
+      {
+        queryKey: apiQueryKeys.manga.detail(id ?? ''),
+        queryFn: ({ signal }) => fetchMangaDetails(id!, signal),
+        enabled: Boolean(id),
+        staleTime: 1000 * 60 * 10,
+      },
+      {
+        queryKey: apiQueryKeys.manga.characters(id ?? ''),
+        queryFn: ({ signal }) => fetchMangaCharacters(id!, signal),
+        enabled: Boolean(id) && activeTab === 'details',
+        staleTime: 1000 * 60 * 10,
+      },
+    ],
+  });
+  const manga = mangaQuery.data ?? null;
+  const characters = charactersQuery.data ?? [];
+  const loading = mangaQuery.isPending;
+  const error = mangaQuery.isError ? 'Failed to load manga details' : null;
 
   const imageUrl =
     manga?.images?.jpg?.large_image_url ?? manga?.images?.jpg?.image_url ?? seed.imageUrl;

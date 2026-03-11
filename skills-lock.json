@@ -6,6 +6,11 @@
       "sourceType": "github",
       "computedHash": "a0316d2ce842d2dd8067a144e339cf502329dc7701f9f5122268fdb3d4c980f7"
     },
+    "convex": {
+      "source": "waynesutton/convexskills",
+      "sourceType": "github",
+      "computedHash": "0a9f0151c7776f13ab3affca28a04d55fcb4ea3af9f53eeadebe934552975a8f"
+    },
     "expo-deployment": {
       "source": "expo/skills",
       "sourceType": "github",
@@ -25,6 +30,11 @@
       "source": "expo/skills",
       "sourceType": "github",
       "computedHash": "523901a0f2dfddc91f6c3b09320e240abfe7c81b6f7277e14774ec39ac0c544b"
+    },
+    "tanstack-query-best-practices": {
+      "source": "deckardger/tanstack-agent-skills",
+      "sourceType": "github",
+      "computedHash": "addf4358803d7746f7fe0475a3370d835775217e00dd5fc7bbd8a7d6c53d81e5"
     },
     "upgrading-expo": {
       "source": "expo/skills",

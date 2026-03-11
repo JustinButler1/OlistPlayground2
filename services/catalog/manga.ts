@@ -33,13 +33,14 @@ interface JikanMangaSearchResponse {
   }>;
 }
 
-async function searchManga(query: string): Promise<CatalogSearchItem[]> {
+async function searchManga(query: string, signal?: AbortSignal): Promise<CatalogSearchItem[]> {
   if (!query.trim()) {
     return [];
   }
 
   const response = await fetch(
-    `${JIKAN_API}/manga?q=${encodeURIComponent(query.trim())}&limit=25`
+    `${JIKAN_API}/manga?q=${encodeURIComponent(query.trim())}&limit=25`,
+    { signal }
   );
   if (!response.ok) {
     throw new Error('manga_search_failed');

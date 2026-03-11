@@ -2,12 +2,6 @@ import type { CatalogAdapter, CatalogSearchItem } from '@/services/catalog/types
 
 const GOOGLE_BOOKS_SEARCH = 'https://www.googleapis.com/books/v1/volumes';
 
-interface GoogleBooksSearchParams {
-  q: string;
-  maxResults?: number;
-  key?: string;
-}
-
 interface GoogleBooksVolume {
   id: string;
   volumeInfo: {
@@ -33,7 +27,7 @@ function bookKeyToSlug(key: string): string {
 }
 
 
-async function searchBooks(query: string): Promise<CatalogSearchItem[]> {
+async function searchBooks(query: string, signal?: AbortSignal): Promise<CatalogSearchItem[]> {
   if (!query.trim()) {
     return [];
   }
@@ -46,7 +40,7 @@ async function searchBooks(query: string): Promise<CatalogSearchItem[]> {
     url.searchParams.append('key', apiKey);
   }
 
-  const response = await fetch(url.toString());
+  const response = await fetch(url.toString(), { signal });
   if (!response.ok) {
     throw new Error('book_search_failed');
   }

@@ -23,13 +23,14 @@ interface JikanAnimeSearchResponse {
   }>;
 }
 
-async function searchAnime(query: string): Promise<CatalogSearchItem[]> {
+async function searchAnime(query: string, signal?: AbortSignal): Promise<CatalogSearchItem[]> {
   if (!query.trim()) {
     return [];
   }
 
   const response = await fetch(
-    `${JIKAN_API}/anime?q=${encodeURIComponent(query.trim())}&limit=25`
+    `${JIKAN_API}/anime?q=${encodeURIComponent(query.trim())}&limit=25`,
+    { signal }
   );
   if (!response.ok) {
     throw new Error('anime_search_failed');

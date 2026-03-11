@@ -1,6 +1,7 @@
+import { useQueries } from '@tanstack/react-query';
 import { Image } from 'expo-image';
 import { Link, Stack, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   ActivityIndicator,
   Linking,
@@ -26,12 +27,12 @@ import { getItemUserDataKey } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import {
   buildSeededHref,
-  isAbortError,
   readDetailSeed,
 } from '@/lib/detail-navigation';
 import { normalizeRating } from '@/lib/tracker-metadata';
 import { ExpandableDescription } from '@/components/ExpandableDescription';
 import { ExpandableTags } from '@/components/ExpandableTags';
+import { apiQueryKeys } from '@/services/api-query-keys';
 
 const TMDB_API_BASE = 'https://api.themoviedb.org/3';
 const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p';
@@ -209,75 +210,50 @@ export default function TvMovieDetailsScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const seed = readDetailSeed(params);
-
-  const [details, setDetails] = useState<TmdbDetails | null>(null);
-  const [trailers, setTrailers] = useState<TmdbVideo[]>([]);
-  const [cast, setCast] = useState<TmdbCastMember[]>([]);
-  const [recommendations, setRecommendations] = useState<TmdbRecommendation[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ItemDetailTabId>('details');
 
   const mediaType: TmdbType | null = type === 'movie' || type === 'tv' ? type : null;
   const itemKey = mediaType && id ? getItemUserDataKey(mediaType, id) : null;
-
-  useEffect(() => {
-    if (!id || !mediaType) {
-      return;
-    }
-
-    const controller = new AbortController();
-
-    setLoading(true);
-    setError(null);
-    setDetails(null);
-    setTrailers([]);
-    setCast([]);
-    setRecommendations([]);
-
-    fetchTmdbDetails(mediaType, id, controller.signal)
-      .then((detailsData) => {
-        if (!controller.signal.aborted) {
-          setDetails(detailsData);
-        }
-      })
-      .catch((caughtError) => {
-        if (!isAbortError(caughtError)) {
-          setError('Failed to load details');
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
-      });
-
-    fetchTmdbVideos(mediaType, id, controller.signal)
-      .then((trailersData) => {
-        if (!controller.signal.aborted) {
-          setTrailers(trailersData);
-        }
-      })
-      .catch(() => {});
-
-    fetchTmdbCredits(mediaType, id, controller.signal)
-      .then((castData) => {
-        if (!controller.signal.aborted) {
-          setCast(castData);
-        }
-      })
-      .catch(() => {});
-
-    fetchTmdbRecommendations(mediaType, id, controller.signal)
-      .then((recommendationsData) => {
-        if (!controller.signal.aborted) {
-          setRecommendations(recommendationsData);
-        }
-      })
-      .catch(() => {});
-
-    return () => controller.abort();
-  }, [id, mediaType]);
+  const [detailsQuery, trailersQuery, castQuery, recommendationsQuery] = useQueries({
+    queries: [
+      {
+        queryKey: apiQueryKeys.tmdb.detail(mediaType ?? 'movie', id ?? ''),
+        queryFn: ({ signal }) => fetchTmdbDetails(mediaType!, id!, signal),
+        enabled: Boolean(id && mediaType),
+        staleTime: 1000 * 60 * 10,
+      },
+      {
+        queryKey: apiQueryKeys.tmdb.videos(mediaType ?? 'movie', id ?? ''),
+        queryFn: ({ signal }) => fetchTmdbVideos(mediaType!, id!, signal),
+        enabled: Boolean(id && mediaType) && activeTab === 'details',
+        staleTime: 1000 * 60 * 10,
+      },
+      {
+        queryKey: apiQueryKeys.tmdb.credits(mediaType ?? 'movie', id ?? ''),
+        queryFn: ({ signal }) => fetchTmdbCredits(mediaType!, id!, signal),
+        enabled: Boolean(id && mediaType) && activeTab === 'details',
+        staleTime: 1000 * 60 * 10,
+      },
+      {
+        queryKey: apiQueryKeys.tmdb.recommendations(mediaType ?? 'movie', id ?? ''),
+        queryFn: ({ signal }) => fetchTmdbRecommendations(mediaType!, id!, signal),
+        enabled: Boolean(id && mediaType) && activeTab === 'details',
+        staleTime: 1000 * 60 * 10,
+      },
+    ],
+  });
+  const details = detailsQuery.data ?? null;
+  const trailers = trailersQuery.data ?? [];
+  const cast = castQuery.data ?? [];
+  const recommendations = recommendationsQuery.data ?? [];
+  const loading = detailsQuery.isPending;
+  const error =
+    detailsQuery.error instanceof Error &&
+    detailsQuery.error.message === 'TMDB API key not configured'
+      ? 'TMDB is not configured in this build environment.'
+      : detailsQuery.isError
+      ? 'Failed to load details'
+      : null;
 
   const backdropPath = details?.backdrop_path;
   const posterPath = details?.poster_path;

@@ -1,6 +1,6 @@
+import { useQuery } from '@tanstack/react-query';
 import { Image } from 'expo-image';
 import { Link, Stack, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -21,10 +21,10 @@ import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import {
   buildSeededHref,
-  isAbortError,
   readDetailSeed,
 } from '@/lib/detail-navigation';
 import { normalizeRating } from '@/lib/tracker-metadata';
+import { apiQueryKeys } from '@/services/api-query-keys';
 
 const IGDB_GAMES_ENDPOINT = 'https://api.igdb.com/v4/games';
 const IGDB_IMAGE_BASE = 'https://images.igdb.com/igdb/image/upload';
@@ -162,49 +162,20 @@ export default function GameDetailsScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const seed = readDetailSeed(params);
-  const [game, setGame] = useState<IgdbGameDetails | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<null | string>(null);
-
-  useEffect(() => {
-    if (!id) {
-      return;
-    }
-
-    const controller = new AbortController();
-
-    setLoading(true);
-    setError(null);
-    setGame(null);
-
-    fetchGameDetails(id, controller.signal)
-      .then((nextGame) => {
-        if (!controller.signal.aborted) {
-          setGame(nextGame);
-        }
-      })
-      .catch((caughtError) => {
-        if (isAbortError(caughtError)) {
-          return;
-        }
-
-        if (
-          caughtError instanceof Error &&
-          caughtError.message === 'missing_igdb_credentials'
-        ) {
-          setError('IGDB credentials not configured.');
-        } else {
-          setError('Failed to load game details');
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
-      });
-
-    return () => controller.abort();
-  }, [id]);
+  const gameQuery = useQuery({
+    queryKey: apiQueryKeys.game.detail(id ?? ''),
+    queryFn: ({ signal }) => fetchGameDetails(id!, signal),
+    enabled: Boolean(id),
+    staleTime: 1000 * 60 * 10,
+  });
+  const game = gameQuery.data ?? null;
+  const loading = gameQuery.isPending;
+  const error =
+    gameQuery.error instanceof Error && gameQuery.error.message === 'missing_igdb_credentials'
+      ? 'IGDB credentials not configured.'
+      : gameQuery.isError
+      ? 'Failed to load game details'
+      : null;
 
   const imageUrl = (game ? buildIgdbCoverUrl(game.cover) : null) ?? seed.imageUrl ?? null;
   const year = game ? formatIgdbYear(game.first_release_date) : null;
