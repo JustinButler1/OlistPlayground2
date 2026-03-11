@@ -1,6 +1,5 @@
 import { router, Stack } from 'expo-router';
 import SQLiteAsyncStorage from 'expo-sqlite/kv-store';
-import type { ComponentProps } from 'react';
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import {
   ActionSheetIOS,
@@ -20,6 +19,7 @@ import {
   CATALOG_SEARCH_RESULT_ROW_GAP,
   CatalogSearchResultRow,
 } from '@/components/tracker/catalog-search-result-row';
+import { SearchControlRow } from '@/components/tracker/search-control-row';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useEntryActions, useListsQuery } from '@/contexts/lists-context';
@@ -68,8 +68,6 @@ interface SearchSortOption {
   id: SearchSortId;
   label: string;
 }
-
-type SearchControlIconName = ComponentProps<typeof IconSymbol>['name'];
 
 interface SelectionMenuState {
   title: string;
@@ -464,8 +462,8 @@ export default function SearchScreen() {
       <Stack.Screen
         options={{
           title: 'Search',
-          headerShown: supportsNativeTabSearchInput,
-          headerLargeTitle: supportsNativeTabSearchInput,
+          headerShown: true,
+          headerTransparent: true,
           headerShadowVisible: false,
         }}
       />
@@ -485,12 +483,12 @@ export default function SearchScreen() {
       ) : null}
 
       <ScrollView
-        contentInsetAdjustmentBehavior={supportsNativeTabSearchInput ? 'automatic' : 'never'}
+        contentInsetAdjustmentBehavior="automatic"
         style={styles.container}
         contentContainerStyle={[
           styles.content,
           {
-            paddingTop: supportsNativeTabSearchInput ? 16 : insets.top + 16,
+            paddingTop: 16,
             paddingBottom: insets.bottom + 24,
           },
         ]}
@@ -520,50 +518,45 @@ export default function SearchScreen() {
           </View>
         ) : null}
 
-        <View style={styles.controlRow}>
-          <ControlButton
-            label={selectedScopeLabel}
-            icon="chevron.down"
-            colors={colors}
-            onPress={() =>
-              openSelectionMenu({
-                title: 'Search Scope',
-                options: SEARCH_SCOPE_OPTIONS.map((option) => ({
-                  value: option.id,
-                  label: option.label,
-                })),
-                selectedValue: mediaScope,
-                onSelect: (value) => setMediaScope(value as SearchMediaScope),
-              })
-            }
-            style={styles.scopeButton}
-          />
-
-          <View style={styles.trailingControls}>
-            <ControlButton
-              label="Filter"
-              icon="line.3.horizontal.decrease"
-              colors={colors}
-              onPress={() => router.push('/search/filter-sheet')}
-            />
-            <ControlButton
-              label="Sort"
-              icon="arrow.up.arrow.down"
-              colors={colors}
-              onPress={() =>
-                openSelectionMenu({
-                  title: 'Sort Results',
-                  options: sortOptions.map((option) => ({
-                    value: option.id,
-                    label: option.label,
-                  })),
-                  selectedValue: sortId,
-                  onSelect: (value) => setSortId(value as SearchSortId),
-                })
-              }
-            />
-          </View>
-        </View>
+        <SearchControlRow
+          colors={colors}
+          selectedScopeLabel={selectedScopeLabel}
+          mediaScope={mediaScope}
+          scopeOptions={SEARCH_SCOPE_OPTIONS.map((option) => ({
+            value: option.id,
+            label: option.label,
+          }))}
+          onMediaScopeChange={(value) => setMediaScope(value as SearchMediaScope)}
+          sortId={sortId}
+          sortOptions={sortOptions.map((option) => ({
+            value: option.id,
+            label: option.label,
+          }))}
+          onSortChange={(value) => setSortId(value as SearchSortId)}
+          onOpenFilter={() => router.push('/search/filter-sheet')}
+          onOpenScopeMenu={() =>
+            openSelectionMenu({
+              title: 'Search Scope',
+              options: SEARCH_SCOPE_OPTIONS.map((option) => ({
+                value: option.id,
+                label: option.label,
+              })),
+              selectedValue: mediaScope,
+              onSelect: (value) => setMediaScope(value as SearchMediaScope),
+            })
+          }
+          onOpenSortMenu={() =>
+            openSelectionMenu({
+              title: 'Sort Results',
+              options: sortOptions.map((option) => ({
+                value: option.id,
+                label: option.label,
+              })),
+              selectedValue: sortId,
+              onSelect: (value) => setSortId(value as SearchSortId),
+            })
+          }
+        />
 
         {isContentNoticeVisible ? (
           <Pressable
@@ -749,40 +742,6 @@ export default function SearchScreen() {
   );
 }
 
-function ControlButton({
-  colors,
-  icon,
-  label,
-  onPress,
-  style,
-}: {
-  colors: (typeof Colors)['light'] | (typeof Colors)['dark'];
-  icon: SearchControlIconName;
-  label: string;
-  onPress: () => void;
-  style?: object;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.controlButton,
-        {
-          backgroundColor: colors.background,
-          borderColor: colors.icon + '24',
-          opacity: pressed ? 0.84 : 1,
-        },
-        style,
-      ]}
-    >
-      <ThemedText type="defaultSemiBold" style={styles.controlButtonLabel}>
-        {label}
-      </ThemedText>
-      <IconSymbol name={icon} size={18} color={colors.icon} />
-    </Pressable>
-  );
-}
-
 function SelectionMenu({
   visible,
   title,
@@ -856,33 +815,6 @@ const styles = StyleSheet.create({
   searchInput: {
     fontSize: 16,
     paddingVertical: 12,
-  },
-  controlRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  trailingControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    flexShrink: 1,
-  },
-  scopeButton: {
-    minWidth: 142,
-  },
-  controlButton: {
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  controlButtonLabel: {
-    fontSize: 17,
   },
   warningCard: {
     borderWidth: 1,

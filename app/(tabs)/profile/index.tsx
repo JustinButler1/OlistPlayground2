@@ -1,8 +1,7 @@
-import { useRouter } from 'expo-router';
-import { Alert, Platform, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { Stack, useRouter } from 'expo-router';
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useListActions, useListsQuery } from '@/contexts/lists-context';
@@ -39,13 +38,30 @@ export default function ProfileScreen() {
   };
 
   return (
-    <ThemedView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <ThemedText type="title" style={styles.title}>
-          Profile
-        </ThemedText>
-
-        <ThemedView style={[styles.card, { borderColor: colors.icon + '20' }]}>
+    <>
+      <Stack.Screen
+        options={{
+          headerShown: true,
+          title: 'Profile',
+          headerTransparent: true,
+          headerShadowVisible: false,
+        }}
+      />
+      <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
+        style={[styles.container, { backgroundColor: colors.background }]}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
+        <View
+          style={[
+            styles.card,
+            {
+              borderColor: colors.icon + '20',
+              backgroundColor: colors.background,
+            },
+          ]}
+        >
           <ThemedText type="subtitle">Data</ThemedText>
           <ThemedText style={[styles.supportingText, { color: colors.icon }]}>
             New installs start empty. Demo data is only loaded from the button below.
@@ -69,12 +85,20 @@ export default function ProfileScreen() {
             </ThemedText>
           </Pressable>
           <ThemedText style={[styles.caption, { color: colors.icon }]}>
-            Imports a seeded workspace with common list types, realistic custom items, linked sublists,
-            tier data, archived history, deleted lists, templates, and API-backed entries.
+            Imports a seeded workspace with common list types, realistic custom items, linked
+            sublists, tier data, archived history, deleted lists, templates, and API-backed entries.
           </ThemedText>
-        </ThemedView>
+        </View>
 
-        <ThemedView style={[styles.card, { borderColor: colors.icon + '20' }]}>
+        <View
+          style={[
+            styles.card,
+            {
+              backgroundColor: colors.background,
+              borderColor: colors.icon + '20',
+            },
+          ]}
+        >
           <ThemedText type="subtitle">Tools</ThemedText>
           <Pressable
             onPress={() => router.push('/product-import')}
@@ -89,9 +113,9 @@ export default function ProfileScreen() {
             </ThemedText>
             <IconSymbol name="chevron.right" size={20} color={colors.icon} />
           </Pressable>
-        </ThemedView>
+        </View>
       </ScrollView>
-    </ThemedView>
+    </>
   );
 }
 
@@ -100,11 +124,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    padding: 20,
     gap: 16,
-  },
-  title: {
-    marginBottom: 4,
+    paddingBottom: 24,
+    paddingHorizontal: 20,
   },
   card: {
     borderWidth: StyleSheet.hairlineWidth,

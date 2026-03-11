@@ -16,6 +16,7 @@ export type ListPreset = 'blank' | 'tracking';
 export type ListViewMode = 'list' | 'grid' | 'compare' | 'tier';
 export type ListSortMode = 'manual' | 'updated-desc' | 'title-asc' | 'rating-desc' | 'status';
 export type ListAddonId =
+  | 'toggle'
   | 'status'
   | 'progress'
   | 'rating'
@@ -66,8 +67,22 @@ export interface ListFieldDefinition {
   kind: ListFieldKind;
 }
 
+export interface ListAutomationBlock {
+  id: string;
+  kind: 'if-then';
+  sourceAddonId: 'toggle';
+  sourceField: 'checked';
+  operator: 'equals';
+  sourceValue: boolean;
+  targetAddonId: 'status';
+  targetField: 'status';
+  operation: 'set';
+  targetValue: EntryStatus;
+}
+
 export interface ListConfig {
   addons: ListAddonId[];
+  automationBlocks: ListAutomationBlock[];
   fieldDefinitions: ListFieldDefinition[];
   defaultEntryType: Exclude<ListEntryType, 'game' | 'list'> | 'custom';
 }
@@ -95,7 +110,8 @@ export interface ListEntry {
   totalVolumes?: number;
   linkedEntryId?: string;
   linkedListId?: string;
-  status: EntryStatus;
+  checked?: boolean;
+  status?: EntryStatus;
   rating?: number;
   tags: string[];
   progress?: EntryProgress;
@@ -145,8 +161,9 @@ export interface ListTemplate {
   preset: ListPreset;
   config: ListConfig;
   starterEntries: Array<
-    Omit<ListEntry, 'id' | 'addedAt' | 'updatedAt' | 'status' | 'tags' | 'sourceRef'>
+    Omit<ListEntry, 'id' | 'addedAt' | 'updatedAt' | 'checked' | 'status' | 'tags' | 'sourceRef'>
     & {
+      checked?: boolean;
       status?: EntryStatus;
       tags?: string[];
       sourceRef?: EntrySourceRef;
@@ -173,15 +190,52 @@ export function createListPreferences(
 
 export const DEFAULT_LIST_CONFIG: ListConfig = {
   addons: ['notes', 'tags'],
+  automationBlocks: [],
   fieldDefinitions: [],
   defaultEntryType: 'custom',
 };
 
 export const TRACKING_LIST_CONFIG: ListConfig = {
   addons: ['status', 'progress', 'rating', 'tags', 'notes', 'reminders', 'cover'],
+  automationBlocks: [],
   fieldDefinitions: [],
   defaultEntryType: 'custom',
 };
+
+function normalizeAutomationBlocks(
+  blocks: ListAutomationBlock[] | undefined,
+  addons: ListAddonId[]
+): ListAutomationBlock[] {
+  if (!blocks?.length) {
+    return [];
+  }
+
+  const enabledAddons = new Set(addons);
+
+  return blocks
+    .filter((block) => {
+      return (
+        block.kind === 'if-then' &&
+        block.sourceAddonId === 'toggle' &&
+        block.sourceField === 'checked' &&
+        block.operator === 'equals' &&
+        typeof block.sourceValue === 'boolean' &&
+        block.targetAddonId === 'status' &&
+        block.targetField === 'status' &&
+        block.operation === 'set' &&
+        (block.targetValue === 'planned' ||
+          block.targetValue === 'active' ||
+          block.targetValue === 'paused' ||
+          block.targetValue === 'completed' ||
+          block.targetValue === 'dropped') &&
+        enabledAddons.has(block.sourceAddonId) &&
+        enabledAddons.has(block.targetAddonId)
+      );
+    })
+    .map((block) => ({
+      ...block,
+    }));
+}
 
 function createListFieldDefinition(
   id: string,
@@ -196,8 +250,10 @@ function createListFieldDefinition(
 }
 
 export function createListConfig(overrides: Partial<ListConfig> = {}): ListConfig {
+  const addons = Array.from(new Set(overrides.addons ?? DEFAULT_LIST_CONFIG.addons));
   return {
-    addons: [...(overrides.addons ?? DEFAULT_LIST_CONFIG.addons)],
+    addons,
+    automationBlocks: normalizeAutomationBlocks(overrides.automationBlocks, addons),
     fieldDefinitions: (overrides.fieldDefinitions ?? []).map((field) => ({
       ...field,
     })),
@@ -207,6 +263,89 @@ export function createListConfig(overrides: Partial<ListConfig> = {}): ListConfi
 
 export function derivePresetFromConfig(config: ListConfig): ListPreset {
   return config.addons.includes('progress') ? 'tracking' : 'blank';
+}
+
+export function createListAutomationBlock(
+  overrides: Partial<ListAutomationBlock> = {}
+): ListAutomationBlock {
+  return {
+    id: `automation-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    kind: 'if-then',
+    sourceAddonId: 'toggle',
+    sourceField: 'checked',
+    operator: 'equals',
+    sourceValue: true,
+    targetAddonId: 'status',
+    targetField: 'status',
+    operation: 'set',
+    targetValue: 'completed',
+    ...overrides,
+  };
+}
+
+export function hasListAddon(config: ListConfig, addonId: ListAddonId): boolean {
+  return config.addons.includes(addonId);
+}
+
+export function sanitizeListPreferencesForConfig(
+  preferences: ListPreferences,
+  config: ListConfig
+): ListPreferences {
+  const hasStatus = hasListAddon(config, 'status');
+  const hasCompare = hasListAddon(config, 'compare');
+  const hasTier = hasListAddon(config, 'tier');
+
+  return {
+    ...preferences,
+    viewMode:
+      preferences.viewMode === 'compare' && !hasCompare
+        ? 'list'
+        : preferences.viewMode === 'tier' && !hasTier
+          ? 'list'
+          : preferences.viewMode,
+    sortMode:
+      preferences.sortMode === 'status' && !hasStatus ? 'manual' : preferences.sortMode,
+    filterMode:
+      !hasStatus &&
+      preferences.filterMode !== 'all' &&
+      preferences.filterMode !== 'archived'
+        ? 'all'
+        : preferences.filterMode,
+    groupMode:
+      preferences.groupMode === 'status' && !hasStatus ? 'none' : preferences.groupMode,
+    showCompleted: hasStatus ? preferences.showCompleted : true,
+  };
+}
+
+export function applyAutomationBlocks(
+  config: ListConfig,
+  trigger: {
+    addonId: 'toggle';
+    field: 'checked';
+    value: boolean;
+  }
+): Partial<ListEntry> {
+  if (!hasListAddon(config, trigger.addonId)) {
+    return {};
+  }
+
+  const nextUpdates: Partial<ListEntry> = {};
+
+  config.automationBlocks.forEach((block) => {
+    if (
+      block.sourceAddonId !== trigger.addonId ||
+      block.sourceField !== trigger.field ||
+      block.sourceValue !== trigger.value
+    ) {
+      return;
+    }
+
+    if (block.targetAddonId === 'status' && hasListAddon(config, 'status')) {
+      nextUpdates.status = block.targetValue;
+    }
+  });
+
+  return nextUpdates;
 }
 
 export function createEmptyItemUserData(): ItemUserData {
@@ -238,7 +377,8 @@ function createSeedEntry(
     id,
     title,
     type,
-    status: options.status ?? 'planned',
+    checked: options.checked,
+    status: options.status,
     tags: options.tags ?? [],
     addedAt: options.addedAt ?? NOW,
     updatedAt: options.updatedAt ?? options.addedAt ?? NOW,
@@ -291,7 +431,10 @@ function createSeedList(
     preset: options.preset ?? derivePresetFromConfig(config),
     config,
     entries,
-    preferences: options.preferences ?? DEFAULT_LIST_PREFERENCES,
+    preferences: sanitizeListPreferencesForConfig(
+      options.preferences ?? DEFAULT_LIST_PREFERENCES,
+      config
+    ),
     pinned: options.pinned ?? false,
     createdAt: options.createdAt ?? NOW,
     updatedAt: options.updatedAt ?? NOW,
@@ -376,6 +519,7 @@ export function deriveListConfigFromLegacy(options: {
   entries?: Pick<
     ListEntry,
     | 'customFields'
+    | 'checked'
     | 'detailPath'
     | 'linkedListId'
     | 'notes'
@@ -399,6 +543,9 @@ export function deriveListConfigFromLegacy(options: {
   }
 
   entries.forEach((entry) => {
+    if (entry.checked !== undefined) {
+      addons.add('toggle');
+    }
     if (entry.status && entry.status !== 'planned') {
       addons.add('status');
     }
@@ -1404,6 +1551,7 @@ export function cloneTemplate(template: ListTemplate): ListTemplate {
     config: createListConfig(template.config),
     starterEntries: template.starterEntries.map((entry) => ({
       ...entry,
+      checked: entry.checked,
       tags: entry.tags ? [...entry.tags] : undefined,
       progress: entry.progress ? { ...entry.progress } : undefined,
       sourceRef: entry.sourceRef ? { ...entry.sourceRef } : undefined,
@@ -1424,7 +1572,8 @@ export function createListFromTemplate(template: ListTemplate): TrackerList {
         entry.type,
         {
           ...entry,
-          status: entry.status ?? 'planned',
+          checked: entry.checked,
+          status: entry.status,
           tags: entry.tags ?? [],
           sourceRef:
             entry.sourceRef ??

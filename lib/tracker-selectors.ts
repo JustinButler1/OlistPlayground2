@@ -21,7 +21,9 @@ const ACTIVE_STATUSES: EntryStatus[] = ['active', 'paused'];
 
 function compareByStatus(a: ListEntry, b: ListEntry): number {
   const order: EntryStatus[] = ['active', 'planned', 'paused', 'completed', 'dropped'];
-  return order.indexOf(a.status) - order.indexOf(b.status);
+  const aIndex = a.status ? order.indexOf(a.status) : order.length;
+  const bIndex = b.status ? order.indexOf(b.status) : order.length;
+  return aIndex - bIndex;
 }
 
 function compareByUpdatedAtDesc(a: ListEntry, b: ListEntry): number {
@@ -96,7 +98,9 @@ export function flattenEntries(lists: TrackerList[]): EntryWithList[] {
 
 export function getContinueTrackingEntries(lists: TrackerList[], limit = 6): EntryWithList[] {
   return flattenEntries(lists)
-    .filter(({ entry }) => ACTIVE_STATUSES.includes(entry.status) && !entry.archivedAt)
+    .filter(
+      ({ entry }) => !!entry.status && ACTIVE_STATUSES.includes(entry.status) && !entry.archivedAt
+    )
     .sort((a, b) => b.entry.updatedAt - a.entry.updatedAt)
     .slice(0, limit);
 }
@@ -140,7 +144,7 @@ export function getListStats(list: TrackerList) {
     (entry) => !entry.archivedAt && entry.status === 'completed'
   ).length;
   const active = list.entries.filter(
-    (entry) => !entry.archivedAt && ACTIVE_STATUSES.includes(entry.status)
+    (entry) => !entry.archivedAt && !!entry.status && ACTIVE_STATUSES.includes(entry.status)
   ).length;
   const planned = list.entries.filter(
     (entry) => !entry.archivedAt && entry.status === 'planned'

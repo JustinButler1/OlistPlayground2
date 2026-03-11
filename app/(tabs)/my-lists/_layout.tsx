@@ -9,19 +9,26 @@ export default function MyListsLayout() {
     presentation: isIos ? 'formSheet' : 'modal',
     ...(isIos
       ? {
-          sheetGrabberVisible: true,
-          sheetAllowedDetents: [0.6, 1.0],
-          contentStyle: { backgroundColor: 'transparent' },
-        }
+        sheetGrabberVisible: true,
+        sheetAllowedDetents: [0.6, 1.0],
+        contentStyle: { backgroundColor: 'transparent' },
+      }
       : {}),
   } as const;
 
   return (
     <NewListFormProvider>
       <Stack screenOptions={{ headerBackButtonDisplayMode: 'minimal' }}>
-        <Stack.Screen name="index" options={{ title: 'My Lists' }} />
+        <Stack.Screen
+          name="index"
+          options={{ title: 'My Lists', headerTransparent: true, headerShadowVisible: false }}
+        />
         <Stack.Screen name="new-list" options={sheetOptions} />
         <Stack.Screen name="new-list-addons" options={{ ...sheetOptions, title: 'Add-ons' }} />
+        <Stack.Screen
+          name="new-list-automation"
+          options={{ ...sheetOptions, title: 'Programming' }}
+        />
         <Stack.Screen
           name="new-list-custom-fields"
           options={{ ...sheetOptions, title: 'Custom Fields' }}

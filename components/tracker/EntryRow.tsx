@@ -1,8 +1,8 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { RatingStars } from '@/components/tracker/RatingStars';
-import { ThumbnailImage } from '@/components/thumbnail-image';
 import { ThemedText } from '@/components/themed-text';
+import { ThumbnailImage } from '@/components/thumbnail-image';
+import { RatingStars } from '@/components/tracker/RatingStars';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import type { ItemUserData, ListEntry } from '@/data/mock-lists';
@@ -69,11 +69,13 @@ export function EntryRow({
           {entry.title}
         </ThemedText>
         <View style={styles.metaRow}>
-          <View style={[styles.statusChip, { backgroundColor: colors.tint + '18' }]}>
-            <ThemedText style={[styles.statusText, { color: colors.tint }]}>
-              {entry.status}
-            </ThemedText>
-          </View>
+          {entry.status ? (
+            <View style={[styles.statusChip, { backgroundColor: colors.tint + '18' }]}>
+              <ThemedText style={[styles.statusText, { color: colors.tint }]}>
+                {entry.status}
+              </ThemedText>
+            </View>
+          ) : null}
           {progressLabel ? (
             <ThemedText style={[styles.metaText, { color: colors.icon }]}>
               {progressLabel}

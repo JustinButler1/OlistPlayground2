@@ -1,23 +1,22 @@
 import { Image } from 'expo-image';
-import { useNavigation, useRouter } from 'expo-router';
-import { useCallback, useLayoutEffect, useMemo, useState } from 'react';
+import { Stack, useRouter } from 'expo-router';
+import type { ComponentProps } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Alert, Animated, FlatList, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
-import type { TrackerList } from '@/data/mock-lists';
 import { useListActions, useListsQuery } from '@/contexts/lists-context';
+import type { TrackerList } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 type SortMode = 'updated-desc' | 'title-asc';
 type FilterMode = 'all' | 'progress' | 'sublists';
 
 export default function MyListsScreen() {
-  const navigation = useNavigation();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
@@ -112,110 +111,101 @@ export default function MyListsScreen() {
     []
   );
 
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      headerRight: () => (
-        <Pressable
-          onPress={openNewListRoute}
-          style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.7 : 1 }]}
-          accessibilityRole="button"
-          accessibilityLabel="Add list"
-        >
-          <IconSymbol name="plus" size={26} color={colors.tint} />
-        </Pressable>
-      ),
-    });
-  }, [colors.tint, navigation, openNewListRoute]);
+  const selectedSortLabel = sortMode === 'updated-desc' ? 'Recent' : 'A-Z';
+  const selectedFilterLabel =
+    filterMode === 'all' ? 'All Lists' : filterMode === 'progress' ? 'Progress' : 'Sublists';
 
   return (
-    <ThemedView style={styles.container}>
-      <View style={styles.toolbar}>
-        <Pressable
-          onPress={() => setMenuVisible('sort')}
-          style={({ pressed }) => [
-            styles.toolbarButton,
-            {
-              borderColor: colors.icon + '35',
-              backgroundColor: colors.background,
-              opacity: pressed ? 0.8 : 1,
-            },
-          ]}
-        >
-          <ThemedText>Sort</ThemedText>
-          <ThemedText style={{ color: colors.icon }}>
-            {sortMode === 'updated-desc' ? 'Recent' : 'A-Z'}
-          </ThemedText>
-        </Pressable>
-        <Pressable
-          onPress={() => setMenuVisible('filter')}
-          style={({ pressed }) => [
-            styles.toolbarButton,
-            {
-              borderColor: colors.icon + '35',
-              backgroundColor: colors.background,
-              opacity: pressed ? 0.8 : 1,
-            },
-          ]}
-        >
-          <ThemedText>Filter</ThemedText>
-          <ThemedText style={{ color: colors.icon }}>
-            {filterMode === 'all'
-              ? 'All'
-              : filterMode === 'progress'
-                ? 'Progress'
-                : 'Sublists'}
-          </ThemedText>
-        </Pressable>
-      </View>
-
-      {items.length === 0 ? (
-        <ThemedText style={styles.placeholder}>Tap + to create a new list.</ThemedText>
-      ) : (
-        <FlatList
-          data={items}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => {
-            const template = listTemplates.find((entry) => entry.id === item.templateId) ?? null;
-            return (
-              <Swipeable
-                overshootRight={false}
-                rightThreshold={40}
-                renderRightActions={(progress) =>
-                  renderDeleteAction(progress, () => confirmDeleteList(item))
-                }
+    <>
+      <Stack.Screen
+        options={{
+          headerRight: () => (
+            <Pressable
+              onPress={openNewListRoute}
+              style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.7 : 1 }]}
+              accessibilityRole="button"
+              accessibilityLabel="Add list"
+            >
+              <IconSymbol name="plus" size={26} color={colors.tint} />
+            </Pressable>
+          ),
+        }}
+      />
+      <FlatList
+        contentInsetAdjustmentBehavior="automatic"
+        style={[styles.container, { backgroundColor: colors.background }]}
+        data={items}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => {
+          const template = listTemplates.find((entry) => entry.id === item.templateId) ?? null;
+          return (
+            <Swipeable
+              overshootRight={false}
+              rightThreshold={40}
+              renderRightActions={(progress) =>
+                renderDeleteAction(progress, () => confirmDeleteList(item))
+              }
+            >
+              <Pressable
+                onPress={() => openListDetail(item)}
+                style={({ pressed }) => [styles.resultRow, { opacity: pressed ? 0.8 : 1 }]}
               >
-                <Pressable
-                  onPress={() => openListDetail(item)}
-                  style={({ pressed }) => [styles.resultRow, { opacity: pressed ? 0.8 : 1 }]}
-                >
-                  <Image
-                    source={require('../../../assets/images/placeholder-thumbnail.png')}
-                    style={styles.resultPoster}
-                    contentFit="cover"
-                  />
-                  <View style={styles.resultInfo}>
-                    <ThemedText style={styles.resultTitle} numberOfLines={2}>
-                      {item.title}
-                    </ThemedText>
-                    <ThemedText style={[styles.resultMeta, { color: colors.icon }]} numberOfLines={2}>
-                      {template ? `${template.title} template` : `${item.config.addons.length} add-ons`}
-                      {' | '}
-                      {item.entries.length} item{item.entries.length === 1 ? '' : 's'}
-                    </ThemedText>
-                  </View>
-                  <IconSymbol
-                    name="chevron.right"
-                    size={24}
-                    color={colors.icon}
-                    style={styles.resultChevron}
-                  />
-                </Pressable>
-              </Swipeable>
-            );
-          }}
-          contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 24 }]}
-        />
-      )}
+                <Image
+                  source={require('../../../assets/images/placeholder-thumbnail.png')}
+                  style={styles.resultPoster}
+                  contentFit="cover"
+                />
+                <View style={styles.resultInfo}>
+                  <ThemedText style={styles.resultTitle} numberOfLines={2}>
+                    {item.title}
+                  </ThemedText>
+                  <ThemedText style={[styles.resultMeta, { color: colors.icon }]} numberOfLines={2}>
+                    {template ? `${template.title} template` : `${item.config.addons.length} add-ons`}
+                    {' | '}
+                    {item.entries.length} item{item.entries.length === 1 ? '' : 's'}
+                  </ThemedText>
+                </View>
+                <IconSymbol
+                  name="chevron.right"
+                  size={24}
+                  color={colors.icon}
+                  style={styles.resultChevron}
+                />
+              </Pressable>
+            </Swipeable>
+          );
+        }}
+        ListHeaderComponent={
+          <View style={styles.listHeader}>
+            <View style={styles.controlRow}>
+              <ListControlButton
+                label={selectedFilterLabel}
+                icon="line.3.horizontal.decrease"
+                colors={colors}
+                onPress={() => setMenuVisible('filter')}
+              />
+              <ListControlButton
+                label={selectedSortLabel}
+                icon="arrow.up.arrow.down"
+                colors={colors}
+                onPress={() => setMenuVisible('sort')}
+              />
+            </View>
+          </View>
+        }
+        ListEmptyComponent={
+          <ThemedText style={styles.placeholder}>Tap + in the header to create a new list.</ThemedText>
+        }
+        contentContainerStyle={[
+          styles.listContent,
+          {
+            paddingTop: 16,
+            paddingBottom: insets.bottom + 24,
+            flexGrow: items.length === 0 ? 1 : 0,
+          },
+        ]}
+        showsVerticalScrollIndicator={false}
+      />
 
       <SelectionMenu
         visible={menuVisible === 'sort'}
@@ -247,7 +237,38 @@ export default function MyListsScreen() {
           setMenuVisible(null);
         }}
       />
-    </ThemedView>
+    </>
+  );
+}
+
+function ListControlButton({
+  colors,
+  icon,
+  label,
+  onPress,
+}: {
+  colors: (typeof Colors)['light'] | (typeof Colors)['dark'];
+  icon: ComponentProps<typeof IconSymbol>['name'];
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.controlButton,
+        {
+          backgroundColor: colors.background,
+          borderColor: colors.icon + '24',
+          opacity: pressed ? 0.84 : 1,
+        },
+      ]}
+    >
+      <ThemedText type="defaultSemiBold" style={styles.controlButtonLabel}>
+        {label}
+      </ThemedText>
+      <IconSymbol name={icon} size={18} color={colors.icon} />
+    </Pressable>
   );
 }
 
@@ -316,29 +337,34 @@ const styles = StyleSheet.create({
     marginRight: 8,
     padding: 8,
   },
-  toolbar: {
+  listHeader: {
+    paddingBottom: 14,
+  },
+  controlRow: {
     flexDirection: 'row',
     gap: 12,
-    paddingHorizontal: 20,
-    paddingTop: 12,
+    justifyContent: 'flex-start',
   },
-  toolbarButton: {
-    borderRadius: 12,
+  controlButton: {
+    alignItems: 'center',
+    borderRadius: 999,
     borderWidth: 1,
-    flex: 1,
-    gap: 2,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  controlButtonLabel: {
+    fontSize: 17,
   },
   placeholder: {
-    flex: 1,
+    paddingTop: 12,
+    textAlign: 'center',
     opacity: 0.6,
-    paddingHorizontal: 20,
-    paddingTop: 24,
   },
   listContent: {
+    flexGrow: 1,
     paddingHorizontal: 20,
-    paddingTop: 8,
   },
   resultRow: {
     alignItems: 'center',

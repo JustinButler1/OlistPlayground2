@@ -12,6 +12,7 @@ import React, {
 
 import {
   BUILT_IN_LIST_TEMPLATES,
+  applyAutomationBlocks,
   cloneEntry,
   createEmptyItemUserData,
   createListConfig,
@@ -29,6 +30,7 @@ import {
   type ListTemplate,
   type ListViewMode,
   type TrackerList,
+  sanitizeListPreferencesForConfig,
 } from '@/data/mock-lists';
 import {
   clearListsState,
@@ -58,10 +60,11 @@ import {
 
 export interface EntryDraft
   extends Partial<
-    Omit<ListEntry, 'id' | 'addedAt' | 'updatedAt' | 'status' | 'tags' | 'sourceRef'>
+    Omit<ListEntry, 'id' | 'addedAt' | 'updatedAt' | 'checked' | 'status' | 'tags' | 'sourceRef'>
   > {
   title: string;
   type: ListEntry['type'];
+  checked?: boolean;
   status?: EntryStatus;
   tags?: string[];
   sourceRef?: EntrySourceRef;
@@ -145,6 +148,7 @@ interface EntryActionsValue {
   moveEntry: (sourceListId: string, targetListId: string, entryIds: string[]) => void;
   reorderEntries: (listId: string, orderedEntryIds: string[]) => void;
   setEntryProgress: (listId: string, entryId: string, progress?: EntryProgress) => void;
+  setEntryChecked: (listId: string, entryId: string, checked: boolean) => void;
   setEntryStatus: (listId: string, entryId: string, status: EntryStatus) => void;
   duplicateEntries: (listId: string, entryIds: string[]) => void;
   archiveEntries: (listId: string, entryIds: string[]) => void;
@@ -191,12 +195,14 @@ function parseItemKey(itemKey: string): { source: string; externalId: string } |
   };
 }
 
-function createEntryFromDraft(draft: EntryDraft): ListEntry {
+function createEntryFromDraft(draft: EntryDraft, config?: ListConfig): ListEntry {
   const timestamp = Date.now();
   const canonicalUrl =
     draft.sourceRef?.canonicalUrl ??
     draft.productUrl ??
     (draft.type === 'link' ? draft.productUrl : undefined);
+  const hasToggle = config?.addons.includes('toggle') ?? false;
+  const hasStatus = config?.addons.includes('status') ?? false;
 
   return {
     id: createEntryId(),
@@ -212,7 +218,8 @@ function createEntryFromDraft(draft: EntryDraft): ListEntry {
     totalVolumes: draft.totalVolumes,
     linkedEntryId: draft.linkedEntryId,
     linkedListId: draft.linkedListId,
-    status: draft.status ?? 'planned',
+    checked: hasToggle ? draft.checked ?? false : draft.checked,
+    status: hasStatus ? draft.status ?? 'planned' : draft.status,
     rating: normalizeRating(draft.rating),
     tags: draft.tags ?? [],
     progress: normalizeProgress(
@@ -421,6 +428,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
           ? legacyPreset === 'tracking'
             ? {
                 addons: ['status', 'progress', 'rating', 'tags', 'notes', 'reminders', 'cover'],
+                automationBlocks: [],
                 defaultEntryType: 'custom',
               }
             : undefined
@@ -448,7 +456,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
           preset: legacyPreset ?? derivePresetFromConfig(config),
           config,
           entries: [],
-          preferences: DEFAULT_LIST_PREFERENCES,
+          preferences: sanitizeListPreferencesForConfig(DEFAULT_LIST_PREFERENCES, config),
           pinned: normalizedOptions?.pinned ?? false,
           createdAt: timestamp,
           updatedAt: timestamp,
@@ -510,9 +518,15 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                 ...list,
                 ...updates,
                 ...(hasOwn(updates, 'tags') ? { tags: normalizeTags(updates.tags) } : {}),
-                ...(updates.config ? { config: createListConfig(updates.config) } : {}),
                 ...(updates.config
-                  ? { preset: derivePresetFromConfig(createListConfig(updates.config)) }
+                  ? {
+                      config: createListConfig(updates.config),
+                      preset: derivePresetFromConfig(createListConfig(updates.config)),
+                      preferences: sanitizeListPreferencesForConfig(
+                        list.preferences,
+                        createListConfig(updates.config)
+                      ),
+                    }
                   : {}),
                 updatedAt: Date.now(),
               }
@@ -653,10 +667,13 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
           list.id === listId
             ? {
                 ...list,
-                preferences: {
-                  ...list.preferences,
-                  ...updates,
-                },
+                preferences: sanitizeListPreferencesForConfig(
+                  {
+                    ...list.preferences,
+                    ...updates,
+                  },
+                  list.config
+                ),
                 updatedAt: Date.now(),
               }
             : list
@@ -890,14 +907,18 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
   const addEntryToList = useCallback<EntryActionsValue['addEntryToList']>(
     (listId, draft) => {
       const trimmedTitle = draft.title.trim();
+      const targetList = stateRef.current.lists.find((list) => list.id === listId);
       if (!trimmedTitle) {
+        return null;
+      }
+      if (!targetList) {
         return null;
       }
 
       const entry = createEntryFromDraft({
         ...draft,
         title: trimmedTitle,
-      });
+      }, targetList.config);
 
       runStateUpdate((current) => {
         current.lists = current.lists.map((list) =>
@@ -936,6 +957,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                         ...(hasOwn(updates, 'customFields')
                           ? { customFields: updates.customFields }
                           : {}),
+                        ...(hasOwn(updates, 'checked') ? { checked: updates.checked } : {}),
                         ...(hasOwn(updates, 'status') ? { status: updates.status } : {}),
                         ...(hasOwn(updates, 'rating')
                           ? { rating: normalizeRating(updates.rating) }
@@ -1078,8 +1100,6 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
 
         updateEntry(listId, entryId, {
           progress: normalized,
-          status:
-            normalized.current !== undefined && normalized.current > 0 ? 'active' : undefined,
         });
         return;
       }
@@ -1089,6 +1109,38 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
       });
     },
     [updateEntry]
+  );
+
+  const setEntryChecked = useCallback<EntryActionsValue['setEntryChecked']>(
+    (listId, entryId, checked) => {
+      runStateUpdate((current) => {
+        current.lists = current.lists.map((list) => {
+          if (list.id !== listId || !list.config.addons.includes('toggle')) {
+            return list;
+          }
+
+          return updateListEntries(list, (entries) =>
+            entries.map((entry) =>
+              entry.id === entryId
+                ? {
+                    ...entry,
+                    checked,
+                    ...applyAutomationBlocks(list.config, {
+                      addonId: 'toggle',
+                      field: 'checked',
+                      value: checked,
+                    }),
+                    updatedAt: Date.now(),
+                  }
+                : entry
+            )
+          );
+        });
+        current.recentListIds = touchRecentListIds(current.recentListIds, listId);
+        return current;
+      });
+    },
+    [runStateUpdate]
   );
 
   const setEntryStatus = useCallback<EntryActionsValue['setEntryStatus']>(
@@ -1198,18 +1250,10 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                         })
                       : undefined;
 
-                  const nextStatus =
-                    normalized.progress?.current !== undefined &&
-                    normalized.progress.current > 0 &&
-                    entry.status === 'planned'
-                      ? 'active'
-                      : entry.status;
-
                   const progressChanged =
                     JSON.stringify(nextProgress ?? null) !== JSON.stringify(entry.progress ?? null);
-                  const statusChanged = nextStatus !== entry.status;
 
-                  if (!progressChanged && !statusChanged) {
+                  if (!progressChanged) {
                     return entry;
                   }
 
@@ -1217,7 +1261,6 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                   return {
                     ...entry,
                     progress: nextProgress,
-                    status: nextStatus,
                     updatedAt: Date.now(),
                   };
                 });
@@ -1313,6 +1356,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
       moveEntry,
       reorderEntries,
       setEntryProgress,
+      setEntryChecked,
       setEntryStatus,
       duplicateEntries,
       archiveEntries,
@@ -1325,6 +1369,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
       moveEntry,
       reorderEntries,
       setEntryProgress,
+      setEntryChecked,
       setEntryStatus,
       updateEntry,
     ]
@@ -1414,7 +1459,7 @@ export function useLists() {
     getCheckedByListId: (listId: string): Record<string, boolean> =>
       Object.fromEntries(
         (query.activeLists.find((list) => list.id === listId)?.entries ?? [])
-          .filter((entry) => entry.status === 'completed')
+          .filter((entry) => !!entry.checked)
           .map((entry) => [entry.id, true])
       ),
     toggleEntryChecked: (listId: string, entryId: string) => {
@@ -1424,11 +1469,7 @@ export function useLists() {
       if (!entry) {
         return;
       }
-      entryActions.setEntryStatus(
-        listId,
-        entryId,
-        entry.status === 'completed' ? 'planned' : 'completed'
-      );
+      entryActions.setEntryChecked(listId, entryId, !entry.checked);
     },
     deleteList: listActions.deleteList,
     deleteEntryFromList: entryActions.deleteEntryFromList,

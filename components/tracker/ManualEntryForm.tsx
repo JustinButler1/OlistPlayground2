@@ -16,6 +16,7 @@ import type {
 import type { EntryDraft } from '@/contexts/lists-context';
 import { useListsQuery } from '@/contexts/lists-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { LIST_STATUS_OPTIONS } from '@/lib/list-config-options';
 import { normalizeProgress, normalizeRating } from '@/lib/tracker-metadata';
 
 interface ManualEntryFormProps {
@@ -27,7 +28,6 @@ interface ManualEntryFormProps {
   onRequestCreateLinkedList?: () => void;
 }
 
-const STATUS_OPTIONS: EntryStatus[] = ['planned', 'active', 'paused', 'completed', 'dropped'];
 const TYPE_OPTIONS: ListEntryType[] = ['custom', 'book', 'anime', 'manga', 'movie', 'tv', 'link', 'list'];
 const PROGRESS_UNIT_OPTIONS: EntryProgressUnit[] = [
   'item',
@@ -93,7 +93,7 @@ export function ManualEntryForm({
 
     setTitle(initialEntry.title);
     setType(initialEntry.type);
-    setStatus(initialEntry.status);
+    setStatus(initialEntry.status ?? 'planned');
     setNotes(initialEntry.notes ?? '');
     setProductUrl(initialEntry.productUrl ?? '');
     setTagsText(initialEntry.tags.join(', '));
@@ -252,7 +252,7 @@ export function ManualEntryForm({
       type,
       detailPath: linkedListDetailPath,
       linkedListId: type === 'list' ? selectedLinkedListId ?? undefined : undefined,
-      status: hasAddon('status') ? status : 'planned',
+      status: hasAddon('status') ? status : undefined,
       notes: hasAddon('notes') ? notes.trim() || undefined : undefined,
       customFields: customFields.length ? customFields : undefined,
       tags: hasAddon('tags') ? tags : [],
@@ -452,23 +452,23 @@ export function ManualEntryForm({
         <View style={styles.section}>
           <ThemedText type="defaultSemiBold">Status</ThemedText>
           <View style={styles.chipWrap}>
-            {STATUS_OPTIONS.map((option) => (
+            {LIST_STATUS_OPTIONS.map((option) => (
               <Pressable
-                key={option}
-                onPress={() => setStatus(option)}
+                key={option.value}
+                onPress={() => setStatus(option.value)}
                 style={[
                   styles.chip,
                   {
-                    backgroundColor: status === option ? colors.tint : colors.icon + '10',
+                    backgroundColor: status === option.value ? colors.tint : colors.icon + '10',
                   },
                 ]}
               >
                 <ThemedText
                   style={{
-                    color: status === option ? colors.background : colors.text,
+                    color: status === option.value ? colors.background : colors.text,
                   }}
                 >
-                  {option}
+                  {option.label}
                 </ThemedText>
               </Pressable>
             ))}

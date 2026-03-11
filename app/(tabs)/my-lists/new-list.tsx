@@ -21,6 +21,7 @@ export default function NewListRoute() {
   const ScreenComponent: ComponentType<{
     form: NewListFormController;
     openAddons?: () => void;
+    openAutomation?: () => void;
     openCustomFields?: () => void;
   }> =
     process.env.EXPO_OS === 'ios'
@@ -80,6 +81,12 @@ export default function NewListRoute() {
         openAddons={() =>
           router.push({
             pathname: '/my-lists/new-list-addons',
+            params: { sessionId },
+          })
+        }
+        openAutomation={() =>
+          router.push({
+            pathname: '/my-lists/new-list-automation',
             params: { sessionId },
           })
         }

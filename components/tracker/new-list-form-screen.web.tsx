@@ -14,6 +14,7 @@ import {
 interface NewListFormScreenProps {
   form: NewListFormController;
   openAddons?: () => void;
+  openAutomation?: () => void;
   openCustomFields?: () => void;
 }
 
@@ -23,6 +24,7 @@ type ThemeColors = (typeof Colors)[keyof typeof Colors];
 export function NewListFormScreen({
   form,
   openAddons,
+  openAutomation,
   openCustomFields,
 }: NewListFormScreenProps) {
   const colorScheme = useColorScheme();
@@ -134,6 +136,15 @@ export function NewListFormScreen({
             <View style={styles.customizationTrailing}>
               <ThemedText style={{ color: colors.icon }}>
                 {String(form.draftConfig.addons.length)}
+              </ThemedText>
+              <IconSymbol name="chevron.right" size={18} color={colors.icon} />
+            </View>
+          </Pressable>
+          <Pressable onPress={openAutomation} style={styles.customizationRow}>
+            <ThemedText>Programming</ThemedText>
+            <View style={styles.customizationTrailing}>
+              <ThemedText style={{ color: colors.icon }}>
+                {String(form.draftConfig.automationBlocks.length)}
               </ThemedText>
               <IconSymbol name="chevron.right" size={18} color={colors.icon} />
             </View>

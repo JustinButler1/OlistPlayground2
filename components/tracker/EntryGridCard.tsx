@@ -47,9 +47,11 @@ export function EntryGridCard({
         <ThemedText type="defaultSemiBold" numberOfLines={2} style={styles.title}>
           {entry.title}
         </ThemedText>
-        <ThemedText style={[styles.meta, { color: colors.icon }]} numberOfLines={1}>
-          {progressLabel ?? entry.status}
-        </ThemedText>
+        {progressLabel ?? entry.status ? (
+          <ThemedText style={[styles.meta, { color: colors.icon }]} numberOfLines={1}>
+            {progressLabel ?? entry.status}
+          </ThemedText>
+        ) : null}
         {rating ? <RatingStars value={rating} size={12} /> : null}
       </View>
     </Pressable>

@@ -9,7 +9,7 @@ export default function TabLayout() {
 
   return (
     <NativeTabs tintColor={colors.tint}>
-      <NativeTabs.Trigger name="index">
+      <NativeTabs.Trigger name="(home)" disableAutomaticContentInsets>
         <NativeTabs.Trigger.Icon
           sf={{ default: 'house', selected: 'house.fill' }}
           md="home"
@@ -17,7 +17,7 @@ export default function TabLayout() {
         <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="my-lists">
+      <NativeTabs.Trigger name="my-lists" disableAutomaticContentInsets>
         <NativeTabs.Trigger.Icon
           sf={{ default: 'list.bullet', selected: 'list.bullet' }}
           md="list"
@@ -25,7 +25,7 @@ export default function TabLayout() {
         <NativeTabs.Trigger.Label>My Lists</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="explore">
+      <NativeTabs.Trigger name="explore" disableAutomaticContentInsets>
         <NativeTabs.Trigger.Icon
           sf={{ default: 'paperplane', selected: 'paperplane.fill' }}
           md="explore"
@@ -33,7 +33,7 @@ export default function TabLayout() {
         <NativeTabs.Trigger.Label>Explore</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="profile">
+      <NativeTabs.Trigger name="profile" disableAutomaticContentInsets>
         <NativeTabs.Trigger.Icon
           sf={{ default: 'person', selected: 'person.fill' }}
           md="person"
@@ -41,7 +41,7 @@ export default function TabLayout() {
         <NativeTabs.Trigger.Label>Profile</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="search" role="search">
+      <NativeTabs.Trigger name="search" role="search" disableAutomaticContentInsets>
         <NativeTabs.Trigger.Icon sf="magnifyingglass" md="search" />
         <NativeTabs.Trigger.Label>Search</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>

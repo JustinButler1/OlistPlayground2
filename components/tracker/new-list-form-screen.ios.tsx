@@ -31,12 +31,14 @@ const EMPTY_TEMPLATE_VALUE = '__empty-template__';
 interface NewListFormScreenProps {
   form: NewListFormController;
   openAddons?: () => void;
+  openAutomation?: () => void;
   openCustomFields?: () => void;
 }
 
 export function NewListFormScreen({
   form,
   openAddons,
+  openAutomation,
   openCustomFields,
 }: NewListFormScreenProps) {
   const templateSelection = form.selectedTemplateId ?? EMPTY_TEMPLATE_VALUE;
@@ -144,6 +146,26 @@ export function NewListFormScreen({
             <HStack spacing={6}>
               <Text modifiers={[foregroundStyle({ type: 'hierarchical', style: 'secondary' })]}>
                 {String(form.draftConfig.addons.length)}
+              </Text>
+              <Image
+                systemName="chevron.right"
+                size={12}
+                modifiers={[foregroundStyle({ type: 'hierarchical', style: 'tertiary' })]}
+              />
+            </HStack>
+          </HStack>
+          <HStack
+            spacing={12}
+            modifiers={[
+              contentShape(shapes.rectangle()),
+              onTapGesture(() => openAutomation?.()),
+            ]}
+          >
+            <Text>Programming</Text>
+            <Spacer />
+            <HStack spacing={6}>
+              <Text modifiers={[foregroundStyle({ type: 'hierarchical', style: 'secondary' })]}>
+                {String(form.draftConfig.automationBlocks.length)}
               </Text>
               <Image
                 systemName="chevron.right"

@@ -17,16 +17,16 @@ import {
 import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ThemedText } from '@/components/themed-text';
+import { ThemedView } from '@/components/themed-view';
+import { ThumbnailImage } from '@/components/thumbnail-image';
 import { CatalogSearchPanel } from '@/components/tracker/CatalogSearchPanel';
 import { ListConfigurationEditor } from '@/components/tracker/ListConfigurationEditor';
 import { RatingStars } from '@/components/tracker/RatingStars';
-import { ThumbnailImage } from '@/components/thumbnail-image';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
-import { useEntryActions, useListActions, useListPreferences, useListsQuery } from '@/contexts/lists-context';
 import type { EntryDraft } from '@/contexts/lists-context';
+import { useEntryActions, useListActions, useListPreferences, useListsQuery } from '@/contexts/lists-context';
 import type { ItemUserData, ListEntry, ListFilterMode, ListPreset, ListSortMode, ListViewMode } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { getEffectiveEntryRating } from '@/lib/tracker-metadata';
@@ -54,7 +54,7 @@ export default function ListDetailScreen() {
     saveListAsTemplate,
     updateList,
   } = useListActions();
-  const { addEntryToList, deleteEntryFromList, setEntryStatus } = useEntryActions();
+  const { addEntryToList, deleteEntryFromList, setEntryChecked } = useEntryActions();
   const list = activeLists.find((item) => item.id === id) ?? null;
   const { preferences, setListPreferences } = useListPreferences(id ?? '');
   const [menuVisible, setMenuVisible] =
@@ -350,6 +350,8 @@ export default function ListDetailScreen() {
     );
   }
 
+  const hasToggle = list.config.addons.includes('toggle');
+  const hasStatus = list.config.addons.includes('status');
   const footerSpacerHeight = composerVisible
     ? keyboardHeight + COMPOSER_TOOLBAR_HEIGHT + COMPOSER_TOOLBAR_OFFSET
     : 28;
@@ -401,9 +403,9 @@ export default function ListDetailScreen() {
                   <ThemedText style={styles.gridTitle} numberOfLines={2}>
                     {entry.title}
                   </ThemedText>
-                  {formatProgressLabel(entry, itemUserDataByKey) ? (
+                  {buildEntryMeta(entry, itemUserDataByKey, { showStatus: hasStatus }) ? (
                     <ThemedText style={[styles.gridMeta, { color: colors.icon }]}>
-                      {formatProgressLabel(entry, itemUserDataByKey)}
+                      {buildEntryMeta(entry, itemUserDataByKey, { showStatus: hasStatus })}
                     </ThemedText>
                   ) : null}
                   {getEffectiveEntryRating(entry, itemUserDataByKey) ? (
@@ -431,28 +433,22 @@ export default function ListDetailScreen() {
                 renderRightActions={(progress) => renderRightActions(progress, item)}
               >
                 <View style={[styles.row, { borderBottomColor: colors.icon + '28' }]}>
-                  <Pressable
-                    onPress={() =>
-                      setEntryStatus(
-                        list.id,
-                        item.id,
-                        item.status === 'completed' ? 'planned' : 'completed'
-                      )
-                    }
-                    style={[
-                      styles.checkbox,
-                      {
-                        borderColor:
-                          item.status === 'completed' ? colors.tint : colors.icon + '45',
-                        backgroundColor:
-                          item.status === 'completed' ? colors.tint : 'transparent',
-                      },
-                    ]}
-                  >
-                    {item.status === 'completed' ? (
-                      <IconSymbol name="checkmark" size={14} color={colors.background} />
-                    ) : null}
-                  </Pressable>
+                  {hasToggle ? (
+                    <Pressable
+                      onPress={() => setEntryChecked(list.id, item.id, !item.checked)}
+                      style={[
+                        styles.checkbox,
+                        {
+                          borderColor: item.checked ? colors.tint : colors.icon + '45',
+                          backgroundColor: item.checked ? colors.tint : 'transparent',
+                        },
+                      ]}
+                    >
+                      {item.checked ? (
+                        <IconSymbol name="checkmark" size={14} color={colors.background} />
+                      ) : null}
+                    </Pressable>
+                  ) : null}
                   <Pressable onPress={() => openEntry(item)} style={styles.rowMain}>
                     <ThumbnailImage imageUrl={item.imageUrl} style={styles.rowImage} />
                     <View style={styles.rowInfo}>
@@ -461,7 +457,7 @@ export default function ListDetailScreen() {
                       </ThemedText>
                       <View style={styles.rowMetaWrap}>
                         <ThemedText style={[styles.rowMeta, { color: colors.icon }]} numberOfLines={2}>
-                          {buildEntryMeta(item, itemUserDataByKey)}
+                          {buildEntryMeta(item, itemUserDataByKey, { showStatus: hasStatus })}
                         </ThemedText>
                         {getEffectiveEntryRating(item, itemUserDataByKey) ? (
                           <RatingStars value={getEffectiveEntryRating(item, itemUserDataByKey)} size={12} />
@@ -683,7 +679,7 @@ export default function ListDetailScreen() {
             { value: 'updated-desc', label: 'Recently updated' },
             { value: 'title-asc', label: 'Title A-Z' },
             { value: 'rating-desc', label: 'Rating' },
-            { value: 'status', label: 'Status' },
+            ...(hasStatus ? [{ value: 'status', label: 'Status' }] : []),
           ]}
           selectedValue={preferences.sortMode}
           onClose={() => setMenuVisible(null)}
@@ -697,11 +693,15 @@ export default function ListDetailScreen() {
           title="Filter items"
           options={[
             { value: 'all', label: 'All' },
-            { value: 'active', label: 'Active' },
-            { value: 'planned', label: 'Planned' },
-            { value: 'completed', label: 'Completed' },
-            { value: 'paused', label: 'Paused' },
-            { value: 'dropped', label: 'Dropped' },
+            ...(hasStatus
+              ? [
+                  { value: 'active', label: 'Active' },
+                  { value: 'planned', label: 'Planned' },
+                  { value: 'completed', label: 'Completed' },
+                  { value: 'paused', label: 'Paused' },
+                  { value: 'dropped', label: 'Dropped' },
+                ]
+              : []),
             { value: 'archived', label: 'Archived' },
           ]}
           selectedValue={preferences.filterMode}
@@ -758,11 +758,11 @@ export default function ListDetailScreen() {
                       progress:
                         item.totalProgress && item.progressUnit
                           ? {
-                              current: undefined,
-                              total: item.totalProgress,
-                              unit: item.progressUnit,
-                              updatedAt: Date.now(),
-                            }
+                            current: undefined,
+                            total: item.totalProgress,
+                            unit: item.progressUnit,
+                            updatedAt: Date.now(),
+                          }
                           : undefined,
                     })
                   }
@@ -1356,11 +1356,18 @@ function labelForFilter(value: ListFilterMode) {
               : 'Archived';
 }
 
-function buildEntryMeta(entry: ListEntry, itemUserDataByKey?: Record<string, ItemUserData>) {
-  const parts = [entry.type === 'list' ? 'List' : entry.type, entry.status];
+function buildEntryMeta(
+  entry: ListEntry,
+  itemUserDataByKey?: Record<string, ItemUserData>,
+  options?: { showStatus?: boolean }
+) {
+  const parts = [entry.type === 'list' ? 'List' : entry.type];
   const progress = formatProgressLabel(entry, itemUserDataByKey);
   if (progress) {
     parts.splice(1, 0, progress);
+  }
+  if (options?.showStatus && entry.status) {
+    parts.push(entry.status);
   }
   return parts.join(' · ');
 }
@@ -1449,10 +1456,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   composerCard: {
-    borderWidth: 1,
-    borderRadius: 18,
-    paddingHorizontal: 16,
-    paddingVertical: 4,
+    paddingHorizontal: 8,
   },
   composerInput: {
     fontSize: 16,

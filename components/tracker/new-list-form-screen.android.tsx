@@ -12,12 +12,14 @@ import {
 interface NewListFormScreenProps {
   form: NewListFormController;
   openAddons?: () => void;
+  openAutomation?: () => void;
   openCustomFields?: () => void;
 }
 
 export function NewListFormScreen({
   form,
   openAddons,
+  openAutomation,
   openCustomFields,
 }: NewListFormScreenProps) {
   return (
@@ -102,6 +104,16 @@ export function NewListFormScreen({
               <View style={styles.trailingCluster}>
                 <ThemedText style={styles.trailingCount}>
                   {String(form.draftConfig.addons.length)}
+                </ThemedText>
+                <IconSymbol name="chevron.right" size={18} color="#8A8F98" />
+              </View>
+            </ListItem.Trailing>
+          </ListItem>
+          <ListItem headline="Programming" onPress={openAutomation}>
+            <ListItem.Trailing>
+              <View style={styles.trailingCluster}>
+                <ThemedText style={styles.trailingCount}>
+                  {String(form.draftConfig.automationBlocks.length)}
                 </ThemedText>
                 <IconSymbol name="chevron.right" size={18} color="#8A8F98" />
               </View>

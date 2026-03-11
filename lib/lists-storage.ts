@@ -12,10 +12,13 @@ import {
   deriveListConfigFromLegacy,
   LEGACY_MOCK_LISTS,
   LEGACY_MOCK_TIER_SUBLISTS,
+  sanitizeListPreferencesForConfig,
   type CustomField,
+  type EntryStatus,
   type EntryProgress,
   type EntrySourceRef,
   type ItemUserData,
+  type ListAutomationBlock,
   type ListConfig,
   type ListEntry,
   type ListFilterMode,
@@ -185,6 +188,7 @@ function isListFieldKind(value: unknown): value is ListFieldKind {
 
 function isListAddon(value: unknown): value is ListConfig['addons'][number] {
   return (
+    value === 'toggle' ||
     value === 'status' ||
     value === 'progress' ||
     value === 'rating' ||
@@ -197,6 +201,16 @@ function isListAddon(value: unknown): value is ListConfig['addons'][number] {
     value === 'sublists' ||
     value === 'compare' ||
     value === 'tier'
+  );
+}
+
+function isEntryStatus(value: unknown): value is EntryStatus {
+  return (
+    value === 'planned' ||
+    value === 'active' ||
+    value === 'paused' ||
+    value === 'completed' ||
+    value === 'dropped'
   );
 }
 
@@ -217,6 +231,40 @@ function normalizeFieldDefinitions(value: unknown): ListFieldDefinition[] {
       id: field.id as string,
       label: field.label as string,
       kind: field.kind as ListFieldKind,
+    }));
+}
+
+function normalizeAutomationBlocks(value: unknown): ListAutomationBlock[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter(
+      (block): block is Record<string, unknown> =>
+        isRecord(block) &&
+        typeof block.id === 'string' &&
+        block.kind === 'if-then' &&
+        block.sourceAddonId === 'toggle' &&
+        block.sourceField === 'checked' &&
+        block.operator === 'equals' &&
+        typeof block.sourceValue === 'boolean' &&
+        block.targetAddonId === 'status' &&
+        block.targetField === 'status' &&
+        block.operation === 'set' &&
+        isEntryStatus(block.targetValue)
+    )
+    .map((block) => ({
+      id: block.id as string,
+      kind: 'if-then',
+      sourceAddonId: 'toggle',
+      sourceField: 'checked',
+      operator: 'equals',
+      sourceValue: block.sourceValue as boolean,
+      targetAddonId: 'status',
+      targetField: 'status',
+      operation: 'set',
+      targetValue: block.targetValue as EntryStatus,
     }));
 }
 
@@ -249,6 +297,7 @@ function normalizeListConfig(
           preset: fallback?.preset,
           entries: fallback?.entries,
         }).addons,
+    automationBlocks: normalizeAutomationBlocks(value.automationBlocks),
     fieldDefinitions: normalizeFieldDefinitions(value.fieldDefinitions),
     defaultEntryType,
   });
@@ -385,14 +434,7 @@ function normalizeEntry(value: unknown): ListEntry | null {
       ? value.type
       : 'custom';
 
-  const status =
-    value.status === 'planned' ||
-    value.status === 'active' ||
-    value.status === 'paused' ||
-    value.status === 'completed' ||
-    value.status === 'dropped'
-      ? value.status
-      : 'planned';
+  const status = isEntryStatus(value.status) ? value.status : undefined;
 
   return {
     id: value.id,
@@ -427,6 +469,7 @@ function normalizeEntry(value: unknown): ListEntry | null {
       typeof value.linkedEntryId === 'string' ? value.linkedEntryId : undefined,
     linkedListId:
       typeof value.linkedListId === 'string' ? value.linkedListId : undefined,
+    checked: typeof value.checked === 'boolean' ? value.checked : undefined,
     status,
     rating: normalizeRating(typeof value.rating === 'number' ? value.rating : undefined),
     tags: Array.isArray(value.tags)
@@ -466,15 +509,17 @@ function normalizeList(value: unknown): TrackerList | null {
     : [];
   const preset = value.preset === 'blank' ? 'blank' : 'tracking';
 
+  const config = normalizeListConfig(value.config, { entries, preset });
+
   return {
     id: value.id,
     title: value.title,
     description: typeof value.description === 'string' ? value.description : undefined,
     tags: normalizeListTags(value.tags),
     preset,
-    config: normalizeListConfig(value.config, { entries, preset }),
+    config,
     entries,
-    preferences: normalizePreferences(value.preferences),
+    preferences: sanitizeListPreferencesForConfig(normalizePreferences(value.preferences), config),
     pinned: typeof value.pinned === 'boolean' ? value.pinned : false,
     createdAt: typeof value.createdAt === 'number' ? value.createdAt : Date.now(),
     updatedAt: typeof value.updatedAt === 'number' ? value.updatedAt : Date.now(),
@@ -688,6 +733,7 @@ function convertLegacyEntry(
     totalVolumes: entry.totalVolumes,
     linkedEntryId: undefined,
     linkedListId: undefined,
+    checked: childChange?.checked ?? false,
     status: childChange?.checked ? 'completed' : 'planned',
     rating: undefined,
     tags: [],

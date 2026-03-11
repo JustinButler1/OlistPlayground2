@@ -3,9 +3,11 @@ import { createContext, useCallback, useContext, useMemo, useState } from 'react
 
 import { useListActions, useListsQuery } from '@/contexts/lists-context';
 import {
+  createListAutomationBlock,
   createListConfig,
   DEFAULT_LIST_CONFIG,
   type ListAddonId,
+  type ListAutomationBlock,
   type ListConfig,
   type ListFieldDefinition,
   type ListFieldKind,
@@ -34,6 +36,9 @@ export interface NewListFormController {
   selectTemplate: (templateId: string) => void;
   toggleAddon: (addonId: ListAddonId) => void;
   setDefaultEntryType: (value: ListConfig['defaultEntryType']) => void;
+  addAutomationBlock: () => void;
+  updateAutomationBlock: (blockId: string, updates: Partial<ListAutomationBlock>) => void;
+  removeAutomationBlock: (blockId: string) => void;
   addField: () => void;
   updateField: (fieldId: string, updates: Partial<ListFieldDefinition>) => void;
   updateFieldKind: (fieldId: string, kind: ListFieldKind) => void;
@@ -163,11 +168,12 @@ function useNewListFormController(): NewListFormController {
     (addonId: ListAddonId) => {
       updateConfig((current) => {
         const isEnabled = current.addons.includes(addonId);
+        const nextAddons = isEnabled
+          ? current.addons.filter((item) => item !== addonId)
+          : [...current.addons, addonId];
         return {
           ...current,
-          addons: isEnabled
-            ? current.addons.filter((item) => item !== addonId)
-            : [...current.addons, addonId],
+          addons: nextAddons,
         };
       });
     },
@@ -179,6 +185,35 @@ function useNewListFormController(): NewListFormController {
       updateConfig((current) => ({
         ...current,
         defaultEntryType: value,
+      }));
+    },
+    [updateConfig]
+  );
+
+  const addAutomationBlock = useCallback(() => {
+    updateConfig((current) => ({
+      ...current,
+      automationBlocks: [...current.automationBlocks, createListAutomationBlock()],
+    }));
+  }, [updateConfig]);
+
+  const updateAutomationBlock = useCallback(
+    (blockId: string, updates: Partial<ListAutomationBlock>) => {
+      updateConfig((current) => ({
+        ...current,
+        automationBlocks: current.automationBlocks.map((block) =>
+          block.id === blockId ? { ...block, ...updates } : block
+        ),
+      }));
+    },
+    [updateConfig]
+  );
+
+  const removeAutomationBlock = useCallback(
+    (blockId: string) => {
+      updateConfig((current) => ({
+        ...current,
+        automationBlocks: current.automationBlocks.filter((block) => block.id !== blockId),
       }));
     },
     [updateConfig]
@@ -312,6 +347,9 @@ function useNewListFormController(): NewListFormController {
       selectTemplate,
       toggleAddon,
       setDefaultEntryType,
+      addAutomationBlock,
+      updateAutomationBlock,
+      removeAutomationBlock,
       addField,
       updateField,
       updateFieldKind,
@@ -343,6 +381,9 @@ function useNewListFormController(): NewListFormController {
       selectedTemplateId,
       setCreateMode,
       setDefaultEntryType,
+      addAutomationBlock,
+      updateAutomationBlock,
+      removeAutomationBlock,
       submit,
       templateDescription,
       templateTitle,

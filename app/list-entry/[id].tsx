@@ -69,7 +69,14 @@ export default function ListEntryDetailScreen() {
                 </ThemedText>
                 <ThemedText style={styles.metaText}>{result.list.title}</ThemedText>
                 <ThemedText style={styles.metaText}>Type: {result.entry.type}</ThemedText>
-                <ThemedText style={styles.metaText}>Status: {result.entry.status}</ThemedText>
+                {result.list.config.addons.includes('status') && result.entry.status ? (
+                  <ThemedText style={styles.metaText}>Status: {result.entry.status}</ThemedText>
+                ) : null}
+                {result.list.config.addons.includes('toggle') ? (
+                  <ThemedText style={styles.metaText}>
+                    Toggle: {result.entry.checked ? 'On' : 'Off'}
+                  </ThemedText>
+                ) : null}
                 {effectiveProgress ? (
                   <ThemedText style={styles.metaText}>Progress: {effectiveProgress}</ThemedText>
                 ) : null}

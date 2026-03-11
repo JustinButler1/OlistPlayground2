@@ -1,10 +1,11 @@
-import type { ListAddonId, ListConfig, ListFieldKind } from '@/data/mock-lists';
+import type { EntryStatus, ListAddonId, ListConfig, ListFieldKind } from '@/data/mock-lists';
 
 export const LIST_ADDON_OPTIONS: Array<{
   id: ListAddonId;
   label: string;
   description: string;
 }> = [
+  { id: 'toggle', label: 'Toggle', description: 'Show a per-item toggle without changing anything else.' },
   { id: 'status', label: 'Status', description: 'Planned, active, completed, dropped.' },
   { id: 'progress', label: 'Progress', description: 'Track numbers like 3/12 or 45%.' },
   { id: 'rating', label: 'Rating', description: 'Score items directly in the list.' },
@@ -44,6 +45,14 @@ export const LIST_FIELD_KIND_OPTIONS: Array<{ value: ListFieldKind; label: strin
   { value: 'text', label: 'Text' },
   { value: 'number', label: 'Number' },
   { value: 'url', label: 'URL' },
+];
+
+export const LIST_STATUS_OPTIONS: Array<{ value: EntryStatus; label: string }> = [
+  { value: 'planned', label: 'Planned' },
+  { value: 'active', label: 'Active' },
+  { value: 'paused', label: 'Paused' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'dropped', label: 'Dropped' },
 ];
 
 export function getListEntryTypeLabel(value: ListConfig['defaultEntryType']): string {
