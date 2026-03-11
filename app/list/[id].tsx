@@ -1,4 +1,4 @@
-import { useHeaderHeight, type HeaderSearchBarRef } from '@react-navigation/elements';
+import { useHeaderHeight } from '@react-navigation/elements';
 import { BlurView } from 'expo-blur';
 import { Image } from 'expo-image';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
@@ -15,6 +15,7 @@ import {
   ScrollView,
   StyleSheet,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
@@ -40,18 +41,21 @@ import { formatProgressLabel, sortEntries } from '@/lib/tracker-selectors';
 const TIER_COLORS = ['#2A1B60', '#3A227A', '#4E2899', '#5F34B0', '#1A5E85', '#139EC1', '#68C7DB'];
 const COMPOSER_TOOLBAR_HEIGHT = 76;
 const COMPOSER_TOOLBAR_OFFSET = 20;
+const BOTTOM_TOOLBAR_HEIGHT = 56;
+const BOTTOM_TOOLBAR_MARGIN = 16;
 
 export default function ListDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const isIos = process.env.EXPO_OS === 'ios';
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
   const headerHeight = useHeaderHeight();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const listRef = useRef<FlatList<ListEntry>>(null);
   const composerInputRef = useRef<TextInput>(null);
-  const headerSearchBarRef = useRef<HeaderSearchBarRef>(null);
+  const listSearchInputRef = useRef<TextInput>(null);
   const composerAccessoryId = useMemo(
     () => `list-entry-composer-action-bar-${String(id ?? 'unknown').replace(/[^A-Za-z0-9_-]/g, '-')}`,
     [id]
@@ -84,7 +88,6 @@ export default function ListDetailScreen() {
   const [pendingLinkUrl, setPendingLinkUrl] = useState('');
   const [listSearchVisible, setListSearchVisible] = useState(false);
   const [listSearchQuery, setListSearchQuery] = useState('');
-  const [shouldFocusHeaderSearch, setShouldFocusHeaderSearch] = useState(false);
   const [searchVisible, setSearchVisible] = useState(false);
   const [tagSheetVisible, setTagSheetVisible] = useState(false);
   const [linkSheetVisible, setLinkSheetVisible] = useState(false);
@@ -121,7 +124,13 @@ export default function ListDetailScreen() {
     });
     const hideSubscription = Keyboard.addListener(hideEvent, () => {
       setKeyboardHeight(0);
-      if (process.env.EXPO_OS !== 'ios' && !searchVisible && !tagSheetVisible && !linkSheetVisible) {
+      if (
+        process.env.EXPO_OS !== 'ios' &&
+        !listSearchVisible &&
+        !searchVisible &&
+        !tagSheetVisible &&
+        !linkSheetVisible
+      ) {
         collapseComposer();
       }
     });
@@ -130,7 +139,7 @@ export default function ListDetailScreen() {
       showSubscription.remove();
       hideSubscription.remove();
     };
-  }, [collapseComposer, linkSheetVisible, searchVisible, tagSheetVisible]);
+  }, [collapseComposer, linkSheetVisible, listSearchVisible, searchVisible, tagSheetVisible]);
 
   const openComposer = useCallback(() => {
     if (preferences.viewMode !== 'list') {
@@ -140,28 +149,32 @@ export default function ListDetailScreen() {
     setComposerFocusPending(true);
   }, [preferences.viewMode, setListPreferences]);
 
-  const openListSearch = useCallback(() => {
-    if (isIos) {
-      setListSearchVisible(true);
-      setShouldFocusHeaderSearch(true);
+  const closeListSearch = useCallback(() => {
+    listSearchInputRef.current?.blur();
+    Keyboard.dismiss();
+    setListSearchQuery('');
+    setListSearchVisible(false);
+  }, []);
+
+  const toggleListSearch = useCallback(() => {
+    if (listSearchVisible) {
+      closeListSearch();
       return;
     }
 
+    Keyboard.dismiss();
     setListSearchVisible(true);
-  }, [isIos]);
+  }, [closeListSearch, listSearchVisible]);
 
-  useEffect(() => {
-    if (!isIos || !shouldFocusHeaderSearch) {
+  const goHome = useCallback(() => {
+    Keyboard.dismiss();
+    if (router.canDismiss()) {
+      router.dismissTo('/');
       return;
     }
 
-    const timeout = setTimeout(() => {
-      headerSearchBarRef.current?.focus();
-      setShouldFocusHeaderSearch(false);
-    }, 0);
-
-    return () => clearTimeout(timeout);
-  }, [isIos, shouldFocusHeaderSearch]);
+    router.replace('/');
+  }, [router]);
 
   const visibleEntries = useMemo(() => {
     if (!list) {
@@ -490,9 +503,11 @@ export default function ListDetailScreen() {
 
   const hasToggle = list.config.addons.includes('toggle');
   const hasStatus = list.config.addons.includes('status');
+  const bottomToolbarInset = insets.bottom + BOTTOM_TOOLBAR_HEIGHT + BOTTOM_TOOLBAR_MARGIN * 2;
+  const nativeSearchWidth = Math.max(180, windowWidth - 156);
   const footerSpacerHeight = composerVisible
-    ? keyboardHeight + (isIos ? 24 : COMPOSER_TOOLBAR_HEIGHT + COMPOSER_TOOLBAR_OFFSET)
-    : 28;
+    ? bottomToolbarInset + keyboardHeight + (isIos ? 24 : COMPOSER_TOOLBAR_HEIGHT + COMPOSER_TOOLBAR_OFFSET)
+    : bottomToolbarInset;
   const actionBarBottom = keyboardHeight > 0 ? keyboardHeight + 12 : insets.bottom + 16;
 
   return (
@@ -501,50 +516,23 @@ export default function ListDetailScreen() {
         options={{
           title: list.title,
           headerTransparent: true,
-          headerSearchBarOptions:
-            isIos && listSearchVisible
-              ? {
-                ref: headerSearchBarRef,
-                autoCapitalize: 'none',
-                hideNavigationBar: false,
-                hideWhenScrolling: false,
-                obscureBackground: false,
-                onCancelButtonPress: () => {
-                  if (!listSearchQuery.trim()) {
-                    setListSearchVisible(false);
-                  }
-                },
-                onChangeText: (event) => {
-                  setListSearchQuery(event.nativeEvent.text);
-                },
-                onClose: () => {
-                  if (!listSearchQuery.trim()) {
-                    setListSearchVisible(false);
-                  }
-                },
-                onSearchButtonPress: (event) => {
-                  setListSearchQuery(event.nativeEvent.text);
-                },
-                placeholder: 'Search this list',
-              }
-              : undefined,
           headerRight: isIos
             ? undefined
             : () => (
-              <View style={styles.headerButtonsRow}>
+              <View style={styles.headerRightActions}>
                 <Pressable
-                  onPress={openComposer}
+                  accessibilityLabel="Go home"
+                  accessibilityRole="button"
+                  hitSlop={8}
+                  onPress={goHome}
                   style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.7 : 1 }]}
                 >
-                  <IconSymbol name="plus" size={24} color={colors.tint} />
+                  <IconSymbol name="house.fill" size={22} color={colors.tint} />
                 </Pressable>
                 <Pressable
-                  onPress={openListSearch}
-                  style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.7 : 1 }]}
-                >
-                  <IconSymbol name="magnifyingglass" size={22} color={colors.tint} />
-                </Pressable>
-                <Pressable
+                  accessibilityLabel="Open list menu"
+                  accessibilityRole="button"
+                  hitSlop={8}
                   onPress={() => setMenuVisible('view')}
                   style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.7 : 1 }]}
                 >
@@ -554,10 +542,9 @@ export default function ListDetailScreen() {
             ),
         }}
       />
-      {isIos && !listSearchVisible ? (
+      {isIos ? (
         <Stack.Toolbar placement="right">
-          <Stack.Toolbar.Button icon="plus" onPress={openComposer} />
-          <Stack.Toolbar.Button icon="magnifyingglass" onPress={openListSearch} />
+          <Stack.Toolbar.Button icon="house.fill" onPress={goHome} />
           <Stack.Toolbar.Menu icon="ellipsis">
             <Stack.Toolbar.Menu title="View">
               <Stack.Toolbar.Menu inline>
@@ -650,41 +637,6 @@ export default function ListDetailScreen() {
           />
         </View>
         <View style={[styles.contentLayer, { paddingTop: headerHeight }]}>
-          {!isIos && listSearchVisible ? (
-            <View style={styles.inlineSearchWrap}>
-              <View
-                style={[
-                  styles.inlineSearchBar,
-                  {
-                    borderColor: colors.icon + '30',
-                    backgroundColor: colors.icon + '10',
-                  },
-                ]}
-              >
-                <TextInput
-                  style={[styles.inlineSearchInput, { color: colors.text }]}
-                  placeholder="Search this list"
-                  placeholderTextColor={colors.icon}
-                  value={listSearchQuery}
-                  onChangeText={setListSearchQuery}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  returnKeyType="search"
-                />
-                <Pressable
-                  accessibilityLabel="Clear search"
-                  hitSlop={8}
-                  onPress={() => {
-                    setListSearchQuery('');
-                    setListSearchVisible(false);
-                  }}
-                  style={({ pressed }) => [{ opacity: pressed ? 0.72 : 1 }]}
-                >
-                  <IconSymbol name="xmark" size={18} color={colors.icon} />
-                </Pressable>
-              </View>
-            </View>
-          ) : null}
           <View style={styles.toolbar}>
             <FilterSortControlRow
               alignRight
@@ -734,13 +686,13 @@ export default function ListDetailScreen() {
           ) : null}
 
           {preferences.viewMode === 'compare' ? (
-            <CompareView entries={visibleEntries} />
+            <CompareView entries={visibleEntries} bottomInset={bottomToolbarInset} />
           ) : preferences.viewMode === 'tier' ? (
-            <TierView tierRows={tierRows} onOpenEntry={openEntry} />
+            <TierView tierRows={tierRows} onOpenEntry={openEntry} bottomInset={bottomToolbarInset} />
           ) : preferences.viewMode === 'grid' ? (
             <ScrollView
               contentInsetAdjustmentBehavior="automatic"
-              contentContainerStyle={[styles.gridContent, { paddingBottom: insets.bottom + 24 }]}
+              contentContainerStyle={[styles.gridContent, { paddingBottom: bottomToolbarInset }]}
               keyboardShouldPersistTaps="handled"
             >
               <View style={styles.grid}>
@@ -818,7 +770,7 @@ export default function ListDetailScreen() {
               )}
               contentContainerStyle={[
                 styles.listContent,
-                { paddingBottom: insets.bottom + footerSpacerHeight },
+                { paddingBottom: footerSpacerHeight },
               ]}
               ListEmptyComponent={
                 <ThemedText style={[styles.placeholder, { color: colors.icon }]}>
@@ -877,6 +829,123 @@ export default function ListDetailScreen() {
             />
           )}
         </View>
+
+        {isIos ? (
+          <Stack.Toolbar placement="bottom">
+            <Stack.Toolbar.Button
+              icon="magnifyingglass"
+              selected={listSearchVisible}
+              onPress={toggleListSearch}
+            />
+            {listSearchVisible ? (
+              <Stack.Toolbar.View>
+                <View
+                  style={[
+                    styles.nativeSearchToolbarWrap,
+                    {
+                      width: nativeSearchWidth,
+                      backgroundColor: colors.icon + '10',
+                      borderColor: colors.icon + '28',
+                    },
+                  ]}
+                >
+                  <TextInput
+                    ref={listSearchInputRef}
+                    style={[styles.nativeSearchToolbarInput, { color: colors.text }]}
+                    placeholder="Search this list"
+                    placeholderTextColor={colors.icon}
+                    value={listSearchQuery}
+                    onChangeText={setListSearchQuery}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    returnKeyType="search"
+                  />
+                </View>
+              </Stack.Toolbar.View>
+            ) : (
+              <>
+                <Stack.Toolbar.Spacer />
+                <Stack.Toolbar.Button icon="plus" onPress={openComposer} />
+              </>
+            )}
+          </Stack.Toolbar>
+        ) : (
+          <View pointerEvents="box-none" style={styles.bottomToolbarOverlay}>
+            <View
+              style={[
+                styles.bottomToolbar,
+                {
+                  backgroundColor: colors.background,
+                  borderColor: colors.icon + '20',
+                  bottom: insets.bottom + BOTTOM_TOOLBAR_MARGIN,
+                },
+              ]}
+            >
+              {listSearchVisible ? (
+                <View
+                  style={[
+                    styles.expandedSearchBar,
+                    {
+                      borderColor: colors.icon + '28',
+                      backgroundColor: colors.icon + '10',
+                    },
+                  ]}
+                >
+                  <Pressable
+                    accessibilityLabel="Close search"
+                    accessibilityRole="button"
+                    hitSlop={8}
+                    onPress={toggleListSearch}
+                    style={({ pressed }) => [styles.expandedSearchIcon, { opacity: pressed ? 0.72 : 1 }]}
+                  >
+                    <IconSymbol name="magnifyingglass" size={18} color={colors.icon} />
+                  </Pressable>
+                  <View style={styles.expandedSearchField}>
+                    <TextInput
+                      ref={listSearchInputRef}
+                      style={[styles.expandedSearchInput, { color: colors.text }]}
+                      placeholder="Search this list"
+                      placeholderTextColor={colors.icon}
+                      value={listSearchQuery}
+                      onChangeText={setListSearchQuery}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      returnKeyType="search"
+                    />
+                  </View>
+                </View>
+              ) : (
+                <>
+                  <Pressable
+                    accessibilityLabel="Open search"
+                    accessibilityRole="button"
+                    hitSlop={8}
+                    onPress={toggleListSearch}
+                    style={({ pressed }) => [
+                      styles.bottomToolbarButton,
+                      { opacity: pressed ? 0.72 : 1, backgroundColor: colors.icon + '10' },
+                    ]}
+                  >
+                    <IconSymbol name="magnifyingglass" size={20} color={colors.tint} />
+                  </Pressable>
+                  <View style={styles.bottomToolbarSpacer} />
+                  <Pressable
+                    accessibilityLabel="Add item"
+                    accessibilityRole="button"
+                    hitSlop={8}
+                    onPress={openComposer}
+                    style={({ pressed }) => [
+                      styles.bottomToolbarButton,
+                      { opacity: pressed ? 0.72 : 1, backgroundColor: colors.tint },
+                    ]}
+                  >
+                    <IconSymbol name="plus" size={22} color={colors.background} />
+                  </Pressable>
+                </>
+              )}
+            </View>
+          </View>
+        )}
 
         <ComposerActionBar
           accessoryId={composerAccessoryId}
@@ -1524,7 +1593,7 @@ function SelectionMenu({
   );
 }
 
-function CompareView({ entries }: { entries: ListEntry[] }) {
+function CompareView({ entries, bottomInset }: { entries: ListEntry[]; bottomInset: number }) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const fieldTitles = Array.from(
@@ -1540,7 +1609,7 @@ function CompareView({ entries }: { entries: ListEntry[] }) {
     );
   }
   return (
-    <ScrollView horizontal style={styles.compareContainer}>
+    <ScrollView horizontal contentContainerStyle={{ paddingBottom: bottomInset }} style={styles.compareContainer}>
       <View style={[styles.compareTable, { borderColor: colors.icon + '35' }]}>
         <View
           style={[
@@ -1580,9 +1649,11 @@ function CompareView({ entries }: { entries: ListEntry[] }) {
 function TierView({
   tierRows,
   onOpenEntry,
+  bottomInset,
 }: {
   tierRows: { id: string; title: string; color: string; list: { entries: ListEntry[] } | null }[];
   onOpenEntry: (entry: ListEntry) => void;
+  bottomInset: number;
 }) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
@@ -1596,7 +1667,7 @@ function TierView({
     );
   }
   return (
-    <ScrollView contentContainerStyle={styles.tierContent}>
+    <ScrollView contentContainerStyle={[styles.tierContent, { paddingBottom: bottomInset }]}>
       {tierRows.map((tier) => (
         <View key={tier.id} style={[styles.tierRow, { borderBottomColor: colors.icon + '25' }]}>
           <View
@@ -1716,30 +1787,75 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  headerButtonsRow: { flexDirection: 'row', alignItems: 'center' },
-  headerButton: { padding: 6, marginRight: 6 },
+  headerRightActions: { flexDirection: 'row', alignItems: 'center' },
+  headerButton: { padding: 6, marginHorizontal: 6 },
   toolbar: {
     paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 4,
   },
-  inlineSearchWrap: {
-    paddingHorizontal: 20,
-    paddingTop: 12,
+  nativeSearchToolbarWrap: {
+    borderRadius: 16,
+    borderWidth: 1,
+    height: 36,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
   },
-  inlineSearchBar: {
+  nativeSearchToolbarInput: {
+    fontSize: 16,
+    height: 36,
+    paddingVertical: 0,
+  },
+  bottomToolbarOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+  },
+  bottomToolbar: {
+    alignItems: 'center',
+    borderRadius: 24,
+    borderWidth: 1,
+    boxShadow: '0 12px 28px rgba(6, 16, 31, 0.14)',
+    flexDirection: 'row',
+    left: 16,
+    minHeight: BOTTOM_TOOLBAR_HEIGHT,
+    paddingHorizontal: 12,
+    position: 'absolute',
+    right: 16,
+  },
+  bottomToolbarButton: {
+    alignItems: 'center',
+    borderRadius: 18,
+    height: 40,
+    justifyContent: 'center',
+    width: 40,
+  },
+  bottomToolbarSpacer: {
+    flex: 1,
+  },
+  expandedSearchBar: {
     alignItems: 'center',
     borderRadius: 18,
     borderWidth: 1,
+    flex: 1,
     flexDirection: 'row',
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 4,
+    minHeight: 40,
   },
-  inlineSearchInput: {
+  expandedSearchIcon: {
+    alignItems: 'center',
+    height: 40,
+    justifyContent: 'center',
+    width: 40,
+  },
+  expandedSearchField: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingRight: 12,
+  },
+  expandedSearchInput: {
     flex: 1,
     fontSize: 16,
-    paddingVertical: 10,
+    minHeight: 40,
+    paddingVertical: 0,
   },
   listTagSection: { paddingHorizontal: 20, paddingBottom: 8, gap: 8 },
   listTagLabel: { fontSize: 13 },
