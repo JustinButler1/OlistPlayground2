@@ -73,7 +73,8 @@
         {
           "faceIDPermission": "Allow Olist to confirm protected backup actions."
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true,

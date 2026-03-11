@@ -5,6 +5,7 @@ import { TabRootBackground } from '@/components/tab-root-background';
 import { ThemedText } from '@/components/themed-text';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
+import { useOnboarding } from '@/contexts/onboarding-context';
 import { useListActions, useListsQuery } from '@/contexts/lists-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
@@ -14,6 +15,12 @@ export default function ProfileScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const { activeLists, deletedLists } = useListsQuery();
   const { loadMockData } = useListActions();
+  const { isComplete, isHydrated, state } = useOnboarding();
+  const hasStarted =
+    !!state.profile.displayName.trim() ||
+    !!state.profile.birthDate ||
+    !!state.profile.avatarUri ||
+    state.profile.interests.length > 0;
 
   const confirmLoadMockData = () => {
     const runLoad = () => loadMockData();
@@ -115,6 +122,53 @@ export default function ProfileScreen() {
             <IconSymbol name="chevron.right" size={20} color={colors.icon} />
           </Pressable>
         </View>
+
+        <View
+          style={[
+            styles.card,
+            {
+              backgroundColor: colors.background,
+              borderColor: colors.icon + '20',
+            },
+          ]}
+        >
+          <ThemedText type="subtitle">Onboarding</ThemedText>
+          <ThemedText style={[styles.supportingText, { color: colors.icon }]}>
+            {isHydrated
+              ? isComplete
+                ? `Completed locally with ${state.profile.interests.length} saved interests.`
+                : hasStarted
+                  ? 'Resume your local profile setup from where you left off.'
+                  : 'Launch the local-only profile onboarding flow from here.'
+              : 'Loading your local onboarding state...'}
+          </ThemedText>
+          <Pressable
+            onPress={() => router.push('/profile-onboarding')}
+            style={({ pressed }) => [
+              styles.linkRow,
+              { backgroundColor: colors.icon + '15', opacity: pressed ? 0.8 : 1 },
+            ]}
+          >
+            <IconSymbol
+              name={isComplete ? 'checkmark' : 'person.fill'}
+              size={24}
+              color={colors.tint}
+            />
+            <View style={styles.linkCopy}>
+              <ThemedText style={[styles.linkText, { color: colors.text }]}>
+                {isComplete
+                  ? 'Review Onboarding'
+                  : hasStarted
+                    ? 'Resume Onboarding'
+                    : 'Start Onboarding'}
+              </ThemedText>
+              <ThemedText style={[styles.linkCaption, { color: colors.icon }]}>
+                Profile-triggered only. Never launched automatically.
+              </ThemedText>
+            </View>
+            <IconSymbol name="chevron.right" size={20} color={colors.icon} />
+          </Pressable>
+        </View>
       </ScrollView>
     </TabRootBackground>
   );
@@ -169,8 +223,15 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   linkText: {
-    flex: 1,
     fontSize: 16,
     fontWeight: '500',
+  },
+  linkCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  linkCaption: {
+    fontSize: 13,
+    lineHeight: 18,
   },
 });

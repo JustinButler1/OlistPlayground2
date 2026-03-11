@@ -6,6 +6,7 @@ import 'react-native-reanimated';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { ThemePalette } from '@/constants/theme';
+import { OnboardingProvider } from '@/contexts/onboarding-context';
 import { ListsProvider } from '@/contexts/lists-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
@@ -47,24 +48,26 @@ export default function RootLayout() {
   return (
     <RootGestureHandlerView style={{ flex: 1 }}>
       <ThemeProvider value={colorScheme === 'dark' ? DarkThemeCustom : LightTheme}>
-        <ListsProvider>
-          <Stack screenOptions={{ headerBackButtonDisplayMode: 'minimal' }}>
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="anime/[id]" />
-            <Stack.Screen name="manga/[id]" />
-            <Stack.Screen name="books/[id]" />
-            <Stack.Screen name="tv-movie/[type]/[id]" />
-            <Stack.Screen name="list/[id]" />
-            <Stack.Screen name="list-entry/[id]" />
-            <Stack.Screen name="games/[id]" />
-            <Stack.Screen name="product-import" options={{ title: 'Import Product' }} />
-            <Stack.Screen
-              name="modal"
-              options={{ presentation: 'modal', title: 'Modal' }}
-            />
-          </Stack>
-          <StatusBar style="auto" />
-        </ListsProvider>
+        <OnboardingProvider>
+          <ListsProvider>
+            <Stack screenOptions={{ headerBackButtonDisplayMode: 'minimal' }}>
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              <Stack.Screen name="anime/[id]" />
+              <Stack.Screen name="manga/[id]" />
+              <Stack.Screen name="books/[id]" />
+              <Stack.Screen name="tv-movie/[type]/[id]" />
+              <Stack.Screen name="list/[id]" />
+              <Stack.Screen name="list-entry/[id]" />
+              <Stack.Screen name="games/[id]" />
+              <Stack.Screen name="product-import" options={{ title: 'Import Product' }} />
+              <Stack.Screen
+                name="modal"
+                options={{ presentation: 'modal', title: 'Modal' }}
+              />
+            </Stack>
+            <StatusBar style="auto" />
+          </ListsProvider>
+        </OnboardingProvider>
       </ThemeProvider>
     </RootGestureHandlerView>
   );
