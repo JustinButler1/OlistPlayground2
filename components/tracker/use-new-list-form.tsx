@@ -1,3 +1,4 @@
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 
@@ -20,6 +21,7 @@ export interface NewListFormController {
   sessionId: string | null;
   formRevision: number;
   title: string;
+  imageUrl: string | null;
   description: string;
   createMode: NewListCreateMode;
   selectedTemplateId: string | null;
@@ -31,6 +33,8 @@ export interface NewListFormController {
   listTemplates: ListTemplate[];
   canSubmit: boolean;
   setTitle: (value: string) => void;
+  pickImage: () => Promise<void>;
+  clearImage: () => void;
   setDescription: (value: string) => void;
   setCreateMode: (mode: NewListCreateMode) => void;
   selectTemplate: (templateId: string) => void;
@@ -69,6 +73,7 @@ function useNewListFormController(): NewListFormController {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [formRevision, setFormRevision] = useState(0);
   const [title, setTitle] = useState('');
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [description, setDescription] = useState('');
   const [createMode, setCreateModeState] = useState<NewListCreateMode>('scratch');
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
@@ -87,6 +92,7 @@ function useNewListFormController(): NewListFormController {
   const reset = useCallback(() => {
     setSessionId(null);
     setTitle('');
+    setImageUrl(null);
     setDescription('');
     setCreateModeState('scratch');
     setSelectedTemplateId(null);
@@ -105,6 +111,7 @@ function useNewListFormController(): NewListFormController {
         }
 
         setTitle('');
+        setImageUrl(null);
         setDescription('');
         setCreateModeState('scratch');
         setSelectedTemplateId(null);
@@ -121,6 +128,27 @@ function useNewListFormController(): NewListFormController {
 
   const updateConfig = useCallback((updater: (current: ListConfig) => ListConfig) => {
     setDraftConfig((current) => createListConfig(updater(current)));
+  }, []);
+
+  const pickImage = useCallback(async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      quality: 0.7,
+    });
+
+    if (!result.canceled && result.assets?.[0]?.uri) {
+      setImageUrl(result.assets[0].uri);
+    }
+  }, []);
+
+  const clearImage = useCallback(() => {
+    setImageUrl(null);
   }, []);
 
   const setCreateMode = useCallback((mode: NewListCreateMode) => {
@@ -279,10 +307,12 @@ function useNewListFormController(): NewListFormController {
         ? createListFromTemplate(selectedTemplateId, {
             title: trimmedTitle,
             description: trimmedDescription,
+            imageUrl: imageUrl ?? undefined,
           })
         : createList(trimmedTitle, {
             config: draftConfig,
             description: trimmedDescription,
+            imageUrl: imageUrl ?? undefined,
             templateId: selectedTemplateId ?? undefined,
           });
 
@@ -311,6 +341,7 @@ function useNewListFormController(): NewListFormController {
     createMode,
     description,
     draftConfig,
+    imageUrl,
     reset,
     router,
     saveAsTemplate,
@@ -331,6 +362,7 @@ function useNewListFormController(): NewListFormController {
       sessionId,
       formRevision,
       title,
+      imageUrl,
       description,
       createMode,
       selectedTemplateId,
@@ -342,6 +374,8 @@ function useNewListFormController(): NewListFormController {
       listTemplates,
       canSubmit,
       setTitle,
+      pickImage,
+      clearImage,
       setDescription,
       setCreateMode,
       selectTemplate,
@@ -371,8 +405,11 @@ function useNewListFormController(): NewListFormController {
       description,
       draftConfig,
       formRevision,
+      imageUrl,
       listTemplates,
+      clearImage,
       removeField,
+      pickImage,
       reset,
       saveAsTemplate,
       sessionId,

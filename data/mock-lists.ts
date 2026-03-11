@@ -136,6 +136,7 @@ export interface ListPreferences {
 export interface TrackerList {
   id: string;
   title: string;
+  imageUrl?: string;
   description?: string;
   tags: string[];
   preset: ListPreset;
@@ -426,6 +427,7 @@ function createSeedList(
   return {
     id,
     title,
+    imageUrl: options.imageUrl,
     description: options.description,
     tags: options.tags ? [...options.tags] : [],
     preset: options.preset ?? derivePresetFromConfig(config),

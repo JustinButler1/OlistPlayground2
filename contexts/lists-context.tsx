@@ -96,6 +96,7 @@ interface ListActionsValue {
       | {
           config?: Partial<ListConfig>;
           description?: string;
+          imageUrl?: string;
           pinned?: boolean;
           preset?: ListPreset;
           templateId?: string;
@@ -103,13 +104,19 @@ interface ListActionsValue {
           parentListId?: string;
         },
     options?: Partial<
-      Pick<TrackerList, 'description' | 'pinned' | 'templateId' | 'tags' | 'parentListId'>
+      Pick<
+        TrackerList,
+        'description' | 'imageUrl' | 'pinned' | 'templateId' | 'tags' | 'parentListId'
+      >
     >
   ) => string | null;
   createListFromTemplate: (
     templateId: string,
     overrides?: Partial<
-      Pick<TrackerList, 'title' | 'description' | 'pinned' | 'tags' | 'parentListId'>
+      Pick<
+        TrackerList,
+        'title' | 'description' | 'imageUrl' | 'pinned' | 'tags' | 'parentListId'
+      >
     >
   ) => string | null;
   updateList: (
@@ -117,7 +124,14 @@ interface ListActionsValue {
     updates: Partial<
       Pick<
         TrackerList,
-        'title' | 'description' | 'pinned' | 'config' | 'templateId' | 'tags' | 'parentListId'
+        | 'title'
+        | 'description'
+        | 'imageUrl'
+        | 'pinned'
+        | 'config'
+        | 'templateId'
+        | 'tags'
+        | 'parentListId'
       >
     >
   ) => void;
@@ -439,6 +453,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
           ? options
           : {
               description: presetOrOptions.description,
+              imageUrl: presetOrOptions.imageUrl,
               pinned: presetOrOptions.pinned,
               templateId: presetOrOptions.templateId,
               tags: presetOrOptions.tags,
@@ -451,6 +466,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
         current.lists.unshift({
           id: listId,
           title: trimmedTitle,
+          imageUrl: normalizedOptions?.imageUrl,
           description: normalizedOptions?.description,
           tags: normalizeTags(normalizedOptions?.tags),
           preset: legacyPreset ?? derivePresetFromConfig(config),
@@ -494,6 +510,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                 ...item,
                 title: normalizedTitle || item.title,
                 description: normalizedDescription || item.description,
+                imageUrl: overrides?.imageUrl ?? item.imageUrl,
                 pinned: overrides?.pinned ?? item.pinned,
                 tags: normalizedTags.length ? normalizedTags : item.tags,
                 parentListId: overrides?.parentListId ?? item.parentListId,

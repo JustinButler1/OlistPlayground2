@@ -1,4 +1,3 @@
-import { Image } from 'expo-image';
 import { Stack, useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { Alert, Animated, FlatList, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
@@ -7,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { TabRootBackground } from '@/components/tab-root-background';
 import { ThemedText } from '@/components/themed-text';
+import { ThumbnailImage } from '@/components/thumbnail-image';
 import { FilterSortControlRow } from '@/components/tracker/filter-sort-control-row';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
@@ -152,11 +152,7 @@ export default function MyListsScreen() {
                 onPress={() => openListDetail(item)}
                 style={({ pressed }) => [styles.resultRow, { opacity: pressed ? 0.8 : 1 }]}
               >
-                <Image
-                  source={require('../../../assets/images/placeholder-thumbnail.png')}
-                  style={styles.resultPoster}
-                  contentFit="cover"
-                />
+                <ThumbnailImage imageUrl={item.imageUrl} style={styles.resultPoster} />
                 <View style={styles.resultInfo}>
                   <ThemedText style={styles.resultTitle} numberOfLines={2}>
                     {item.title}

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 
+import { NewListImagePicker } from '@/components/tracker/new-list-image-picker';
 import { ThemedText } from '@/components/themed-text';
 import type { NewListFormController } from '@/components/tracker/use-new-list-form';
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -51,6 +52,17 @@ export function NewListFormScreen({
       contentInsetAdjustmentBehavior="automatic"
       keyboardShouldPersistTaps="handled"
     >
+      <View style={styles.section}>
+        <NewListImagePicker
+          colors={colors}
+          imageUrl={form.imageUrl}
+          onPick={() => {
+            void form.pickImage();
+          }}
+          onClear={form.clearImage}
+        />
+      </View>
+
       <View style={styles.section}>
         <TextField
           colors={colors}

@@ -1,6 +1,7 @@
 import { ContextMenu, ListItem, Picker } from '@expo/ui/jetpack-compose';
 import { ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 
+import { NewListImagePicker } from '@/components/tracker/new-list-image-picker';
 import { ThemedText } from '@/components/themed-text';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -34,6 +35,17 @@ export function NewListFormScreen({
       contentInsetAdjustmentBehavior="automatic"
       keyboardShouldPersistTaps="handled"
     >
+      <View style={styles.section}>
+        <NewListImagePicker
+          colors={colors}
+          imageUrl={form.imageUrl}
+          onPick={() => {
+            void form.pickImage();
+          }}
+          onClear={form.clearImage}
+        />
+      </View>
+
       <View style={styles.section}>
         <ThemedText type="defaultSemiBold">Details</ThemedText>
         <FieldLabel>Title</FieldLabel>

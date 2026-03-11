@@ -1,4 +1,6 @@
-import type { HeaderSearchBarRef } from '@react-navigation/elements';
+import { useHeaderHeight, type HeaderSearchBarRef } from '@react-navigation/elements';
+import { BlurView } from 'expo-blur';
+import { Image } from 'expo-image';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -20,7 +22,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { ThumbnailImage } from '@/components/thumbnail-image';
+import { PLACEHOLDER_THUMBNAIL, ThumbnailImage } from '@/components/thumbnail-image';
 import { CatalogSearchPanel } from '@/components/tracker/CatalogSearchPanel';
 import { ComposerActionBar } from '@/components/tracker/composer-action-bar';
 import { FilterSortControlRow } from '@/components/tracker/filter-sort-control-row';
@@ -44,6 +46,7 @@ export default function ListDetailScreen() {
   const router = useRouter();
   const isIos = process.env.EXPO_OS === 'ios';
   const insets = useSafeAreaInsets();
+  const headerHeight = useHeaderHeight();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const listRef = useRef<FlatList<ListEntry>>(null);
@@ -269,6 +272,25 @@ export default function ListDetailScreen() {
       }));
   }, [list?.entries]);
 
+  const backgroundImageSource = useMemo(() => {
+    const listImageUrl = list?.imageUrl?.trim();
+    if (listImageUrl) {
+      return { uri: listImageUrl };
+    }
+
+    const entryImageUrl = list?.entries.find((entry) => {
+      const imageUrl = entry.coverAssetUri ?? entry.imageUrl;
+      return typeof imageUrl === 'string' && imageUrl.trim().length > 0;
+    });
+
+    const fallbackImageUrl = (entryImageUrl?.coverAssetUri ?? entryImageUrl?.imageUrl)?.trim();
+    if (fallbackImageUrl) {
+      return { uri: fallbackImageUrl };
+    }
+
+    return PLACEHOLDER_THUMBNAIL;
+  }, [list]);
+
   function clearPendingComposerMetadata() {
     setPendingTagsText('');
     setPendingLinkUrl('');
@@ -478,6 +500,7 @@ export default function ListDetailScreen() {
       <Stack.Screen
         options={{
           title: list.title,
+          headerTransparent: true,
           headerSearchBarOptions:
             isIos && listSearchVisible
               ? {
@@ -601,231 +624,259 @@ export default function ListDetailScreen() {
           </Stack.Toolbar.Menu>
         </Stack.Toolbar>
       ) : null}
-      <ThemedView style={styles.container}>
-        {!isIos && listSearchVisible ? (
-          <View style={styles.inlineSearchWrap}>
-            <View
-              style={[
-                styles.inlineSearchBar,
-                {
-                  borderColor: colors.icon + '30',
-                  backgroundColor: colors.icon + '10',
-                },
-              ]}
-            >
-              <TextInput
-                style={[styles.inlineSearchInput, { color: colors.text }]}
-                placeholder="Search this list"
-                placeholderTextColor={colors.icon}
-                value={listSearchQuery}
-                onChangeText={setListSearchQuery}
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="search"
-              />
-              <Pressable
-                accessibilityLabel="Clear search"
-                hitSlop={8}
-                onPress={() => {
-                  setListSearchQuery('');
-                  setListSearchVisible(false);
-                }}
-                style={({ pressed }) => [{ opacity: pressed ? 0.72 : 1 }]}
-              >
-                <IconSymbol name="xmark" size={18} color={colors.icon} />
-              </Pressable>
-            </View>
-          </View>
-        ) : null}
-        <View style={styles.toolbar}>
-          <FilterSortControlRow
-            alignRight
-            colors={colors}
-            filterLabel={labelForFilter(preferences.filterMode)}
-            filterOptions={[
-              { value: 'all', label: 'All' },
-              ...(hasStatus
-                ? [
-                  { value: 'active', label: 'Active' },
-                  { value: 'planned', label: 'Planned' },
-                  { value: 'completed', label: 'Completed' },
-                  { value: 'paused', label: 'Paused' },
-                  { value: 'dropped', label: 'Dropped' },
-                ]
-                : []),
-              { value: 'archived', label: 'Archived' },
+      <ThemedView style={styles.container} lightColor="transparent" darkColor="transparent">
+        <View pointerEvents="none" style={styles.backgroundLayer}>
+          <Image
+            source={backgroundImageSource}
+            style={styles.backgroundImage}
+            contentFit="cover"
+            transition={200}
+          />
+          <BlurView
+            tint={colorScheme === 'dark' ? 'dark' : 'light'}
+            intensity={55}
+            style={styles.backgroundBlur}
+          />
+          <View
+            style={[
+              styles.backgroundScrim,
+              {
+                backgroundColor:
+                  colorScheme === 'dark'
+                    ? 'rgba(5, 18, 35, 0.76)'
+                    : 'rgba(245, 248, 252, 0.82)',
+              },
             ]}
-            filterValue={preferences.filterMode}
-            onFilterChange={(value) => setListPreferences({ filterMode: value as ListFilterMode })}
-            onOpenFilter={() => setMenuVisible('filter')}
-            onOpenSort={() => setMenuVisible('sort')}
-            sortLabel={labelForSort(preferences.sortMode)}
-            sortOptions={[
-              { value: 'manual', label: 'Manual order' },
-              { value: 'updated-desc', label: 'Recently updated' },
-              { value: 'title-asc', label: 'Title A-Z' },
-              { value: 'rating-desc', label: 'Rating' },
-              ...(hasStatus ? [{ value: 'status', label: 'Status' }] : []),
-            ]}
-            sortValue={preferences.sortMode}
-            onSortChange={(value) => setListPreferences({ sortMode: value as ListSortMode })}
           />
         </View>
-
-        {list.tags.length ? (
-          <View style={styles.listTagSection}>
-            <ThemedText style={[styles.listTagLabel, { color: colors.icon }]}>List tags</ThemedText>
-            <View style={styles.listTagWrap}>
-              {list.tags.map((tag) => (
-                <View key={tag} style={[styles.listTagChip, { backgroundColor: colors.tint + '16' }]}>
-                  <ThemedText style={{ color: colors.tint }}>{tag}</ThemedText>
-                </View>
-              ))}
-            </View>
-          </View>
-        ) : null}
-
-        {preferences.viewMode === 'compare' ? (
-          <CompareView entries={visibleEntries} />
-        ) : preferences.viewMode === 'tier' ? (
-          <TierView tierRows={tierRows} onOpenEntry={openEntry} />
-        ) : preferences.viewMode === 'grid' ? (
-          <ScrollView
-            contentContainerStyle={[styles.gridContent, { paddingBottom: insets.bottom + 24 }]}
-            keyboardShouldPersistTaps="handled"
-          >
-            <View style={styles.grid}>
-              {visibleEntries.map((entry) => (
-                <Pressable key={entry.id} onPress={() => openEntry(entry)} style={styles.gridCard}>
-                  <ThumbnailImage imageUrl={entry.imageUrl} style={styles.gridImage} />
-                  <ThemedText style={styles.gridTitle} numberOfLines={2}>
-                    {entry.title}
-                  </ThemedText>
-                  {buildEntryMeta(entry, itemUserDataByKey, { showStatus: hasStatus }) ? (
-                    <ThemedText style={[styles.gridMeta, { color: colors.icon }]}>
-                      {buildEntryMeta(entry, itemUserDataByKey, { showStatus: hasStatus })}
-                    </ThemedText>
-                  ) : null}
-                  {getEffectiveEntryRating(entry, itemUserDataByKey) ? (
-                    <RatingStars value={getEffectiveEntryRating(entry, itemUserDataByKey)} size={12} />
-                  ) : null}
-                </Pressable>
-              ))}
-            </View>
-            {!visibleEntries.length ? (
-              <ThemedText style={[styles.placeholder, { color: colors.icon }]}>
-                This list is empty.
-              </ThemedText>
-            ) : null}
-          </ScrollView>
-        ) : (
-          <FlatList
-            ref={listRef}
-            data={visibleEntries}
-            keyExtractor={(item) => item.id}
-            keyboardShouldPersistTaps="handled"
-            renderItem={({ item }) => (
-              <Swipeable
-                overshootRight={false}
-                rightThreshold={56}
-                renderRightActions={(progress) => renderRightActions(progress, item)}
+        <View style={[styles.contentLayer, { paddingTop: headerHeight }]}>
+          {!isIos && listSearchVisible ? (
+            <View style={styles.inlineSearchWrap}>
+              <View
+                style={[
+                  styles.inlineSearchBar,
+                  {
+                    borderColor: colors.icon + '30',
+                    backgroundColor: colors.icon + '10',
+                  },
+                ]}
               >
-                <View style={[styles.row, { borderBottomColor: colors.icon + '28' }]}>
-                  {hasToggle ? (
+                <TextInput
+                  style={[styles.inlineSearchInput, { color: colors.text }]}
+                  placeholder="Search this list"
+                  placeholderTextColor={colors.icon}
+                  value={listSearchQuery}
+                  onChangeText={setListSearchQuery}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="search"
+                />
+                <Pressable
+                  accessibilityLabel="Clear search"
+                  hitSlop={8}
+                  onPress={() => {
+                    setListSearchQuery('');
+                    setListSearchVisible(false);
+                  }}
+                  style={({ pressed }) => [{ opacity: pressed ? 0.72 : 1 }]}
+                >
+                  <IconSymbol name="xmark" size={18} color={colors.icon} />
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
+          <View style={styles.toolbar}>
+            <FilterSortControlRow
+              alignRight
+              colors={colors}
+              filterLabel={labelForFilter(preferences.filterMode)}
+              filterOptions={[
+                { value: 'all', label: 'All' },
+                ...(hasStatus
+                  ? [
+                    { value: 'active', label: 'Active' },
+                    { value: 'planned', label: 'Planned' },
+                    { value: 'completed', label: 'Completed' },
+                    { value: 'paused', label: 'Paused' },
+                    { value: 'dropped', label: 'Dropped' },
+                  ]
+                  : []),
+                { value: 'archived', label: 'Archived' },
+              ]}
+              filterValue={preferences.filterMode}
+              onFilterChange={(value) => setListPreferences({ filterMode: value as ListFilterMode })}
+              onOpenFilter={() => setMenuVisible('filter')}
+              onOpenSort={() => setMenuVisible('sort')}
+              sortLabel={labelForSort(preferences.sortMode)}
+              sortOptions={[
+                { value: 'manual', label: 'Manual order' },
+                { value: 'updated-desc', label: 'Recently updated' },
+                { value: 'title-asc', label: 'Title A-Z' },
+                { value: 'rating-desc', label: 'Rating' },
+                ...(hasStatus ? [{ value: 'status', label: 'Status' }] : []),
+              ]}
+              sortValue={preferences.sortMode}
+              onSortChange={(value) => setListPreferences({ sortMode: value as ListSortMode })}
+            />
+          </View>
+
+          {list.tags.length ? (
+            <View style={styles.listTagSection}>
+              <ThemedText style={[styles.listTagLabel, { color: colors.icon }]}>List tags</ThemedText>
+              <View style={styles.listTagWrap}>
+                {list.tags.map((tag) => (
+                  <View key={tag} style={[styles.listTagChip, { backgroundColor: colors.tint + '16' }]}>
+                    <ThemedText style={{ color: colors.tint }}>{tag}</ThemedText>
+                  </View>
+                ))}
+              </View>
+            </View>
+          ) : null}
+
+          {preferences.viewMode === 'compare' ? (
+            <CompareView entries={visibleEntries} />
+          ) : preferences.viewMode === 'tier' ? (
+            <TierView tierRows={tierRows} onOpenEntry={openEntry} />
+          ) : preferences.viewMode === 'grid' ? (
+            <ScrollView
+              contentInsetAdjustmentBehavior="automatic"
+              contentContainerStyle={[styles.gridContent, { paddingBottom: insets.bottom + 24 }]}
+              keyboardShouldPersistTaps="handled"
+            >
+              <View style={styles.grid}>
+                {visibleEntries.map((entry) => (
+                  <Pressable key={entry.id} onPress={() => openEntry(entry)} style={styles.gridCard}>
+                    <ThumbnailImage imageUrl={entry.imageUrl} style={styles.gridImage} />
+                    <ThemedText style={styles.gridTitle} numberOfLines={2}>
+                      {entry.title}
+                    </ThemedText>
+                    {buildEntryMeta(entry, itemUserDataByKey, { showStatus: hasStatus }) ? (
+                      <ThemedText style={[styles.gridMeta, { color: colors.icon }]}>
+                        {buildEntryMeta(entry, itemUserDataByKey, { showStatus: hasStatus })}
+                      </ThemedText>
+                    ) : null}
+                    {getEffectiveEntryRating(entry, itemUserDataByKey) ? (
+                      <RatingStars value={getEffectiveEntryRating(entry, itemUserDataByKey)} size={12} />
+                    ) : null}
+                  </Pressable>
+                ))}
+              </View>
+              {!visibleEntries.length ? (
+                <ThemedText style={[styles.placeholder, { color: colors.icon }]}>
+                  This list is empty.
+                </ThemedText>
+              ) : null}
+            </ScrollView>
+          ) : (
+            <FlatList
+              ref={listRef}
+              contentInsetAdjustmentBehavior="automatic"
+              data={visibleEntries}
+              keyExtractor={(item) => item.id}
+              keyboardShouldPersistTaps="handled"
+              renderItem={({ item }) => (
+                <Swipeable
+                  overshootRight={false}
+                  rightThreshold={56}
+                  renderRightActions={(progress) => renderRightActions(progress, item)}
+                >
+                  <View style={[styles.row, { borderBottomColor: colors.icon + '28' }]}>
+                    {hasToggle ? (
+                      <Pressable
+                        onPress={() => setEntryChecked(list.id, item.id, !item.checked)}
+                        style={[
+                          styles.checkbox,
+                          {
+                            borderColor: item.checked ? colors.tint : colors.icon + '45',
+                            backgroundColor: item.checked ? colors.tint : 'transparent',
+                          },
+                        ]}
+                      >
+                        {item.checked ? (
+                          <IconSymbol name="checkmark" size={14} color={colors.background} />
+                        ) : null}
+                      </Pressable>
+                    ) : null}
+                    <Pressable onPress={() => openEntry(item)} style={styles.rowMain}>
+                      <ThumbnailImage imageUrl={item.imageUrl} style={styles.rowImage} />
+                      <View style={styles.rowInfo}>
+                        <ThemedText style={styles.rowTitle} numberOfLines={2}>
+                          {item.title}
+                        </ThemedText>
+                        <View style={styles.rowMetaWrap}>
+                          <ThemedText style={[styles.rowMeta, { color: colors.icon }]} numberOfLines={2}>
+                            {buildEntryMeta(item, itemUserDataByKey, { showStatus: hasStatus })}
+                          </ThemedText>
+                          {getEffectiveEntryRating(item, itemUserDataByKey) ? (
+                            <RatingStars value={getEffectiveEntryRating(item, itemUserDataByKey)} size={12} />
+                          ) : null}
+                        </View>
+                      </View>
+                    </Pressable>
+                  </View>
+                </Swipeable>
+              )}
+              contentContainerStyle={[
+                styles.listContent,
+                { paddingBottom: insets.bottom + footerSpacerHeight },
+              ]}
+              ListEmptyComponent={
+                <ThemedText style={[styles.placeholder, { color: colors.icon }]}>
+                  This list is empty.
+                </ThemedText>
+              }
+              ListFooterComponent={
+                composerVisible ? (
+                  <View style={styles.composerFooter}>
+                    {(pendingTagsText.trim() || pendingLinkUrl.trim()) ? (
+                      <View style={styles.pendingMetaRow}>
+                        {pendingTagsText.trim() ? (
+                          <View style={[styles.pendingChip, { backgroundColor: colors.tint + '16' }]}>
+                            <IconSymbol name="tag.fill" size={14} color={colors.tint} />
+                            <ThemedText style={{ color: colors.tint }} numberOfLines={1}>
+                              {pendingTagsText}
+                            </ThemedText>
+                          </View>
+                        ) : null}
+                        {pendingLinkUrl.trim() ? (
+                          <View style={[styles.pendingChip, { backgroundColor: colors.tint + '16' }]}>
+                            <IconSymbol name="link" size={14} color={colors.tint} />
+                            <ThemedText style={{ color: colors.tint }} numberOfLines={1}>
+                              {pendingLinkUrl}
+                            </ThemedText>
+                          </View>
+                        ) : null}
+                      </View>
+                    ) : null}
                     <Pressable
-                      onPress={() => setEntryChecked(list.id, item.id, !item.checked)}
+                      onPress={() => composerInputRef.current?.focus()}
                       style={[
-                        styles.checkbox,
+                        styles.composerCard,
                         {
-                          borderColor: item.checked ? colors.tint : colors.icon + '45',
-                          backgroundColor: item.checked ? colors.tint : 'transparent',
+                          borderColor: colors.tint + '35',
+                          backgroundColor: colors.background,
                         },
                       ]}
                     >
-                      {item.checked ? (
-                        <IconSymbol name="checkmark" size={14} color={colors.background} />
-                      ) : null}
+                      <TextInput
+                        ref={setComposerInputNode}
+                        style={[styles.composerInput, { color: colors.text }]}
+                        placeholder="Add an item"
+                        placeholderTextColor={colors.icon}
+                        inputAccessoryViewID={isIos ? composerAccessoryId : undefined}
+                        value={composerText}
+                        onChangeText={setComposerText}
+                        onSubmitEditing={submitComposer}
+                        blurOnSubmit={false}
+                        returnKeyType="done"
+                      />
                     </Pressable>
-                  ) : null}
-                  <Pressable onPress={() => openEntry(item)} style={styles.rowMain}>
-                    <ThumbnailImage imageUrl={item.imageUrl} style={styles.rowImage} />
-                    <View style={styles.rowInfo}>
-                      <ThemedText style={styles.rowTitle} numberOfLines={2}>
-                        {item.title}
-                      </ThemedText>
-                      <View style={styles.rowMetaWrap}>
-                        <ThemedText style={[styles.rowMeta, { color: colors.icon }]} numberOfLines={2}>
-                          {buildEntryMeta(item, itemUserDataByKey, { showStatus: hasStatus })}
-                        </ThemedText>
-                        {getEffectiveEntryRating(item, itemUserDataByKey) ? (
-                          <RatingStars value={getEffectiveEntryRating(item, itemUserDataByKey)} size={12} />
-                        ) : null}
-                      </View>
-                    </View>
-                  </Pressable>
-                </View>
-              </Swipeable>
-            )}
-            contentContainerStyle={[
-              styles.listContent,
-              { paddingBottom: insets.bottom + footerSpacerHeight },
-            ]}
-            ListEmptyComponent={
-              <ThemedText style={[styles.placeholder, { color: colors.icon }]}>
-                This list is empty.
-              </ThemedText>
-            }
-            ListFooterComponent={
-              composerVisible ? (
-                <View style={styles.composerFooter}>
-                  {(pendingTagsText.trim() || pendingLinkUrl.trim()) ? (
-                    <View style={styles.pendingMetaRow}>
-                      {pendingTagsText.trim() ? (
-                        <View style={[styles.pendingChip, { backgroundColor: colors.tint + '16' }]}>
-                          <IconSymbol name="tag.fill" size={14} color={colors.tint} />
-                          <ThemedText style={{ color: colors.tint }} numberOfLines={1}>
-                            {pendingTagsText}
-                          </ThemedText>
-                        </View>
-                      ) : null}
-                      {pendingLinkUrl.trim() ? (
-                        <View style={[styles.pendingChip, { backgroundColor: colors.tint + '16' }]}>
-                          <IconSymbol name="link" size={14} color={colors.tint} />
-                          <ThemedText style={{ color: colors.tint }} numberOfLines={1}>
-                            {pendingLinkUrl}
-                          </ThemedText>
-                        </View>
-                      ) : null}
-                    </View>
-                  ) : null}
-                  <Pressable
-                    onPress={() => composerInputRef.current?.focus()}
-                    style={[
-                      styles.composerCard,
-                      {
-                        borderColor: colors.tint + '35',
-                        backgroundColor: colors.background,
-                      },
-                    ]}
-                  >
-                    <TextInput
-                      ref={setComposerInputNode}
-                      style={[styles.composerInput, { color: colors.text }]}
-                      placeholder="Add an item"
-                      placeholderTextColor={colors.icon}
-                      inputAccessoryViewID={isIos ? composerAccessoryId : undefined}
-                      value={composerText}
-                      onChangeText={setComposerText}
-                      onSubmitEditing={submitComposer}
-                      blurOnSubmit={false}
-                      returnKeyType="done"
-                    />
-                  </Pressable>
-                </View>
-              ) : null
-            }
-          />
-        )}
+                  </View>
+                ) : null
+              }
+            />
+          )}
+        </View>
 
         <ComposerActionBar
           accessoryId={composerAccessoryId}
@@ -1649,6 +1700,21 @@ function buildEntryMeta(
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  backgroundLayer: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  backgroundImage: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  backgroundBlur: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  backgroundScrim: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  contentLayer: {
+    flex: 1,
+  },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   headerButtonsRow: { flexDirection: 'row', alignItems: 'center' },
   headerButton: { padding: 6, marginRight: 6 },
@@ -1739,6 +1805,7 @@ const styles = StyleSheet.create({
   },
   composerCard: {
     paddingHorizontal: 8,
+    borderRadius: 50,
   },
   composerInput: {
     fontSize: 16,

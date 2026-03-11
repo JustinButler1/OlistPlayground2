@@ -514,6 +514,7 @@ function normalizeList(value: unknown): TrackerList | null {
   return {
     id: value.id,
     title: value.title,
+    imageUrl: typeof value.imageUrl === 'string' ? value.imageUrl : undefined,
     description: typeof value.description === 'string' ? value.description : undefined,
     tags: normalizeListTags(value.tags),
     preset,
@@ -770,6 +771,7 @@ function convertLegacyList(
   return {
     id: list.id,
     title: list.title,
+    imageUrl: undefined,
     description: undefined,
     tags: [],
     preset: list.preset === 'blank' ? 'blank' : 'tracking',

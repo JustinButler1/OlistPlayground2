@@ -1,32 +1,14 @@
-import {
-  Form,
-  Host,
-  HStack,
-  Image,
-  Picker,
-  Section,
-  Spacer,
-  Text,
-  TextField,
-  Toggle,
-} from '@expo/ui/swift-ui';
-import {
-  contentShape,
-  foregroundStyle,
-  onTapGesture,
-  pickerStyle,
-  shapes,
-  tag,
-  textFieldStyle,
-} from '@expo/ui/swift-ui/modifiers';
 import { Stack } from 'expo-router';
+import { useMemo, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 
+import { NewListImagePicker } from '@/components/tracker/new-list-image-picker';
+import { ThemedText } from '@/components/themed-text';
 import type { NewListFormController } from '@/components/tracker/use-new-list-form';
-import {
-  LIST_ENTRY_TYPE_OPTIONS,
-} from '@/lib/list-config-options';
-
-const EMPTY_TEMPLATE_VALUE = '__empty-template__';
+import { IconSymbol } from '@/components/ui/icon-symbol';
+import { Colors } from '@/constants/theme';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { getListEntryTypeLabel, LIST_ENTRY_TYPE_OPTIONS } from '@/lib/list-config-options';
 
 interface NewListFormScreenProps {
   form: NewListFormController;
@@ -35,22 +17,36 @@ interface NewListFormScreenProps {
   openCustomFields?: () => void;
 }
 
+type MenuKey = 'template' | 'entry-type' | null;
+type ThemeColors = (typeof Colors)[keyof typeof Colors];
+
 export function NewListFormScreen({
   form,
   openAddons,
   openAutomation,
   openCustomFields,
 }: NewListFormScreenProps) {
-  const templateSelection = form.selectedTemplateId ?? EMPTY_TEMPLATE_VALUE;
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme ?? 'light'];
+  const [expandedMenu, setExpandedMenu] = useState<MenuKey>(null);
+
+  const templateOptions = useMemo(
+    () =>
+      form.listTemplates.map((template) => ({
+        key: template.id,
+        label: `${template.title} (${template.source})`,
+        onPress: () => {
+          form.selectTemplate(template.id);
+          setExpandedMenu(null);
+        },
+      })),
+    [form]
+  );
 
   return (
-    <Host style={{ flex: 1 }}>
+    <>
       <Stack.Toolbar placement="left">
-        <Stack.Toolbar.Button
-          accessibilityLabel="Cancel"
-          icon="xmark"
-          onPress={form.cancel}
-        />
+        <Stack.Toolbar.Button accessibilityLabel="Cancel" icon="xmark" onPress={form.cancel} />
       </Stack.Toolbar>
       <Stack.Toolbar placement="right">
         <Stack.Toolbar.Button
@@ -62,171 +58,360 @@ export function NewListFormScreen({
         />
       </Stack.Toolbar>
 
-      <Form>
-        <Section>
-          <TextField
-            key={`title-${form.formRevision}`}
-            autoFocus
-            defaultValue={form.title}
-            onChangeText={form.setTitle}
-            placeholder="Title"
-            modifiers={[textFieldStyle('plain')]}
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        contentInsetAdjustmentBehavior="automatic"
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.section}>
+          <NewListImagePicker
+            colors={colors}
+            imageUrl={form.imageUrl}
+            onPick={() => {
+              void form.pickImage();
+            }}
+            onClear={form.clearImage}
           />
-          <TextField
-            key={`description-${form.formRevision}`}
-            defaultValue={form.description}
-            onChangeText={form.setDescription}
-            placeholder="Description (optional)"
-            multiline
-            numberOfLines={3}
-            modifiers={[textFieldStyle('plain')]}
-          />
-        </Section>
+        </View>
 
-        <Section title="Source">
-          <Picker
-            selection={form.createMode}
-            onSelectionChange={(value) => form.setCreateMode(value as 'scratch' | 'template')}
-            modifiers={[pickerStyle('segmented')]}
-          >
-            <Text modifiers={[tag('scratch')]}>Scratch</Text>
-            <Text modifiers={[tag('template')]}>Template</Text>
-          </Picker>
+        <View style={styles.section}>
+          <TextField
+            autoFocus
+            colors={colors}
+            placeholder="Title"
+            value={form.title}
+            onChangeText={form.setTitle}
+          />
+          <TextField
+            colors={colors}
+            placeholder="Description (optional)"
+            value={form.description}
+            onChangeText={form.setDescription}
+            multiline
+          />
+        </View>
+
+        <View style={styles.section}>
+          <ThemedText type="defaultSemiBold">Source</ThemedText>
+          <View style={styles.segmentedRow}>
+            <SegmentButton
+              active={form.createMode === 'scratch'}
+              colors={colors}
+              label="Scratch"
+              onPress={() => form.setCreateMode('scratch')}
+            />
+            <SegmentButton
+              active={form.createMode === 'template'}
+              colors={colors}
+              label="Template"
+              onPress={() => form.setCreateMode('template')}
+            />
+          </View>
 
           {form.createMode === 'template' ? (
-            <Picker
-              label="Template"
-              selection={templateSelection}
-              onSelectionChange={(value) => {
-                if (typeof value === 'string' && value !== EMPTY_TEMPLATE_VALUE) {
-                  form.selectTemplate(value);
+            templateOptions.length ? (
+              <SelectionBlock
+                colors={colors}
+                expanded={expandedMenu === 'template'}
+                label="Template"
+                value={
+                  form.selectedTemplate
+                    ? `${form.selectedTemplate.title} (${form.selectedTemplate.source})`
+                    : 'Choose a template'
                 }
-              }}
-              modifiers={[pickerStyle('menu')]}
-            >
-              <Text modifiers={[tag(EMPTY_TEMPLATE_VALUE)]}>Choose a template</Text>
-              {form.listTemplates.map((template) => (
-                <Text key={template.id} modifiers={[tag(template.id)]}>
-                  {template.title} ({template.source})
-                </Text>
-              ))}
-            </Picker>
-          ) : (
-            <Text>Choose scratch for a blank list, or switch to a template.</Text>
-          )}
-        </Section>
+                options={templateOptions}
+                onToggle={() =>
+                  setExpandedMenu((current) => (current === 'template' ? null : 'template'))
+                }
+              />
+            ) : (
+              <ThemedText style={{ color: colors.icon }}>No templates are available yet.</ThemedText>
+            )
+          ) : null}
+        </View>
 
-        <Section title="Setup">
-          <Picker
+        <View style={styles.section}>
+          <ThemedText type="defaultSemiBold">Setup</ThemedText>
+          <SelectionBlock
+            colors={colors}
+            expanded={expandedMenu === 'entry-type'}
             label="Default item type"
-            selection={form.draftConfig.defaultEntryType}
-            onSelectionChange={(value) =>
-              form.setDefaultEntryType(value as typeof form.draftConfig.defaultEntryType)
+            value={getListEntryTypeLabel(form.draftConfig.defaultEntryType)}
+            options={LIST_ENTRY_TYPE_OPTIONS.map((option) => ({
+              key: option.value,
+              label: option.label,
+              onPress: () => {
+                form.setDefaultEntryType(option.value);
+                setExpandedMenu(null);
+              },
+            }))}
+            onToggle={() =>
+              setExpandedMenu((current) => (current === 'entry-type' ? null : 'entry-type'))
             }
-            modifiers={[pickerStyle('menu')]}
-          >
-            {LIST_ENTRY_TYPE_OPTIONS.map((option) => (
-              <Text key={option.value} modifiers={[tag(option.value)]}>
-                {option.label}
-              </Text>
-            ))}
-          </Picker>
-        </Section>
-
-        <Section title="Customization">
-          <HStack
-            spacing={12}
-            modifiers={[
-              contentShape(shapes.rectangle()),
-              onTapGesture(() => openAddons?.()),
-            ]}
-          >
-            <Text>Add-ons</Text>
-            <Spacer />
-            <HStack spacing={6}>
-              <Text modifiers={[foregroundStyle({ type: 'hierarchical', style: 'secondary' })]}>
-                {String(form.draftConfig.addons.length)}
-              </Text>
-              <Image
-                systemName="chevron.right"
-                size={12}
-                modifiers={[foregroundStyle({ type: 'hierarchical', style: 'tertiary' })]}
-              />
-            </HStack>
-          </HStack>
-          <HStack
-            spacing={12}
-            modifiers={[
-              contentShape(shapes.rectangle()),
-              onTapGesture(() => openAutomation?.()),
-            ]}
-          >
-            <Text>Programming</Text>
-            <Spacer />
-            <HStack spacing={6}>
-              <Text modifiers={[foregroundStyle({ type: 'hierarchical', style: 'secondary' })]}>
-                {String(form.draftConfig.automationBlocks.length)}
-              </Text>
-              <Image
-                systemName="chevron.right"
-                size={12}
-                modifiers={[foregroundStyle({ type: 'hierarchical', style: 'tertiary' })]}
-              />
-            </HStack>
-          </HStack>
-          <HStack
-            spacing={12}
-            modifiers={[
-              contentShape(shapes.rectangle()),
-              onTapGesture(() => openCustomFields?.()),
-            ]}
-          >
-            <Text>Custom fields</Text>
-            <Spacer />
-            <HStack spacing={6}>
-              <Text modifiers={[foregroundStyle({ type: 'hierarchical', style: 'secondary' })]}>
-                {String(form.draftConfig.fieldDefinitions.length)}
-              </Text>
-              <Image
-                systemName="chevron.right"
-                size={12}
-                modifiers={[foregroundStyle({ type: 'hierarchical', style: 'tertiary' })]}
-              />
-            </HStack>
-          </HStack>
-        </Section>
-
-        <Section title="Template">
-          <Toggle
-            isOn={form.saveAsTemplate}
-            onIsOnChange={form.setSaveAsTemplate}
-            label="Save setup as template"
           />
+        </View>
+
+        <View style={styles.section}>
+          <ThemedText type="defaultSemiBold">Customization</ThemedText>
+          <View
+            style={[
+              styles.card,
+              { borderColor: colors.icon + '25', backgroundColor: colors.background },
+            ]}
+          >
+            <Pressable onPress={openAddons} style={styles.customizationRow}>
+              <ThemedText>Add-ons</ThemedText>
+              <View style={styles.customizationTrailing}>
+                <ThemedText style={{ color: colors.icon }}>
+                  {String(form.draftConfig.addons.length)}
+                </ThemedText>
+                <IconSymbol name="chevron.right" size={18} color={colors.icon} />
+              </View>
+            </Pressable>
+            <Pressable onPress={openAutomation} style={styles.customizationRow}>
+              <ThemedText>Programming</ThemedText>
+              <View style={styles.customizationTrailing}>
+                <ThemedText style={{ color: colors.icon }}>
+                  {String(form.draftConfig.automationBlocks.length)}
+                </ThemedText>
+                <IconSymbol name="chevron.right" size={18} color={colors.icon} />
+              </View>
+            </Pressable>
+            <Pressable onPress={openCustomFields} style={styles.customizationRow}>
+              <ThemedText>Custom fields</ThemedText>
+              <View style={styles.customizationTrailing}>
+                <ThemedText style={{ color: colors.icon }}>
+                  {String(form.draftConfig.fieldDefinitions.length)}
+                </ThemedText>
+                <IconSymbol name="chevron.right" size={18} color={colors.icon} />
+              </View>
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <View style={styles.toggleRow}>
+            <ThemedText type="defaultSemiBold">Save setup as template</ThemedText>
+            <Switch value={form.saveAsTemplate} onValueChange={form.setSaveAsTemplate} />
+          </View>
 
           {form.saveAsTemplate ? (
-            <>
+            <View style={styles.section}>
               <TextField
-                key={`template-title-${form.formRevision}`}
-                defaultValue={form.templateTitle}
-                onChangeText={form.setTemplateTitle}
+                colors={colors}
                 placeholder="Template title"
-                modifiers={[textFieldStyle('plain')]}
+                value={form.templateTitle}
+                onChangeText={form.setTemplateTitle}
               />
               <TextField
-                key={`template-description-${form.formRevision}`}
-                defaultValue={form.templateDescription}
-                onChangeText={form.setTemplateDescription}
+                colors={colors}
                 placeholder="Template description"
+                value={form.templateDescription}
+                onChangeText={form.setTemplateDescription}
                 multiline
-                numberOfLines={2}
-                modifiers={[textFieldStyle('plain')]}
               />
-            </>
+            </View>
           ) : null}
-        </Section>
-      </Form>
-    </Host>
+        </View>
+      </ScrollView>
+    </>
   );
 }
+
+function TextField({
+  colors,
+  multiline,
+  ...props
+}: {
+  colors: ThemeColors;
+  placeholder: string;
+  value: string;
+  onChangeText: (value: string) => void;
+  autoFocus?: boolean;
+  multiline?: boolean;
+}) {
+  return (
+    <TextInput
+      {...props}
+      multiline={multiline}
+      numberOfLines={multiline ? 3 : 1}
+      placeholderTextColor={colors.icon}
+      style={[
+        styles.input,
+        {
+          backgroundColor: colors.icon + '10',
+          borderColor: colors.icon + '30',
+          color: colors.text,
+        },
+        multiline ? styles.multilineInput : null,
+      ]}
+    />
+  );
+}
+
+function SegmentButton({
+  active,
+  colors,
+  label,
+  onPress,
+}: {
+  active: boolean;
+  colors: ThemeColors;
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[
+        styles.segmentButton,
+        {
+          backgroundColor: active ? colors.tint : colors.icon + '10',
+        },
+      ]}
+    >
+      <ThemedText style={{ color: active ? colors.background : colors.text }}>{label}</ThemedText>
+    </Pressable>
+  );
+}
+
+function SelectionBlock({
+  colors,
+  expanded,
+  label,
+  value,
+  options,
+  onToggle,
+}: {
+  colors: ThemeColors;
+  expanded: boolean;
+  label: string;
+  value: string;
+  options: { key: string; label: string; onPress: () => void }[];
+  onToggle: () => void;
+}) {
+  return (
+    <View style={styles.selectionBlock}>
+      <Pressable
+        onPress={onToggle}
+        style={[
+          styles.selectionRow,
+          {
+            borderColor: colors.icon + '25',
+            backgroundColor: colors.icon + '10',
+          },
+        ]}
+      >
+        <View style={styles.selectionText}>
+          <ThemedText>{label}</ThemedText>
+          <ThemedText style={{ color: colors.icon }}>{value}</ThemedText>
+        </View>
+        <IconSymbol name={expanded ? 'chevron.up' : 'chevron.down'} size={18} color={colors.icon} />
+      </Pressable>
+
+      {expanded ? (
+        <View
+          style={[
+            styles.selectionOptions,
+            {
+              borderColor: colors.icon + '25',
+              backgroundColor: colors.background,
+            },
+          ]}
+        >
+          {options.map((option) => (
+            <Pressable key={option.key} onPress={option.onPress} style={styles.selectionOption}>
+              <ThemedText>{option.label}</ThemedText>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  content: {
+    gap: 18,
+    padding: 20,
+  },
+  section: {
+    gap: 12,
+  },
+  input: {
+    borderRadius: 12,
+    borderWidth: 1,
+    fontSize: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  multilineInput: {
+    minHeight: 96,
+    textAlignVertical: 'top',
+  },
+  segmentedRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  segmentButton: {
+    alignItems: 'center',
+    borderRadius: 12,
+    flex: 1,
+    paddingVertical: 11,
+  },
+  selectionBlock: {
+    gap: 8,
+  },
+  selectionRow: {
+    alignItems: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  selectionText: {
+    flex: 1,
+    gap: 2,
+  },
+  selectionOptions: {
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 4,
+    padding: 8,
+  },
+  selectionOption: {
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  card: {
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 8,
+    padding: 12,
+  },
+  customizationRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+  },
+  customizationTrailing: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  toggleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+});
 
 export default NewListFormScreen;

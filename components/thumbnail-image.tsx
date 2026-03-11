@@ -2,7 +2,7 @@ import { Image } from "expo-image";
 import React, { useState, forwardRef } from "react";
 import { ImageStyle, StyleProp } from "react-native";
 
-const PLACEHOLDER_THUMBNAIL = require("../assets/images/placeholder-thumbnail.png");
+export const PLACEHOLDER_THUMBNAIL = require("../assets/images/placeholder-thumbnail.png");
 
 interface ThumbnailImageProps {
   imageUrl?: string | null;
