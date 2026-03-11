@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Linking,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,16 +11,15 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ApiDetailPage } from '@/components/api-detail-page';
 import {
   ItemDetailTabs,
   type ItemDetailTabId,
 } from '@/components/tracker/ItemDetailTabs';
-import { BlurredImageBackground } from '@/components/blurred-image-background';
 import { ItemUserDataPanel } from '@/components/tracker/ItemUserDataPanel';
 import { RatingStars } from '@/components/tracker/RatingStars';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { ThumbnailImage } from '@/components/thumbnail-image';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { getItemUserDataKey } from '@/data/mock-lists';
@@ -218,7 +216,6 @@ export default function TvMovieDetailsScreen() {
   const [recommendations, setRecommendations] = useState<TmdbRecommendation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [fullScreenImageVisible, setFullScreenImageVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<ItemDetailTabId>('details');
 
   const mediaType: TmdbType | null = type === 'movie' || type === 'tv' ? type : null;
@@ -330,46 +327,25 @@ export default function TvMovieDetailsScreen() {
             headerTransparent: true,
           }}
         />
-        <BlurredImageBackground imageUrl={seed.imageUrl}>
-          <ThemedView style={[styles.container, { backgroundColor: 'transparent' }]}>
-            <View style={styles.centered}>
-              <ThemedText style={styles.errorText}>Invalid TV/Movie ID</ThemedText>
-            </View>
-          </ThemedView>
-        </BlurredImageBackground>
+        <ThemedView style={styles.container}>
+          <View style={styles.centered}>
+            <ThemedText style={styles.errorText}>Invalid TV/Movie ID</ThemedText>
+          </View>
+        </ThemedView>
       </>
     );
   }
 
   return (
-    <>
-      <Stack.Screen
-        options={{
-          title: headerTitle,
-          headerShadowVisible: false,
-          headerTintColor: colorScheme === 'dark' ? '#fff' : colors.text,
-          headerTransparent: true,
-        }}
-      />
-      <BlurredImageBackground imageUrl={imageUrl}>
-        <ScrollView
-          style={styles.scroll}
-          contentInsetAdjustmentBehavior="automatic"
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
-          showsVerticalScrollIndicator={false}
-        >
-          <Pressable
-            onPress={() => imageUrl && setFullScreenImageVisible(true)}
-            style={({ pressed }) => [styles.heroImageWrap, pressed && imageUrl && { opacity: 0.9 }]}
-          >
-            <Link.AppleZoomTarget>
-              <ThumbnailImage
-                imageUrl={imageUrl ?? undefined}
-                style={styles.heroImage}
-                contentFit="cover"
-              />
-            </Link.AppleZoomTarget>
-          </Pressable>
+    <ApiDetailPage
+      backgroundImageUrl={imageUrl}
+      contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
+      heroImageStyle={styles.heroImage}
+      heroImageUrl={imageUrl}
+      heroWrapperStyle={styles.heroImageWrap}
+      scrollStyle={styles.scroll}
+      screenTitle={headerTitle}
+    >
           <View style={styles.headerBlock}>
             <ThemedText type="title" style={styles.title}>
               {headerTitle}
@@ -389,39 +365,6 @@ export default function TvMovieDetailsScreen() {
             ) : null}
           </View>
           <ItemDetailTabs activeTab={activeTab} onChange={setActiveTab} />
-
-          <Modal
-            visible={fullScreenImageVisible}
-            transparent
-            animationType="fade"
-            onRequestClose={() => setFullScreenImageVisible(false)}
-          >
-            <Pressable
-              style={styles.fullScreenOverlay}
-              onPress={() => setFullScreenImageVisible(false)}
-            >
-              <Pressable onPress={() => {}} style={styles.fullScreenImageContainer}>
-                {imageUrl ? (
-                  <Image
-                    source={{ uri: imageUrl }}
-                    style={styles.fullScreenImage}
-                    contentFit="contain"
-                  />
-                ) : null}
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.closeFullScreenButton,
-                  { top: insets.top + 12 },
-                  pressed && { opacity: 0.7 },
-                ]}
-                onPress={() => setFullScreenImageVisible(false)}
-              >
-                <IconSymbol name="xmark" size={24} color="#fff" />
-              </Pressable>
-            </Pressable>
-          </Modal>
-
           <View style={styles.content}>
             {activeTab === 'details' ? (
               loading ? (
@@ -627,9 +570,7 @@ export default function TvMovieDetailsScreen() {
               />
             ) : null}
           </View>
-        </ScrollView>
-      </BlurredImageBackground>
-    </>
+    </ApiDetailPage>
   );
 }
 
@@ -653,32 +594,6 @@ const styles = StyleSheet.create({
     height: 270,
     backgroundColor: 'rgba(128,128,128,0.2)',
     borderRadius: 20,
-  },
-  fullScreenOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.95)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  fullScreenImageContainer: {
-    width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  fullScreenImage: {
-    width: '100%',
-    height: '100%',
-  },
-  closeFullScreenButton: {
-    position: 'absolute',
-    right: 20,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   content: {
     padding: 20,

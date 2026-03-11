@@ -3,7 +3,6 @@ import { Link, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,10 +10,9 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ApiDetailPage } from '@/components/api-detail-page';
 import { ExpandableDescription } from '@/components/ExpandableDescription';
 import { ExpandableTags } from '@/components/ExpandableTags';
-import { BlurredImageBackground } from '@/components/blurred-image-background';
-import { ThumbnailImage } from '@/components/thumbnail-image';
 import { RatingStars } from '@/components/tracker/RatingStars';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -167,7 +165,6 @@ export default function GameDetailsScreen() {
   const [game, setGame] = useState<IgdbGameDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<null | string>(null);
-  const [fullScreenImageVisible, setFullScreenImageVisible] = useState(false);
 
   useEffect(() => {
     if (!id) {
@@ -229,70 +226,25 @@ export default function GameDetailsScreen() {
             headerTransparent: true,
           }}
         />
-        <BlurredImageBackground imageUrl={seed.imageUrl}>
-          <ThemedView style={[styles.container, { backgroundColor: 'transparent' }]}>
-            <View style={styles.centered}>
-              <ThemedText style={styles.errorText}>Invalid game ID</ThemedText>
-            </View>
-          </ThemedView>
-        </BlurredImageBackground>
+        <ThemedView style={styles.container}>
+          <View style={styles.centered}>
+            <ThemedText style={styles.errorText}>Invalid game ID</ThemedText>
+          </View>
+        </ThemedView>
       </>
     );
   }
 
   return (
-    <BlurredImageBackground imageUrl={imageUrl}>
-      <Stack.Screen
-        options={{
-          title,
-          headerShadowVisible: false,
-          headerTintColor: colorScheme === 'dark' ? '#fff' : colors.text,
-          headerTransparent: true,
-        }}
-      />
-      <ScrollView
-        style={styles.scroll}
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
-        showsVerticalScrollIndicator={false}
-      >
-        <Pressable
-          onPress={() => imageUrl && setFullScreenImageVisible(true)}
-          style={({ pressed }) => [styles.heroImageWrap, pressed && imageUrl && { opacity: 0.9 }]}
-        >
-          <Link.AppleZoomTarget>
-            <ThumbnailImage imageUrl={imageUrl ?? undefined} style={styles.heroImage} contentFit="cover" />
-          </Link.AppleZoomTarget>
-        </Pressable>
-
-        <Modal
-          visible={fullScreenImageVisible}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setFullScreenImageVisible(false)}
-        >
-          <Pressable
-            style={styles.fullScreenOverlay}
-            onPress={() => setFullScreenImageVisible(false)}
-          >
-            <Pressable onPress={() => {}} style={styles.fullScreenImageContainer}>
-              {imageUrl ? (
-                <Image source={{ uri: imageUrl }} style={styles.fullScreenImage} contentFit="contain" />
-              ) : null}
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                styles.closeFullScreenButton,
-                { top: insets.top + 12 },
-                pressed && { opacity: 0.7 },
-              ]}
-              onPress={() => setFullScreenImageVisible(false)}
-            >
-              <IconSymbol name="xmark" size={24} color="#fff" />
-            </Pressable>
-          </Pressable>
-        </Modal>
-
+    <ApiDetailPage
+      backgroundImageUrl={imageUrl}
+      contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
+      heroImageStyle={styles.heroImage}
+      heroImageUrl={imageUrl}
+      heroWrapperStyle={styles.heroImageWrap}
+      scrollStyle={styles.scroll}
+      screenTitle={title}
+    >
         <View style={styles.content}>
           <View style={styles.headerBlock}>
             <ThemedText type="title" style={styles.title}>
@@ -446,8 +398,7 @@ export default function GameDetailsScreen() {
             </>
           )}
         </View>
-      </ScrollView>
-    </BlurredImageBackground>
+    </ApiDetailPage>
   );
 }
 
@@ -471,32 +422,6 @@ const styles = StyleSheet.create({
     height: 270,
     backgroundColor: 'rgba(128,128,128,0.2)',
     borderRadius: 20,
-  },
-  fullScreenOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.95)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  fullScreenImageContainer: {
-    width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  fullScreenImage: {
-    width: '100%',
-    height: '100%',
-  },
-  closeFullScreenButton: {
-    position: 'absolute',
-    right: 20,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   content: {
     padding: 20,

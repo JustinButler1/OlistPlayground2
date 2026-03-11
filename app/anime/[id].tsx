@@ -3,7 +3,6 @@ import { Link, Stack, useLocalSearchParams } from 'expo-router';
 import { forwardRef, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,10 +14,9 @@ import {
   ItemDetailTabs,
   type ItemDetailTabId,
 } from '@/components/tracker/ItemDetailTabs';
-import { BlurredImageBackground } from '@/components/blurred-image-background';
+import { ApiDetailPage } from '@/components/api-detail-page';
 import { ItemUserDataPanel } from '@/components/tracker/ItemUserDataPanel';
 import { RatingStars } from '@/components/tracker/RatingStars';
-import { ThumbnailImage } from '@/components/thumbnail-image';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Colors } from '@/constants/theme';
@@ -125,7 +123,6 @@ export default function AnimeDetailsScreen() {
   const [characters, setCharacters] = useState<JikanCharacterResp[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showImage, setShowImage] = useState(false);
   const [activeTab, setActiveTab] = useState<ItemDetailTabId>('details');
   const seed = readDetailSeed(params);
 
@@ -195,39 +192,23 @@ export default function AnimeDetailsScreen() {
             headerTransparent: true,
           }}
         />
-        <BlurredImageBackground imageUrl={seed.imageUrl}>
-          <ThemedView style={[styles.centered, { backgroundColor: 'transparent' }]}>
-            <ThemedText>Invalid anime ID.</ThemedText>
-          </ThemedView>
-        </BlurredImageBackground>
+        <ThemedView style={styles.centered}>
+          <ThemedText>Invalid anime ID.</ThemedText>
+        </ThemedView>
       </>
     );
   }
 
   return (
-    <>
-      <Stack.Screen
-        options={{
-          title,
-          headerShadowVisible: false,
-          headerTintColor: colorScheme === 'dark' ? '#fff' : colors.text,
-          headerTransparent: true,
-        }}
-      />
-      <BlurredImageBackground imageUrl={imageUrl}>
-        <ScrollView
-          contentInsetAdjustmentBehavior="automatic"
-          contentContainerStyle={[
-            styles.content,
-            { paddingBottom: insets.bottom + 24 },
-          ]}
-          showsVerticalScrollIndicator={false}
-        >
-          <Pressable onPress={() => imageUrl && setShowImage(true)} style={styles.heroWrap}>
-            <Link.AppleZoomTarget>
-              <ThumbnailImage imageUrl={imageUrl} style={styles.hero} />
-            </Link.AppleZoomTarget>
-          </Pressable>
+    <ApiDetailPage
+      backgroundImageUrl={imageUrl}
+      contentContainerStyle={[
+        styles.content,
+        { paddingBottom: insets.bottom + 24 },
+      ]}
+      heroImageUrl={imageUrl}
+      screenTitle={title}
+    >
           <View style={styles.headerBlock}>
             <ThemedText type="title">{title}</ThemedText>
             {subtitle ? <ThemedText style={{ color: colors.icon }}>{subtitle}</ThemedText> : null}
@@ -379,16 +360,7 @@ export default function AnimeDetailsScreen() {
               }}
             />
           ) : null}
-        </ScrollView>
-      </BlurredImageBackground>
-      <Modal visible={showImage} transparent animationType="fade" onRequestClose={() => setShowImage(false)}>
-        <Pressable style={styles.imageOverlay} onPress={() => setShowImage(false)}>
-          {imageUrl ? (
-            <Image source={{ uri: imageUrl }} style={styles.fullImage} contentFit="contain" />
-          ) : null}
-        </Pressable>
-      </Modal>
-    </>
+    </ApiDetailPage>
   );
 }
 
@@ -405,16 +377,6 @@ const styles = StyleSheet.create({
   content: {
     padding: 20,
     gap: 12,
-  },
-  heroWrap: {
-    width: 180,
-    height: 270,
-    alignSelf: 'center',
-  },
-  hero: {
-    width: 180,
-    height: 270,
-    borderRadius: 20,
   },
   headerBlock: {
     gap: 6,
@@ -440,16 +402,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
-  },
-  imageOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.92)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  fullImage: {
-    width: '100%',
-    height: '100%',
   },
   sectionRow: {
     flexDirection: 'row',

@@ -1,88 +1,72 @@
-import React, { forwardRef } from "react";
-import { Animated, ScrollView } from "react-native";
-import { HEADER_HEIGHT, IMG_HEADER_HEIGHT } from "../constants";
-import { useAnimateScrollView } from "../hooks/useAnimatedScrollView";
-import { AnimatedHeader } from "./AnimatedHeader";
-import AnimatedNavbar from "./AnimatedNavBar";
+import { forwardRef } from 'react';
+import type { ReactNode } from 'react';
+import { ScrollView, StyleSheet, View, type ScrollViewProps } from 'react-native';
 
-import type { AnimatedScrollViewProps } from "../types/index";
+export interface AnimatedScrollViewProps extends ScrollViewProps {
+  HeaderComponent?: ReactNode;
+  headerImage?: ReactNode;
+  HeaderNavbarComponent?: ReactNode;
+  OverlayHeaderContent?: ReactNode;
+  TopNavBarComponent?: ReactNode;
+  headerMaxHeight?: number;
+  topBarElevation?: number;
+  topBarHeight?: number;
+  disableScale?: boolean;
+  imageStyle?: ScrollViewProps['style'];
+  renderHeaderComponent?: () => ReactNode;
+  renderHeaderNavBarComponent?: () => ReactNode;
+  renderOveralComponent?: () => ReactNode;
+  renderTopNavBarComponent?: () => ReactNode;
+}
 
-export const AnimatedScrollView = forwardRef<
-    ScrollView,
-    AnimatedScrollViewProps
->(
-    (
-        {
-            TopNavBarComponent,
-            HeaderNavbarComponent,
-            HeaderComponent,
-            headerMaxHeight,
-            topBarHeight,
-            topBarElevation,
-            headerImage,
-            disableScale,
-            children,
-            imageStyle,
-            renderHeaderComponent,
-            OverlayHeaderContent,
-            renderOveralComponent,
-            renderTopNavBarComponent,
-            renderToHardwareTextureAndroid,
-            renderHeaderNavBarComponent,
-            ...props
-        }: AnimatedScrollViewProps,
-        ref,
-    ) => {
-        const imageHeight = headerMaxHeight || IMG_HEADER_HEIGHT;
-        const headerNavHeight = topBarHeight || HEADER_HEIGHT;
-        const headerElevation = topBarElevation || 0;
-        const [scroll, onScroll, scale, translateYDown, translateYUp] =
-            useAnimateScrollView(imageHeight, disableScale);
-
-        return (
-            <>
-                <Animated.ScrollView
-                    ref={ref}
-                    scrollEnabled={true}
-                    onScroll={onScroll}
-                    scrollEventThrottle={16}
-                    {...props}
-                >
-                    <AnimatedHeader
-                        HeaderComponent={
-                            renderHeaderComponent ? renderHeaderComponent!() : HeaderComponent
-                        }
-                        headerImage={headerImage}
-                        imageStyle={imageStyle}
-                        imageHeight={imageHeight}
-                        translateYDown={translateYDown}
-                        translateYUp={translateYUp}
-                        scale={scale}
-                        OverlayHeaderContent={
-                            renderOveralComponent
-                                ? renderOveralComponent!()
-                                : OverlayHeaderContent
-                        }
-                    />
-                    {children}
-                </Animated.ScrollView>
-                <AnimatedNavbar
-                    headerElevation={headerElevation}
-                    headerHeight={headerNavHeight}
-                    scroll={scroll}
-                    imageHeight={imageHeight}
-                    OverflowHeaderComponent={
-                        renderHeaderNavBarComponent
-                            ? renderHeaderNavBarComponent!()
-                            : HeaderNavbarComponent
-                    }
-                    TopNavbarComponent={
-                        renderTopNavBarComponent
-                            ? renderTopNavBarComponent()
-                            : TopNavBarComponent
-                    }
-                />
-            </>
-        );
+export const AnimatedScrollView = forwardRef<ScrollView, AnimatedScrollViewProps>(
+  (
+    {
+      HeaderComponent,
+      HeaderNavbarComponent,
+      OverlayHeaderContent,
+      TopNavBarComponent,
+      contentContainerStyle,
+      renderHeaderComponent,
+      renderHeaderNavBarComponent,
+      renderOveralComponent,
+      renderTopNavBarComponent,
+      children,
+      ...props
     },
+    ref
+  ) => {
+    const header = renderHeaderComponent?.() ?? HeaderComponent;
+    const overlay = renderOveralComponent?.() ?? OverlayHeaderContent;
+    const headerNavbar = renderHeaderNavBarComponent?.() ?? HeaderNavbarComponent;
+    const topNavbar = renderTopNavBarComponent?.() ?? TopNavBarComponent;
+
+    return (
+      <ScrollView
+        ref={ref}
+        contentInsetAdjustmentBehavior="automatic"
+        {...props}
+        contentContainerStyle={contentContainerStyle}
+      >
+        {topNavbar}
+        {headerNavbar}
+        {header ? <View style={styles.header}>{header}</View> : null}
+        {overlay ? <View style={styles.overlay}>{overlay}</View> : null}
+        {children}
+      </ScrollView>
+    );
+  }
 );
+
+AnimatedScrollView.displayName = 'AnimatedScrollView';
+
+export default AnimatedScrollView;
+
+const styles = StyleSheet.create({
+  header: {
+    width: '100%',
+  },
+  overlay: {
+    width: '100%',
+  },
+});
