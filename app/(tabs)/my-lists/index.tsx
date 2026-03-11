@@ -206,7 +206,7 @@ export default function MyListsScreen() {
           {
             paddingTop: 16,
             paddingBottom: insets.bottom + 24,
-            flexGrow: items.length === 0 ? 1 : 0,
+            flexGrow: 1,
           },
         ]}
         showsVerticalScrollIndicator={false}
