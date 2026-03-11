@@ -1,5 +1,6 @@
-import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { HeaderSearchBarRef } from '@react-navigation/elements';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -21,6 +22,8 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { ThumbnailImage } from '@/components/thumbnail-image';
 import { CatalogSearchPanel } from '@/components/tracker/CatalogSearchPanel';
+import { ComposerActionBar } from '@/components/tracker/composer-action-bar';
+import { FilterSortControlRow } from '@/components/tracker/filter-sort-control-row';
 import { ListConfigurationEditor } from '@/components/tracker/ListConfigurationEditor';
 import { RatingStars } from '@/components/tracker/RatingStars';
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -38,13 +41,15 @@ const COMPOSER_TOOLBAR_OFFSET = 20;
 
 export default function ListDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const navigation = useNavigation();
   const router = useRouter();
+  const isIos = process.env.EXPO_OS === 'ios';
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const listRef = useRef<FlatList<ListEntry>>(null);
   const composerInputRef = useRef<TextInput>(null);
+  const headerSearchBarRef = useRef<HeaderSearchBarRef>(null);
+  const composerAccessoryId = 'list-entry-composer-action-bar';
   const { activeLists, itemUserDataByKey } = useListsQuery();
   const {
     createList,
@@ -71,6 +76,9 @@ export default function ListDetailScreen() {
   const [composerText, setComposerText] = useState('');
   const [pendingTagsText, setPendingTagsText] = useState('');
   const [pendingLinkUrl, setPendingLinkUrl] = useState('');
+  const [listSearchVisible, setListSearchVisible] = useState(false);
+  const [listSearchQuery, setListSearchQuery] = useState('');
+  const [shouldFocusHeaderSearch, setShouldFocusHeaderSearch] = useState(false);
   const [searchVisible, setSearchVisible] = useState(false);
   const [tagSheetVisible, setTagSheetVisible] = useState(false);
   const [linkSheetVisible, setLinkSheetVisible] = useState(false);
@@ -121,33 +129,38 @@ export default function ListDetailScreen() {
     queueComposerFocus();
   }, [preferences.viewMode, setListPreferences]);
 
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      headerRight: () => (
-        <View style={styles.headerButtonsRow}>
-          <Pressable
-            onPress={openComposer}
-            style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.7 : 1 }]}
-          >
-            <IconSymbol name="plus" size={24} color={colors.tint} />
-          </Pressable>
-          <Pressable
-            onPress={() => setMenuVisible('view')}
-            style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.7 : 1 }]}
-          >
-            <IconSymbol name="ellipsis.circle" size={24} color={colors.tint} />
-          </Pressable>
-        </View>
-      ),
-    });
-  }, [colors.tint, navigation, openComposer]);
+  const openListSearch = useCallback(() => {
+    if (isIos) {
+      setListSearchVisible(true);
+      setShouldFocusHeaderSearch(true);
+      return;
+    }
+
+    setListSearchVisible(true);
+  }, [isIos]);
+
+  useEffect(() => {
+    if (!isIos || !shouldFocusHeaderSearch) {
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      headerSearchBarRef.current?.focus();
+      setShouldFocusHeaderSearch(false);
+    }, 0);
+
+    return () => clearTimeout(timeout);
+  }, [isIos, shouldFocusHeaderSearch]);
 
   const visibleEntries = useMemo(() => {
     if (!list) {
       return [];
     }
-    return sortEntries(list.entries, preferences, itemUserDataByKey);
-  }, [itemUserDataByKey, list, preferences]);
+    return filterEntriesByQuery(
+      sortEntries(list.entries, preferences, itemUserDataByKey),
+      listSearchQuery
+    );
+  }, [itemUserDataByKey, list, listSearchQuery, preferences]);
 
   useEffect(() => {
     setDraftConfig(list?.config);
@@ -180,7 +193,7 @@ export default function ListDetailScreen() {
 
   const tierRows = useMemo(
     () =>
-      (list?.entries ?? [])
+      filterEntriesByQuery(list?.entries ?? [], listSearchQuery)
         .filter((entry) => !!entry.linkedListId || entry.detailPath?.startsWith('list/'))
         .map((entry, index) => {
           const sublistId = entry.linkedListId ?? entry.detailPath?.split('/').pop();
@@ -191,7 +204,7 @@ export default function ListDetailScreen() {
             list: activeLists.find((item) => item.id === sublistId) ?? null,
           };
         }),
-    [activeLists, list?.entries]
+    [activeLists, list?.entries, listSearchQuery]
   );
 
   const tagConversionOptions = useMemo(() => {
@@ -283,6 +296,64 @@ export default function ListDetailScreen() {
     router.push(`/list-entry/${entry.id}` as never);
   };
 
+  const openNewSublist = useCallback(() => {
+    setMenuVisible(null);
+    setSublistTitle('');
+    setSublistPreset('blank');
+    setNewSublistVisible(true);
+  }, []);
+
+  const openListConfiguration = useCallback(() => {
+    if (!list) {
+      return;
+    }
+
+    setMenuVisible(null);
+    setDraftConfig(list.config);
+    setConfigVisible(true);
+  }, [list]);
+
+  const openSaveTemplate = useCallback(() => {
+    if (!list) {
+      return;
+    }
+
+    setMenuVisible(null);
+    setTemplateTitle(`${list.title} Template`);
+    setTemplateDescription(list.description ?? '');
+    setTemplateVisible(true);
+  }, [list]);
+
+  const convertCurrentSublistToTag = useCallback(() => {
+    if (!list?.parentListId) {
+      return;
+    }
+
+    const runConversion = () => {
+      const convertedTag = convertSublistToTag(list.id);
+      if (convertedTag) {
+        router.replace(`/list/${list.parentListId}` as never);
+      }
+    };
+
+    setMenuVisible(null);
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      if (window.confirm(`Convert "${list.title}" into the "${list.title}" tag on its parent list?`)) {
+        runConversion();
+      }
+      return;
+    }
+
+    Alert.alert(
+      'Convert sublist to tag?',
+      `All items in "${list.title}" will move to the parent list and be tagged "${list.title}".`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Convert', onPress: runConversion },
+      ]
+    );
+  }, [convertSublistToTag, list, router]);
+
   const confirmDeleteEntry = (entry: ListEntry) => {
     if (!list) {
       return;
@@ -353,24 +424,206 @@ export default function ListDetailScreen() {
   const hasToggle = list.config.addons.includes('toggle');
   const hasStatus = list.config.addons.includes('status');
   const footerSpacerHeight = composerVisible
-    ? keyboardHeight + COMPOSER_TOOLBAR_HEIGHT + COMPOSER_TOOLBAR_OFFSET
+    ? keyboardHeight + (isIos ? 24 : COMPOSER_TOOLBAR_HEIGHT + COMPOSER_TOOLBAR_OFFSET)
     : 28;
   const actionBarBottom = keyboardHeight > 0 ? keyboardHeight + 12 : insets.bottom + 16;
 
   return (
     <>
-      <Stack.Screen options={{ title: list.title }} />
+      <Stack.Screen
+        options={{
+          title: list.title,
+          headerSearchBarOptions:
+            isIos && listSearchVisible
+              ? {
+                  ref: headerSearchBarRef,
+                  autoCapitalize: 'none',
+                  hideNavigationBar: false,
+                  hideWhenScrolling: false,
+                  obscureBackground: false,
+                  onCancelButtonPress: () => {
+                    if (!listSearchQuery.trim()) {
+                      setListSearchVisible(false);
+                    }
+                  },
+                  onChangeText: (event) => {
+                    setListSearchQuery(event.nativeEvent.text);
+                  },
+                  onClose: () => {
+                    if (!listSearchQuery.trim()) {
+                      setListSearchVisible(false);
+                    }
+                  },
+                  onSearchButtonPress: (event) => {
+                    setListSearchQuery(event.nativeEvent.text);
+                  },
+                  placeholder: 'Search this list',
+                }
+              : undefined,
+          headerRight: isIos
+            ? undefined
+            : () => (
+                <View style={styles.headerButtonsRow}>
+                  <Pressable
+                    onPress={openComposer}
+                    style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.7 : 1 }]}
+                  >
+                    <IconSymbol name="plus" size={24} color={colors.tint} />
+                  </Pressable>
+                  <Pressable
+                    onPress={openListSearch}
+                    style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.7 : 1 }]}
+                  >
+                    <IconSymbol name="magnifyingglass" size={22} color={colors.tint} />
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setMenuVisible('view')}
+                    style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.7 : 1 }]}
+                  >
+                    <IconSymbol name="ellipsis.circle" size={24} color={colors.tint} />
+                  </Pressable>
+                </View>
+              ),
+        }}
+      />
+      {isIos && !listSearchVisible ? (
+        <Stack.Toolbar placement="right">
+          <Stack.Toolbar.Button icon="plus" onPress={openComposer} />
+          <Stack.Toolbar.Button icon="magnifyingglass" onPress={openListSearch} />
+          <Stack.Toolbar.Menu icon="ellipsis">
+            <Stack.Toolbar.Menu title="View">
+              <Stack.Toolbar.Menu inline>
+                <Stack.Toolbar.MenuAction
+                  isOn={preferences.viewMode === 'list'}
+                  onPress={() => setListPreferences({ viewMode: 'list' })}
+                >
+                  List view
+                </Stack.Toolbar.MenuAction>
+                <Stack.Toolbar.MenuAction
+                  isOn={preferences.viewMode === 'grid'}
+                  onPress={() => setListPreferences({ viewMode: 'grid' })}
+                >
+                  Grid view
+                </Stack.Toolbar.MenuAction>
+                {list.config.addons.includes('compare') ? (
+                  <Stack.Toolbar.MenuAction
+                    isOn={preferences.viewMode === 'compare'}
+                    onPress={() => setListPreferences({ viewMode: 'compare' })}
+                  >
+                    Compare view
+                  </Stack.Toolbar.MenuAction>
+                ) : null}
+                {list.config.addons.includes('tier') ? (
+                  <Stack.Toolbar.MenuAction
+                    isOn={preferences.viewMode === 'tier'}
+                    onPress={() => setListPreferences({ viewMode: 'tier' })}
+                  >
+                    Tier view
+                  </Stack.Toolbar.MenuAction>
+                ) : null}
+              </Stack.Toolbar.Menu>
+            </Stack.Toolbar.Menu>
+            {list.config.addons.includes('sublists') ? (
+              <Stack.Toolbar.MenuAction onPress={openNewSublist}>
+                Create sublist
+              </Stack.Toolbar.MenuAction>
+            ) : null}
+            {tagConversionOptions.length ? (
+              <Stack.Toolbar.Menu title="Convert tag to sublist">
+                <Stack.Toolbar.Menu inline>
+                  {tagConversionOptions.map((option) => (
+                    <Stack.Toolbar.MenuAction
+                      key={option.value}
+                      onPress={() => convertTagToSublist(list.id, option.value)}
+                    >
+                      {option.label}
+                    </Stack.Toolbar.MenuAction>
+                  ))}
+                </Stack.Toolbar.Menu>
+              </Stack.Toolbar.Menu>
+            ) : null}
+            {list.parentListId ? (
+              <Stack.Toolbar.MenuAction onPress={convertCurrentSublistToTag}>
+                Convert this sublist to tag
+              </Stack.Toolbar.MenuAction>
+            ) : null}
+            <Stack.Toolbar.MenuAction onPress={openListConfiguration}>
+              Configure list
+            </Stack.Toolbar.MenuAction>
+            <Stack.Toolbar.MenuAction onPress={openSaveTemplate}>
+              Save as template
+            </Stack.Toolbar.MenuAction>
+          </Stack.Toolbar.Menu>
+        </Stack.Toolbar>
+      ) : null}
       <ThemedView style={styles.container}>
+        {!isIos && listSearchVisible ? (
+          <View style={styles.inlineSearchWrap}>
+            <View
+              style={[
+                styles.inlineSearchBar,
+                {
+                  borderColor: colors.icon + '30',
+                  backgroundColor: colors.icon + '10',
+                },
+              ]}
+            >
+              <TextInput
+                style={[styles.inlineSearchInput, { color: colors.text }]}
+                placeholder="Search this list"
+                placeholderTextColor={colors.icon}
+                value={listSearchQuery}
+                onChangeText={setListSearchQuery}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="search"
+              />
+              <Pressable
+                accessibilityLabel="Clear search"
+                hitSlop={8}
+                onPress={() => {
+                  setListSearchQuery('');
+                  setListSearchVisible(false);
+                }}
+                style={({ pressed }) => [{ opacity: pressed ? 0.72 : 1 }]}
+              >
+                <IconSymbol name="xmark" size={18} color={colors.icon} />
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
         <View style={styles.toolbar}>
-          <ToolbarButton
-            label="Sort"
-            value={labelForSort(preferences.sortMode)}
-            onPress={() => setMenuVisible('sort')}
-          />
-          <ToolbarButton
-            label="Filter"
-            value={labelForFilter(preferences.filterMode)}
-            onPress={() => setMenuVisible('filter')}
+          <FilterSortControlRow
+            alignRight
+            colors={colors}
+            filterLabel={labelForFilter(preferences.filterMode)}
+            filterOptions={[
+              { value: 'all', label: 'All' },
+              ...(hasStatus
+                ? [
+                    { value: 'active', label: 'Active' },
+                    { value: 'planned', label: 'Planned' },
+                    { value: 'completed', label: 'Completed' },
+                    { value: 'paused', label: 'Paused' },
+                    { value: 'dropped', label: 'Dropped' },
+                  ]
+                : []),
+              { value: 'archived', label: 'Archived' },
+            ]}
+            filterValue={preferences.filterMode}
+            onFilterChange={(value) => setListPreferences({ filterMode: value as ListFilterMode })}
+            onOpenFilter={() => setMenuVisible('filter')}
+            onOpenSort={() => setMenuVisible('sort')}
+            sortLabel={labelForSort(preferences.sortMode)}
+            sortOptions={[
+              { value: 'manual', label: 'Manual order' },
+              { value: 'updated-desc', label: 'Recently updated' },
+              { value: 'title-asc', label: 'Title A-Z' },
+              { value: 'rating-desc', label: 'Rating' },
+              ...(hasStatus ? [{ value: 'status', label: 'Status' }] : []),
+            ]}
+            sortValue={preferences.sortMode}
+            onSortChange={(value) => setListPreferences({ sortMode: value as ListSortMode })}
           />
         </View>
 
@@ -515,6 +768,7 @@ export default function ListDetailScreen() {
                       style={[styles.composerInput, { color: colors.text }]}
                       placeholder="Add an item"
                       placeholderTextColor={colors.icon}
+                      inputAccessoryViewID={isIos ? composerAccessoryId : undefined}
                       value={composerText}
                       onChangeText={setComposerText}
                       onSubmitEditing={submitComposer}
@@ -528,56 +782,15 @@ export default function ListDetailScreen() {
           />
         )}
 
-        {composerVisible ? (
-          <View
-            pointerEvents="box-none"
-            style={[
-              styles.actionBarWrap,
-              {
-                bottom: actionBarBottom,
-                paddingHorizontal: 20,
-              },
-            ]}
-          >
-            <View
-              style={[
-                styles.actionBar,
-                {
-                  backgroundColor: colors.background,
-                  borderColor: colors.icon + '22',
-                },
-              ]}
-            >
-              <Pressable
-                onPress={() => setSearchVisible(true)}
-                style={({ pressed }) => [
-                  styles.actionIconButton,
-                  { opacity: pressed ? 0.7 : 1 },
-                ]}
-              >
-                <IconSymbol name="magnifyingglass" size={22} color={colors.tint} />
-              </Pressable>
-              <Pressable
-                onPress={() => setTagSheetVisible(true)}
-                style={({ pressed }) => [
-                  styles.actionIconButton,
-                  { opacity: pressed ? 0.7 : 1 },
-                ]}
-              >
-                <IconSymbol name="tag.fill" size={22} color={colors.tint} />
-              </Pressable>
-              <Pressable
-                onPress={() => setLinkSheetVisible(true)}
-                style={({ pressed }) => [
-                  styles.actionIconButton,
-                  { opacity: pressed ? 0.7 : 1 },
-                ]}
-              >
-                <IconSymbol name="link" size={22} color={colors.tint} />
-              </Pressable>
-            </View>
-          </View>
-        ) : null}
+        <ComposerActionBar
+          accessoryId={composerAccessoryId}
+          visible={composerVisible}
+          colors={colors}
+          bottom={actionBarBottom}
+          onLinkPress={() => setLinkSheetVisible(true)}
+          onSearchPress={() => setSearchVisible(true)}
+          onTagPress={() => setTagSheetVisible(true)}
+        />
 
         <SelectionMenu
           visible={menuVisible === 'view'}
@@ -607,16 +820,11 @@ export default function ListDetailScreen() {
           onClose={() => setMenuVisible(null)}
           onSelect={(value) => {
             if (value === 'sublist') {
-              setMenuVisible(null);
-              setSublistTitle('');
-              setSublistPreset('blank');
-              setNewSublistVisible(true);
+              openNewSublist();
               return;
             }
             if (value === 'configure') {
-              setMenuVisible(null);
-              setDraftConfig(list.config);
-              setConfigVisible(true);
+              openListConfiguration();
               return;
             }
             if (value === 'tag-to-sublist') {
@@ -624,36 +832,11 @@ export default function ListDetailScreen() {
               return;
             }
             if (value === 'sublist-to-tag') {
-              const runConversion = () => {
-                const convertedTag = convertSublistToTag(list.id);
-                if (convertedTag && list.parentListId) {
-                  router.replace(`/list/${list.parentListId}` as never);
-                }
-              };
-
-              setMenuVisible(null);
-              if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                if (window.confirm(`Convert "${list.title}" into the "${list.title}" tag on its parent list?`)) {
-                  runConversion();
-                }
-                return;
-              }
-
-              Alert.alert(
-                'Convert sublist to tag?',
-                `All items in "${list.title}" will move to the parent list and be tagged "${list.title}".`,
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  { text: 'Convert', onPress: runConversion },
-                ]
-              );
+              convertCurrentSublistToTag();
               return;
             }
             if (value === 'save-template') {
-              setMenuVisible(null);
-              setTemplateTitle(`${list.title} Template`);
-              setTemplateDescription(list.description ?? '');
-              setTemplateVisible(true);
+              openSaveTemplate();
               return;
             }
             setListPreferences({ viewMode: value as ListViewMode });
@@ -695,12 +878,12 @@ export default function ListDetailScreen() {
             { value: 'all', label: 'All' },
             ...(hasStatus
               ? [
-                  { value: 'active', label: 'Active' },
-                  { value: 'planned', label: 'Planned' },
-                  { value: 'completed', label: 'Completed' },
-                  { value: 'paused', label: 'Paused' },
-                  { value: 'dropped', label: 'Dropped' },
-                ]
+                { value: 'active', label: 'Active' },
+                { value: 'planned', label: 'Planned' },
+                { value: 'completed', label: 'Completed' },
+                { value: 'paused', label: 'Paused' },
+                { value: 'dropped', label: 'Dropped' },
+              ]
               : []),
             { value: 'archived', label: 'Archived' },
           ]}
@@ -714,21 +897,20 @@ export default function ListDetailScreen() {
 
         <Modal
           visible={searchVisible}
-          transparent
           animationType="slide"
           onRequestClose={() => setSearchVisible(false)}
+          presentationStyle={isIos ? 'pageSheet' : 'fullScreen'}
+          transparent={!isIos}
         >
-          <Pressable style={styles.modalOverlay} onPress={() => setSearchVisible(false)}>
-            <Pressable
+          {isIos ? (
+            <View
               style={[
-                styles.sheet,
+                styles.nativeSheetContainer,
                 {
                   backgroundColor: colors.background,
                   paddingBottom: insets.bottom + 24,
-                  height: Dimensions.get('window').height * 0.95,
                 },
               ]}
-              onPress={(event) => event.stopPropagation()}
             >
               <View style={[styles.sheetHeader, { borderBottomColor: colors.icon + '30' }]}>
                 <Pressable onPress={() => setSearchVisible(false)} style={styles.sheetHeaderButton}>
@@ -768,8 +950,61 @@ export default function ListDetailScreen() {
                   }
                 />
               </ScrollView>
+            </View>
+          ) : (
+            <Pressable style={styles.modalOverlay} onPress={() => setSearchVisible(false)}>
+              <Pressable
+                style={[
+                  styles.sheet,
+                  {
+                    backgroundColor: colors.background,
+                    paddingBottom: insets.bottom + 24,
+                    height: Dimensions.get('window').height * 0.95,
+                  },
+                ]}
+                onPress={(event) => event.stopPropagation()}
+              >
+                <View style={[styles.sheetHeader, { borderBottomColor: colors.icon + '30' }]}>
+                  <Pressable onPress={() => setSearchVisible(false)} style={styles.sheetHeaderButton}>
+                    <IconSymbol name="xmark" size={24} color={colors.text} />
+                  </Pressable>
+                  <ThemedText type="subtitle" style={styles.sheetTitle}>
+                    Search catalog
+                  </ThemedText>
+                  <View style={styles.sheetHeaderButton} />
+                </View>
+                <ScrollView
+                  contentContainerStyle={styles.sheetBody}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  <CatalogSearchPanel
+                    initialQuery={composerText.trim()}
+                    autoFocus
+                    onSelectItem={(item) =>
+                      addCatalogEntry({
+                        title: item.title,
+                        type: item.type,
+                        imageUrl: item.imageUrl,
+                        detailPath: item.detailPath,
+                        sourceRef: item.sourceRef,
+                        rating: item.rating,
+                        progress:
+                          item.totalProgress && item.progressUnit
+                            ? {
+                                current: undefined,
+                                total: item.totalProgress,
+                                unit: item.progressUnit,
+                                updatedAt: Date.now(),
+                              }
+                            : undefined,
+                      })
+                    }
+                  />
+                </ScrollView>
+              </Pressable>
             </Pressable>
-          </Pressable>
+          )}
         </Modal>
 
         <Modal
@@ -1116,33 +1351,28 @@ export default function ListDetailScreen() {
   );
 }
 
-function ToolbarButton({
-  label,
-  value,
-  onPress,
-}: {
-  label: string;
-  value: string;
-  onPress: () => void;
-}) {
-  const colorScheme = useColorScheme();
-  const colors = Colors[colorScheme ?? 'light'];
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.toolbarButton,
-        {
-          borderColor: colors.icon + '35',
-          backgroundColor: colors.background,
-          opacity: pressed ? 0.8 : 1,
-        },
-      ]}
-    >
-      <ThemedText>{label}</ThemedText>
-      <ThemedText style={{ color: colors.icon }}>{value}</ThemedText>
-    </Pressable>
-  );
+function filterEntriesByQuery(entries: ListEntry[], query: string) {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return entries;
+  }
+
+  return entries.filter((entry) => {
+    const haystack = [
+      entry.title,
+      entry.type,
+      entry.status,
+      entry.detailPath,
+      entry.productUrl,
+      ...entry.tags,
+      ...(entry.customFields ?? []).flatMap((field) => [field.title, field.value]),
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    return haystack.includes(normalizedQuery);
+  });
 }
 
 function SelectionMenu({
@@ -1378,19 +1608,27 @@ const styles = StyleSheet.create({
   headerButtonsRow: { flexDirection: 'row', alignItems: 'center' },
   headerButton: { padding: 6, marginRight: 6 },
   toolbar: {
-    flexDirection: 'row',
-    gap: 12,
     paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 4,
   },
-  toolbarButton: {
-    flex: 1,
+  inlineSearchWrap: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+  },
+  inlineSearchBar: {
+    alignItems: 'center',
+    borderRadius: 18,
     borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 14,
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+  },
+  inlineSearchInput: {
+    flex: 1,
+    fontSize: 16,
     paddingVertical: 10,
-    gap: 2,
   },
   listTagSection: { paddingHorizontal: 20, paddingBottom: 8, gap: 8 },
   listTagLabel: { fontSize: 13 },
@@ -1462,28 +1700,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     paddingVertical: 12,
   },
-  actionBarWrap: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-  },
-  actionBar: {
-    width: '100%',
-    borderWidth: 1,
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-evenly',
-    alignItems: 'center',
-  },
-  actionIconButton: {
-    width: 56,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 14,
-  },
   compareContainer: { flex: 1, paddingHorizontal: 20, paddingTop: 12 },
   compareTable: { borderWidth: 1, borderRadius: 10, overflow: 'hidden', marginBottom: 24 },
   compareRow: { flexDirection: 'row', borderBottomWidth: StyleSheet.hairlineWidth },
@@ -1514,6 +1730,9 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'flex-end',
     backgroundColor: 'rgba(8, 12, 20, 0.45)',
+  },
+  nativeSheetContainer: {
+    flex: 1,
   },
   sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24 },
   sheetHeader: {

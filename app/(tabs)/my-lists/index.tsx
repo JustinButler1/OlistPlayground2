@@ -1,12 +1,12 @@
 import { Image } from 'expo-image';
 import { Stack, useRouter } from 'expo-router';
-import type { ComponentProps } from 'react';
 import { useCallback, useMemo, useState } from 'react';
 import { Alert, Animated, FlatList, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
+import { FilterSortControlRow } from '@/components/tracker/filter-sort-control-row';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useListActions, useListsQuery } from '@/contexts/lists-context';
@@ -18,6 +18,7 @@ type FilterMode = 'all' | 'progress' | 'sublists';
 
 export default function MyListsScreen() {
   const router = useRouter();
+  const isIos = process.env.EXPO_OS === 'ios';
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
@@ -177,20 +178,27 @@ export default function MyListsScreen() {
         }}
         ListHeaderComponent={
           <View style={styles.listHeader}>
-            <View style={styles.controlRow}>
-              <ListControlButton
-                label={selectedFilterLabel}
-                icon="line.3.horizontal.decrease"
-                colors={colors}
-                onPress={() => setMenuVisible('filter')}
-              />
-              <ListControlButton
-                label={selectedSortLabel}
-                icon="arrow.up.arrow.down"
-                colors={colors}
-                onPress={() => setMenuVisible('sort')}
-              />
-            </View>
+            <FilterSortControlRow
+              alignRight
+              colors={colors}
+              filterLabel={selectedFilterLabel}
+              filterOptions={[
+                { value: 'all', label: 'All lists' },
+                { value: 'progress', label: 'Lists with progress' },
+                { value: 'sublists', label: 'Lists with sublists' },
+              ]}
+              filterValue={filterMode}
+              onFilterChange={(value) => setFilterMode(value as FilterMode)}
+              onOpenFilter={() => setMenuVisible('filter')}
+              onOpenSort={() => setMenuVisible('sort')}
+              sortLabel={selectedSortLabel}
+              sortOptions={[
+                { value: 'updated-desc', label: 'Recently updated' },
+                { value: 'title-asc', label: 'Title A-Z' },
+              ]}
+              sortValue={sortMode}
+              onSortChange={(value) => setSortMode(value as SortMode)}
+            />
           </View>
         }
         ListEmptyComponent={
@@ -207,68 +215,41 @@ export default function MyListsScreen() {
         showsVerticalScrollIndicator={false}
       />
 
-      <SelectionMenu
-        visible={menuVisible === 'sort'}
-        title="Sort lists"
-        options={[
-          { value: 'updated-desc', label: 'Recently updated' },
-          { value: 'title-asc', label: 'Title A-Z' },
-        ]}
-        selectedValue={sortMode}
-        onClose={() => setMenuVisible(null)}
-        onSelect={(value) => {
-          setSortMode(value as SortMode);
-          setMenuVisible(null);
-        }}
-      />
+      {!isIos ? (
+        <>
+          <SelectionMenu
+            visible={menuVisible === 'sort'}
+            title="Sort lists"
+            options={[
+              { value: 'updated-desc', label: 'Recently updated' },
+              { value: 'title-asc', label: 'Title A-Z' },
+            ]}
+            selectedValue={sortMode}
+            onClose={() => setMenuVisible(null)}
+            onSelect={(value) => {
+              setSortMode(value as SortMode);
+              setMenuVisible(null);
+            }}
+          />
 
-      <SelectionMenu
-        visible={menuVisible === 'filter'}
-        title="Filter lists"
-        options={[
-          { value: 'all', label: 'All lists' },
-          { value: 'progress', label: 'Lists with progress' },
-          { value: 'sublists', label: 'Lists with sublists' },
-        ]}
-        selectedValue={filterMode}
-        onClose={() => setMenuVisible(null)}
-        onSelect={(value) => {
-          setFilterMode(value as FilterMode);
-          setMenuVisible(null);
-        }}
-      />
+          <SelectionMenu
+            visible={menuVisible === 'filter'}
+            title="Filter lists"
+            options={[
+              { value: 'all', label: 'All lists' },
+              { value: 'progress', label: 'Lists with progress' },
+              { value: 'sublists', label: 'Lists with sublists' },
+            ]}
+            selectedValue={filterMode}
+            onClose={() => setMenuVisible(null)}
+            onSelect={(value) => {
+              setFilterMode(value as FilterMode);
+              setMenuVisible(null);
+            }}
+          />
+        </>
+      ) : null}
     </>
-  );
-}
-
-function ListControlButton({
-  colors,
-  icon,
-  label,
-  onPress,
-}: {
-  colors: (typeof Colors)['light'] | (typeof Colors)['dark'];
-  icon: ComponentProps<typeof IconSymbol>['name'];
-  label: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.controlButton,
-        {
-          backgroundColor: colors.background,
-          borderColor: colors.icon + '24',
-          opacity: pressed ? 0.84 : 1,
-        },
-      ]}
-    >
-      <ThemedText type="defaultSemiBold" style={styles.controlButtonLabel}>
-        {label}
-      </ThemedText>
-      <IconSymbol name={icon} size={18} color={colors.icon} />
-    </Pressable>
   );
 }
 
@@ -339,23 +320,6 @@ const styles = StyleSheet.create({
   },
   listHeader: {
     paddingBottom: 14,
-  },
-  controlRow: {
-    flexDirection: 'row',
-    gap: 12,
-    justifyContent: 'flex-start',
-  },
-  controlButton: {
-    alignItems: 'center',
-    borderRadius: 999,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  controlButtonLabel: {
-    fontSize: 17,
   },
   placeholder: {
     paddingTop: 12,

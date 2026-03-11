@@ -105,7 +105,7 @@ import { PlatformColor } from "react-native";
 
 ### Misc
 - `ellipsis` - more options
-- `ellipsis.circle` - more in circle
+- `ellipsis` - more in circle
 - `line.3.horizontal` - menu/hamburger
 - `slider.horizontal.3` - filters
 - `arrow.clockwise` - refresh
