@@ -25,12 +25,12 @@ export default function TabLayout() {
         <NativeTabs.Trigger.Label>My Lists</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="explore" disableAutomaticContentInsets>
+      <NativeTabs.Trigger name="community" disableAutomaticContentInsets>
         <NativeTabs.Trigger.Icon
-          sf={{ default: 'paperplane', selected: 'paperplane.fill' }}
-          md="explore"
+          sf={{ default: 'person.3', selected: 'person.3.fill' }}
+          md="diversity_3"
         />
-        <NativeTabs.Trigger.Label>Explore</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>Community</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="profile" disableAutomaticContentInsets>
@@ -41,9 +41,9 @@ export default function TabLayout() {
         <NativeTabs.Trigger.Label>Profile</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="search" role="search" disableAutomaticContentInsets>
-        <NativeTabs.Trigger.Icon sf="magnifyingglass" md="search" />
-        <NativeTabs.Trigger.Label>Search</NativeTabs.Trigger.Label>
+      <NativeTabs.Trigger name="explore" role="search" disableAutomaticContentInsets>
+        <NativeTabs.Trigger.Icon sf="sparkle.magnifyingglass" md="search" />
+        <NativeTabs.Trigger.Label>Explore</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );

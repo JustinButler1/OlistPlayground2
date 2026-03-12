@@ -24,7 +24,7 @@ const FILTER_SECTIONS = [
   },
 ] as const;
 
-export default function SearchFilterSheet() {
+export default function ExploreFilterSheet() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const [selectedOptions, setSelectedOptions] = useState<string[]>([

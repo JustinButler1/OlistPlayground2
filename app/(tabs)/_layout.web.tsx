@@ -37,20 +37,11 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="search"
+        name="community"
         options={{
-          title: 'Search',
+          title: 'Community',
           tabBarIcon: ({ color }) => (
-            <IconSymbol size={28} name="magnifyingglass" color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="explore"
-        options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => (
-            <IconSymbol size={28} name="paperplane.fill" color={color} />
+            <IconSymbol size={28} name="person.3.fill" color={color} />
           ),
         }}
       />
@@ -60,6 +51,15 @@ export default function TabLayout() {
           title: 'Profile',
           tabBarIcon: ({ color }) => (
             <IconSymbol size={28} name="person.fill" color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="explore"
+        options={{
+          title: 'Explore',
+          tabBarIcon: ({ color }) => (
+            <IconSymbol size={28} name="sparkle.magnifyingglass" color={color} />
           ),
         }}
       />

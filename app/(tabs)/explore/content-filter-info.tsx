@@ -5,7 +5,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Colors, ThemePalette } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
-export default function ContentFilterInfoSheet() {
+export default function ExploreContentFilterInfoSheet() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
 
