@@ -1,26 +1,5 @@
 import type { CatalogAdapter, CatalogSearchItem } from '@/services/catalog/types';
-
-const GOOGLE_BOOKS_SEARCH = 'https://www.googleapis.com/books/v1/volumes';
-
-interface GoogleBooksVolume {
-  id: string;
-  volumeInfo: {
-    title: string;
-    subtitle?: string;
-    authors?: string[];
-    publishedDate?: string;
-    pageCount?: number;
-    publisher?: string;
-    categories?: string[];
-    imageLinks?: {
-      thumbnail?: string;
-    };
-  };
-}
-
-interface GoogleBooksSearchResponse {
-  items?: GoogleBooksVolume[];
-}
+import { searchGoogleBooksVolumes } from '@/services/catalog/google-books';
 
 function bookKeyToSlug(key: string): string {
   return key; // Google Books uses alphanumeric IDs, so we can just use them directly
@@ -31,21 +10,7 @@ async function searchBooks(query: string, signal?: AbortSignal): Promise<Catalog
   if (!query.trim()) {
     return [];
   }
-
-  const apiKey = process.env.EXPO_PUBLIC_GOOGLE_BOOKS_API_KEY;
-  const url = new URL(GOOGLE_BOOKS_SEARCH);
-  url.searchParams.append('q', query.trim());
-  url.searchParams.append('maxResults', '25');
-  if (apiKey) {
-    url.searchParams.append('key', apiKey);
-  }
-
-  const response = await fetch(url.toString(), { signal });
-  if (!response.ok) {
-    throw new Error('book_search_failed');
-  }
-
-  const json: GoogleBooksSearchResponse = await response.json();
+  const json = await searchGoogleBooksVolumes(query, { maxResults: 25, signal });
 
   return (json.items ?? []).map((item) => {
     const publishedYear = item.volumeInfo.publishedDate?.slice(0, 4);
@@ -59,6 +24,7 @@ async function searchBooks(query: string, signal?: AbortSignal): Promise<Catalog
     return {
       id: item.id,
       title: [item.volumeInfo.title, item.volumeInfo.subtitle].filter(Boolean).join(': '),
+      description: item.volumeInfo.description?.trim() || undefined,
       subtitle: [author, location, progressLabel].filter(Boolean).join(' | '),
       location: location || undefined,
       author: author || undefined,

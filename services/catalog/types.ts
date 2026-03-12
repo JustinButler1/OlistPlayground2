@@ -5,6 +5,7 @@ export type CatalogCategory = 'anime' | 'manga' | 'book' | 'movie-tv';
 export interface CatalogSearchItem {
   id: string;
   title: string;
+  description?: string;
   subtitle?: string;
   location?: string;
   author?: string;

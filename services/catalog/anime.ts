@@ -8,6 +8,7 @@ interface JikanAnimeSearchResponse {
     mal_id: number;
     title: string;
     title_english?: string | null;
+    synopsis?: string | null;
     images?: {
       jpg?: { image_url?: string; small_image_url?: string };
       webp?: { image_url?: string; small_image_url?: string };
@@ -52,6 +53,7 @@ async function searchAnime(query: string, signal?: AbortSignal): Promise<Catalog
     return {
       id: String(item.mal_id),
       title: item.title_english?.trim() || item.title,
+      description: item.synopsis?.trim() || undefined,
       subtitle: [location, progressLabel].filter(Boolean).join(' | '),
       location: location || undefined,
       progressLabel,

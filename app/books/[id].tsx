@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Link, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -24,10 +24,15 @@ import { getItemUserDataKey } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { ExpandableDescription } from '@/components/ExpandableDescription';
 import { ExpandableTags } from '@/components/ExpandableTags';
-import { readDetailSeed } from '@/lib/detail-navigation';
+import {
+  buildSeededHref,
+  readDetailSeed,
+} from '@/lib/detail-navigation';
 import { apiQueryKeys } from '@/services/api-query-keys';
-
-const GOOGLE_BOOKS_BASE = 'https://www.googleapis.com/books/v1/volumes/';
+import {
+  fetchGoogleBookDetails,
+  type GoogleBooksVolume,
+} from '@/services/catalog/google-books';
 
 export function bookKeyToSlug(key: string): string {
   return key;
@@ -37,37 +42,7 @@ function slugToBookKey(slug: string): string {
   return slug;
 }
 
-interface GoogleBooksWork {
-  id: string;
-  volumeInfo: {
-    title: string;
-    description?: string;
-    publishedDate?: string;
-    authors?: string[];
-    pageCount?: number;
-    categories?: string[];
-    imageLinks?: {
-      thumbnail?: string;
-      small?: string;
-      medium?: string;
-      large?: string;
-      extraLarge?: string;
-    };
-  };
-}
-
-async function fetchBookDetails(id: string, signal?: AbortSignal): Promise<GoogleBooksWork> {
-  const apiKey = process.env.EXPO_PUBLIC_GOOGLE_BOOKS_API_KEY;
-  const url = new URL(`${GOOGLE_BOOKS_BASE}${id}`);
-  if (apiKey) {
-    url.searchParams.append('key', apiKey);
-  }
-  const res = await fetch(url.toString(), { signal });
-  if (!res.ok) throw new Error('Failed to load book');
-  return res.json();
-}
-
-function getDescriptionText(work: GoogleBooksWork): string | null {
+function getDescriptionText(work: GoogleBooksVolume): string | null {
   if (!work.volumeInfo.description) return null;
   return work.volumeInfo.description.replace(/<[^>]*>?/gm, '');
 }
@@ -90,7 +65,7 @@ export default function BookDetailsScreen() {
   const itemKey = workKey ? getItemUserDataKey('book', workKey) : null;
   const workQuery = useQuery({
     queryKey: apiQueryKeys.book.detail(workKey ?? ''),
-    queryFn: ({ signal }) => fetchBookDetails(workKey!, signal),
+    queryFn: ({ signal }) => fetchGoogleBookDetails(workKey!, signal),
     enabled: Boolean(workKey),
     staleTime: 1000 * 60 * 10,
   });
@@ -191,14 +166,26 @@ export default function BookDetailsScreen() {
                     <ThemedText type="subtitle">Authors</ThemedText>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.relatedScroll}>
                       {authorNames.map((authorName, index) => (
-                        <Pressable key={index} style={[styles.relatedCard, { backgroundColor: colors.tint + '15' }]}>
-                          <View style={styles.relatedImagePlaceholder}>
-                            <IconSymbol name="photo" size={24} color={colors.icon} />
-                          </View>
-                          <View style={styles.relatedContent}>
-                            <ThemedText style={styles.relatedTitle} numberOfLines={2}>{authorName}</ThemedText>
-                          </View>
-                        </Pressable>
+                        <Link
+                          key={`${authorName}-${index}`}
+                          href={buildSeededHref(`/person/book-author/${encodeURIComponent(authorName)}`, {
+                            title: authorName,
+                            subtitle: 'Author',
+                            imageVariant: 'avatar',
+                          })}
+                          asChild
+                        >
+                          <Link.Trigger>
+                            <Pressable style={StyleSheet.flatten([styles.relatedCard, { backgroundColor: colors.tint + '15' }])}>
+                              <View style={styles.relatedImagePlaceholder}>
+                                <IconSymbol name="person.fill" size={24} color={colors.icon} />
+                              </View>
+                              <View style={styles.relatedContent}>
+                                <ThemedText style={styles.relatedTitle} numberOfLines={2}>{authorName}</ThemedText>
+                              </View>
+                            </Pressable>
+                          </Link.Trigger>
+                        </Link>
                       ))}
                     </ScrollView>
                   </View>

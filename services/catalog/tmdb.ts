@@ -10,6 +10,7 @@ interface TmdbSearchResponse {
     media_type: string;
     title?: string;
     name?: string;
+    overview?: string;
     poster_path?: string | null;
     vote_average?: number | null;
     release_date?: string;
@@ -61,6 +62,7 @@ async function searchTmdb(query: string, signal?: AbortSignal): Promise<CatalogS
       return {
         id: String(item.id),
         title,
+        description: item.overview?.trim() || undefined,
         subtitle: location,
         location: location || undefined,
         imageUrl: item.poster_path ? `${TMDB_IMAGE_BASE}${item.poster_path}` : undefined,

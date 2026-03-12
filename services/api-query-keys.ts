@@ -5,6 +5,7 @@ type JikanImageType = 'anime' | 'manga' | 'authors' | 'producers';
 
 export const apiQueryKeys = {
   book: {
+    authorWorks: (authorName: string) => ['book', 'author-works', authorName] as const,
     detail: (id: string) => ['book', 'detail', id] as const,
   },
   catalog: {

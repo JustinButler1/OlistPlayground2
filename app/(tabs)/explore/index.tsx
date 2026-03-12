@@ -33,6 +33,7 @@ import { buildSeededDetailHref } from '@/lib/detail-navigation';
 import { apiQueryKeys } from '@/services/api-query-keys';
 import {
   searchCatalog,
+  sortCatalogSearchItemsByRelevance,
   type CatalogCategory,
   type CatalogSearchItem,
 } from '@/services/catalog';
@@ -51,6 +52,7 @@ type SearchMediaScope =
   | 'people';
 
 type SearchSortId =
+  | 'relevance'
   | 'title'
   | 'rating'
   | 'release-year'
@@ -94,42 +96,50 @@ const SEARCH_SCOPE_OPTIONS: SearchScopeOption[] = [
 
 const SEARCH_SORT_OPTIONS: Record<SearchMediaScope, SearchSortOption[]> = {
   'all-media': [
+    { id: 'relevance', label: 'Relevance' },
     { id: 'title', label: 'Title' },
     { id: 'rating', label: 'Rating' },
     { id: 'release-year', label: 'Release Year' },
   ],
   'movie-tv': [
+    { id: 'relevance', label: 'Relevance' },
     { id: 'title', label: 'Title' },
     { id: 'release-year', label: 'Release Year' },
     { id: 'run-time', label: 'Run Time' },
     { id: 'rating', label: 'Rating' },
   ],
   book: [
+    { id: 'relevance', label: 'Relevance' },
     { id: 'title', label: 'Title' },
     { id: 'author', label: 'Author' },
     { id: 'pages', label: 'Pages' },
   ],
   anime: [
+    { id: 'relevance', label: 'Relevance' },
     { id: 'title', label: 'Title' },
     { id: 'episodes', label: 'Episodes' },
     { id: 'rating', label: 'Rating' },
   ],
   manga: [
+    { id: 'relevance', label: 'Relevance' },
     { id: 'title', label: 'Title' },
     { id: 'chapters', label: 'Chapters' },
     { id: 'rating', label: 'Rating' },
   ],
   game: [
+    { id: 'relevance', label: 'Relevance' },
     { id: 'title', label: 'Title' },
     { id: 'popularity', label: 'Popularity' },
     { id: 'play-time', label: 'Play Time' },
   ],
   list: [
+    { id: 'relevance', label: 'Relevance' },
     { id: 'title', label: 'Title' },
     { id: 'items', label: 'Items' },
     { id: 'updated', label: 'Recently Updated' },
   ],
   people: [
+    { id: 'relevance', label: 'Relevance' },
     { id: 'title', label: 'Title' },
     { id: 'popularity', label: 'Popularity' },
   ],
@@ -195,6 +205,7 @@ function searchListsLocally(lists: TrackerList[], query: string): CatalogSearchI
       return {
         id: list.id,
         title: list.title,
+        description: list.description || undefined,
         subtitle: subtitle || undefined,
         progressLabel,
         tags: list.tags,
@@ -227,6 +238,8 @@ function sortSearchResults(
 
   return [...items].sort((left, right) => {
     switch (sortId) {
+      case 'relevance':
+        return 0;
       case 'rating':
       case 'popularity':
         return (right.rating ?? 0) - (left.rating ?? 0) || left.title.localeCompare(right.title);
@@ -283,7 +296,7 @@ export default function ExploreScreen() {
   const [query, setQuery] = useState('');
   const [pendingItem, setPendingItem] = useState<CatalogSearchItem | null>(null);
   const [mediaScope, setMediaScope] = useState<SearchMediaScope>('all-media');
-  const [sortId, setSortId] = useState<SearchSortId>('title');
+  const [sortId, setSortId] = useState<SearchSortId>('relevance');
   const [selectionMenu, setSelectionMenu] = useState<SelectionMenuState | null>(null);
   const [isContentNoticeVisible, setIsContentNoticeVisible] = useState(true);
   const debouncedQuery = useDebouncedValue(query, 350);
@@ -386,7 +399,10 @@ export default function ExploreScreen() {
   }, [mediaScope, remoteSearchQueries, trimmedQuery]);
 
   const sortedResults = useMemo(
-    () => sortSearchResults(results, sortId, visibleLists),
+    () =>
+      sortId === 'relevance'
+        ? sortCatalogSearchItemsByRelevance(results)
+        : sortSearchResults(results, sortId, visibleLists),
     [results, sortId, visibleLists]
   );
 

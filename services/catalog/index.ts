@@ -31,11 +31,35 @@ function dedupeCatalogSearchItems(items: CatalogSearchItem[]): CatalogSearchItem
   });
 }
 
+function getCatalogSearchRelevancePenalty(item: CatalogSearchItem): number {
+  const hasDescription = Boolean(item.description?.trim());
+  const hasAuthor = Boolean(item.author?.trim());
+
+  if (hasDescription) {
+    return 0;
+  }
+
+  return hasAuthor ? 1 : 2;
+}
+
+export function sortCatalogSearchItemsByRelevance(
+  items: CatalogSearchItem[]
+): CatalogSearchItem[] {
+  return items
+    .map((item, index) => ({
+      item,
+      index,
+      penalty: getCatalogSearchRelevancePenalty(item),
+    }))
+    .sort((left, right) => left.penalty - right.penalty || left.index - right.index)
+    .map(({ item }) => item);
+}
+
 export async function searchCatalog(
   category: CatalogCategory,
   query: string,
   signal?: AbortSignal
 ): Promise<CatalogSearchItem[]> {
   const items = await catalogAdapterById[category].search(query, signal);
-  return dedupeCatalogSearchItems(items);
+  return sortCatalogSearchItemsByRelevance(dedupeCatalogSearchItems(items));
 }
