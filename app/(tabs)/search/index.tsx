@@ -26,8 +26,8 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, ThemePalette } from '@/constants/theme';
 import { useEntryActions, useListsQuery } from '@/contexts/lists-context';
 import type { TrackerList } from '@/data/mock-lists';
-import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { buildSeededDetailHref } from '@/lib/detail-navigation';
 import { apiQueryKeys } from '@/services/api-query-keys';
 import {
@@ -376,7 +376,8 @@ export default function SearchScreen() {
   const isWaitingForDebounce = query.trim().length > 0 && query.trim() !== trimmedQuery;
   const isLoading =
     isWaitingForDebounce ||
-    remoteSearchQueries.some((remoteQuery) => remoteQuery.isPending || remoteQuery.isFetching);
+    (trimmedQuery.length > 0 &&
+      remoteSearchQueries.some((remoteQuery) => remoteQuery.fetchStatus === 'fetching'));
 
   const error = useMemo(() => {
     if (!trimmedQuery) {
@@ -786,6 +787,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   content: {
+    flex: 1,
     paddingHorizontal: 20,
     gap: 14,
   },
