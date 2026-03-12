@@ -15,11 +15,9 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  type StyleProp,
   TextInput,
   useWindowDimensions,
   View,
-  type ViewStyle,
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -480,26 +478,20 @@ export default function ListDetailScreen() {
     });
     return (
       <Animated.View style={[styles.rightActionContainer, { opacity }]}>
-        <Pressable
+        <SwipeActionButton
+          backgroundColor={colors.tint}
+          icon="info.circle.fill"
+          iconColor={colors.background}
+          isIos={isIos}
           onPress={() => openEntryMetadata(entry)}
-          style={({ pressed }) => [
-            styles.infoAction,
-            { backgroundColor: colors.tint, opacity: pressed ? 0.85 : 1 },
-          ]}
-        >
-          <IconSymbol name="info.circle" size={18} color={colors.background} />
-          <ThemedText style={[styles.actionText, { color: colors.background }]}>Info</ThemedText>
-        </Pressable>
-        <Pressable
+        />
+        <SwipeActionButton
+          backgroundColor="#C62828"
+          icon="trash.fill"
+          iconColor="#fff"
+          isIos={isIos}
           onPress={() => confirmDeleteEntry(entry)}
-          style={({ pressed }) => [
-            styles.deleteAction,
-            { backgroundColor: '#C62828', opacity: pressed ? 0.85 : 1 },
-          ]}
-        >
-          <IconSymbol name="trash" size={18} color="#fff" />
-          <ThemedText style={styles.actionText}>Delete</ThemedText>
-        </Pressable>
+        />
       </Animated.View>
     );
   };
@@ -748,6 +740,8 @@ export default function ListDetailScreen() {
 
                 return (
                   <Swipeable
+                    containerStyle={styles.swipeableContainer}
+                    childrenContainerStyle={styles.swipeableChildren}
                     overshootRight={false}
                     rightThreshold={56}
                     renderRightActions={(progress) => renderRightActions(progress, item)}
@@ -1761,6 +1755,52 @@ function SublistPresetButton({
   );
 }
 
+function SwipeActionButton({
+  backgroundColor,
+  icon,
+  iconColor,
+  isIos,
+  onPress,
+}: {
+  backgroundColor: string;
+  icon: 'info.circle.fill' | 'trash.fill';
+  iconColor: string;
+  isIos: boolean;
+  onPress: () => void;
+}) {
+  const circle = (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.swipeActionPressable, { opacity: pressed ? 0.78 : 1 }]}
+    >
+      <View style={[styles.swipeActionFill, { backgroundColor }]}>
+        <IconSymbol name={icon} size={20} color={iconColor} />
+      </View>
+    </Pressable>
+  );
+
+  if (!isIos) {
+    return circle;
+  }
+
+  if (isGlassEffectAPIAvailable()) {
+    return (
+      <GlassView glassEffectStyle="regular" isInteractive style={styles.swipeActionSurface}>
+        {circle}
+      </GlassView>
+    );
+  }
+
+  return (
+    <View style={styles.swipeActionSurface}>
+      <BlurView intensity={75} tint="systemMaterial" style={styles.swipeActionBlur}>
+        {circle}
+      </BlurView>
+    </View>
+  );
+}
+
 function ListRowSurface({
   children,
   colors,
@@ -1777,44 +1817,42 @@ function ListRowSurface({
       <View
         style={[
           styles.row,
-          styles.rowFallbackSurface,
           {
             backgroundColor: colors.background,
-            borderColor: colors.icon + '14',
           },
         ]}
       >
-        {children}
+        <View style={[styles.rowBackgroundClip, styles.rowFallbackSurface, { borderColor: colors.icon + '14' }]} />
+        <View style={styles.rowContent}>{children}</View>
       </View>
     );
   }
 
-  const iosSurfaceStyle: StyleProp<ViewStyle> = [
-    styles.row,
-    styles.rowGlassSurface,
-    !supportsLiquidGlass
-      ? [
-        styles.rowFallbackSurface,
-        {
-          backgroundColor: colors.background + 'B8',
-          borderColor: colors.icon + '18',
-        },
-      ]
-      : null,
-  ];
-
   if (supportsLiquidGlass) {
     return (
-      <GlassView glassEffectStyle="regular" style={iosSurfaceStyle}>
-        {children}
-      </GlassView>
+      <View style={styles.row}>
+        <GlassView glassEffectStyle="regular" style={styles.rowBackgroundClip} />
+        <View style={styles.rowContent}>{children}</View>
+      </View>
     );
   }
 
   return (
-    <BlurView intensity={90} tint="systemMaterial" style={iosSurfaceStyle}>
-      {children}
-    </BlurView>
+    <View style={styles.row}>
+      <BlurView
+        intensity={90}
+        tint="systemMaterial"
+        style={[
+          styles.rowBackgroundClip,
+          styles.rowFallbackSurface,
+          {
+            backgroundColor: colors.background + 'B8',
+            borderColor: colors.icon + '18',
+          },
+        ]}
+      />
+      <View style={styles.rowContent}>{children}</View>
+    </View>
   );
 }
 
@@ -1960,23 +1998,32 @@ const styles = StyleSheet.create({
   listTagWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   listTagChip: { borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
   listContent: { flex: 1, paddingHorizontal: 12, paddingTop: 6 },
+  swipeableContainer: {
+    overflow: 'visible',
+  },
+  swipeableChildren: {
+    overflow: 'visible',
+  },
   rowSeparator: { height: 6 },
   row: {
+    position: 'relative',
+    width: '100%',
+    minHeight: 88,
+  },
+  rowContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    width: '100%',
     minHeight: 88,
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
-  rowGlassSurface: {
+  rowBackgroundClip: {
+    ...StyleSheet.absoluteFillObject,
     borderRadius: 22,
     overflow: 'hidden',
   },
   rowFallbackSurface: {
-    borderRadius: 22,
     borderWidth: 1,
-    overflow: 'hidden',
   },
   checkbox: {
     width: 22,
@@ -2014,24 +2061,38 @@ const styles = StyleSheet.create({
   rowMetaWrap: { gap: 4, minHeight: 18, justifyContent: 'center' },
   rowMeta: { fontSize: 13 },
   rightActionContainer: {
-    width: 192,
+    width: 132,
     flexDirection: 'row',
     justifyContent: 'center',
-    alignItems: 'stretch',
+    alignItems: 'center',
+    gap: 10,
   },
-  infoAction: {
-    flex: 1,
+  swipeActionSurface: {
+    width: 54,
+    height: 54,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  swipeActionBlur: {
+    width: '100%',
+    height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
   },
-  deleteAction: {
-    flex: 1,
+  swipeActionPressable: {
+    width: 54,
+    height: 54,
+    borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
   },
-  actionText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  swipeActionFill: {
+    width: 44,
+    height: 44,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   gridContent: { flexGrow: 1, paddingHorizontal: 14, paddingTop: 8 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   gridCard: { width: '48%' },
