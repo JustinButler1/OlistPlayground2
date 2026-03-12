@@ -299,6 +299,9 @@ export const markListOpened = mutation({
   args: { listId: v.string() },
   handler: async (ctx, args) => {
     const workspace = await ensureWorkspaceRecord(ctx);
+    if (workspace.recentListIds[0] === args.listId) {
+      return;
+    }
     await updateWorkspaceListsMetadata(ctx, {
       recentListIds: touchRecentListIds(workspace.recentListIds, args.listId),
     });

@@ -70,6 +70,8 @@ export default function ListDetailScreen() {
     updateList,
   } = useListActions();
   const { addEntryToList, deleteEntryFromList, setEntryChecked } = useEntryActions();
+  const latestMarkListOpenedRef = useRef(markListOpened);
+  const lastOpenedListIdRef = useRef<string | null>(null);
   const list = activeLists.find((item) => item.id === id) ?? null;
   const { preferences, setListPreferences } = useListPreferences(id ?? '');
   const [menuVisible, setMenuVisible] =
@@ -110,10 +112,17 @@ export default function ListDetailScreen() {
   }, []);
 
   useEffect(() => {
-    if (list?.id) {
-      markListOpened(list.id);
+    latestMarkListOpenedRef.current = markListOpened;
+  }, [markListOpened]);
+
+  useEffect(() => {
+    if (!list?.id || lastOpenedListIdRef.current === list.id) {
+      return;
     }
-  }, [list?.id, markListOpened]);
+
+    lastOpenedListIdRef.current = list.id;
+    void latestMarkListOpenedRef.current(list.id);
+  }, [list?.id]);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';

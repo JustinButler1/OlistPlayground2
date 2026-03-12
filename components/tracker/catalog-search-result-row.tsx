@@ -1,4 +1,4 @@
-import { Link, type Href } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
@@ -29,14 +29,8 @@ export function CatalogSearchResultRow({
   const colors = Colors[colorScheme ?? 'light'];
 
   const content = (
-    <View style={styles.resultMain}>
-      {href ? (
-        <Link.AppleZoom>
-          <ThumbnailImage imageUrl={item.imageUrl} style={styles.resultImage} />
-        </Link.AppleZoom>
-      ) : (
-        <ThumbnailImage imageUrl={item.imageUrl} style={styles.resultImage} />
-      )}
+    <>
+      <ThumbnailImage imageUrl={item.imageUrl} style={styles.resultImage} />
       <View style={styles.resultInfo}>
         <ThemedText style={styles.resultTitle} numberOfLines={2}>
           {item.title}
@@ -82,15 +76,15 @@ export function CatalogSearchResultRow({
           </View>
         ) : null}
       </View>
-    </View>
+    </>
   );
 
   const primary = (
     <Pressable
-      onPress={href ? undefined : onPress}
+      onPress={href ? () => router.push(href) : onPress}
       disabled={!href && !onPress}
       style={({ pressed }) => [
-        styles.resultMain,
+        styles.resultPressable,
         { opacity: pressed ? 0.82 : 1 },
       ]}
       accessibilityRole="button"
@@ -102,13 +96,7 @@ export function CatalogSearchResultRow({
 
   return (
     <View style={styles.resultRow}>
-      {href ? (
-        <Link href={href} asChild>
-          <Link.Trigger>{primary}</Link.Trigger>
-        </Link>
-      ) : (
-        primary
-      )}
+      {primary}
       {rightAccessory}
     </View>
   );
@@ -116,17 +104,17 @@ export function CatalogSearchResultRow({
 
 const styles = StyleSheet.create({
   resultRow: {
-    flex: 1,
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  resultMain: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    minWidth: '90%',
+    alignItems: 'flex-start',
     gap: 14,
+    width: '100%',
+  },
+  resultPressable: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 14,
+    minWidth: 0,
   },
   resultImage: {
     width: 96,
@@ -136,6 +124,7 @@ const styles = StyleSheet.create({
   },
   resultInfo: {
     flex: 1,
+    minWidth: 0,
     gap: 4,
   },
   resultTitle: {
