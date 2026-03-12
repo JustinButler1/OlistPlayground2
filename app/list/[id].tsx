@@ -1,8 +1,9 @@
 import { useHeaderHeight } from '@react-navigation/elements';
 import { BlurView } from 'expo-blur';
+import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
 import { Image } from 'expo-image';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -14,9 +15,11 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  type StyleProp,
   TextInput,
   useWindowDimensions,
   View,
+  type ViewStyle,
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -48,6 +51,7 @@ export default function ListDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const isIos = process.env.EXPO_OS === 'ios';
+  const supportsLiquidGlass = isIos && isGlassEffectAPIAvailable();
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const headerHeight = useHeaderHeight();
@@ -739,48 +743,63 @@ export default function ListDetailScreen() {
               data={visibleEntries}
               keyExtractor={(item) => item.id}
               keyboardShouldPersistTaps="handled"
-              renderItem={({ item }) => (
-                <Swipeable
-                  overshootRight={false}
-                  rightThreshold={56}
-                  renderRightActions={(progress) => renderRightActions(progress, item)}
-                >
-                  <View style={[styles.row, { borderBottomColor: colors.icon + '28' }]}>
-                    {hasToggle ? (
-                      <Pressable
-                        onPress={() => setEntryChecked(list.id, item.id, !item.checked)}
-                        style={[
-                          styles.checkbox,
-                          {
-                            borderColor: item.checked ? colors.tint : colors.icon + '45',
-                            backgroundColor: item.checked ? colors.tint : 'transparent',
-                          },
-                        ]}
-                      >
-                        {item.checked ? (
-                          <IconSymbol name="checkmark" size={14} color={colors.background} />
-                        ) : null}
-                      </Pressable>
-                    ) : null}
-                    <Pressable onPress={() => openEntry(item)} style={styles.rowMain}>
-                      <ThumbnailImage imageUrl={item.imageUrl} style={styles.rowImage} />
-                      <View style={styles.rowInfo}>
-                        <ThemedText style={styles.rowTitle} numberOfLines={2}>
-                          {item.title}
-                        </ThemedText>
-                        <View style={styles.rowMetaWrap}>
-                          <ThemedText style={[styles.rowMeta, { color: colors.icon }]} numberOfLines={2}>
-                            {buildEntryMeta(item, itemUserDataByKey, { showStatus: hasStatus })}
-                          </ThemedText>
-                          {getEffectiveEntryRating(item, itemUserDataByKey) ? (
-                            <RatingStars value={getEffectiveEntryRating(item, itemUserDataByKey)} size={12} />
+              renderItem={({ item }) => {
+                const itemImageUrl = getEntryImageUrl(item);
+
+                return (
+                  <Swipeable
+                    overshootRight={false}
+                    rightThreshold={56}
+                    renderRightActions={(progress) => renderRightActions(progress, item)}
+                  >
+                    <ListRowSurface
+                      colors={colors}
+                      enabled={isIos}
+                      supportsLiquidGlass={supportsLiquidGlass}
+                    >
+                      {hasToggle ? (
+                        <Pressable
+                          onPress={() => setEntryChecked(list.id, item.id, !item.checked)}
+                          style={[
+                            styles.checkbox,
+                            {
+                              borderColor: item.checked ? colors.tint : colors.icon + '45',
+                              backgroundColor: item.checked ? colors.tint : 'transparent',
+                            },
+                          ]}
+                        >
+                          {item.checked ? (
+                            <IconSymbol name="checkmark" size={14} color={colors.background} />
                           ) : null}
+                        </Pressable>
+                      ) : null}
+                      <Pressable onPress={() => openEntry(item)} style={styles.rowMain}>
+                        {itemImageUrl ? (
+                          <ThumbnailImage imageUrl={itemImageUrl} style={styles.rowImage} />
+                        ) : !hasToggle ? (
+                          <View style={styles.rowBulletSlot}>
+                            <View style={[styles.rowBullet, { backgroundColor: colors.icon }]} />
+                          </View>
+                        ) : null}
+                        <View style={styles.rowInfo}>
+                          <ThemedText style={styles.rowTitle} numberOfLines={2}>
+                            {item.title}
+                          </ThemedText>
+                          <View style={styles.rowMetaWrap}>
+                            <ThemedText style={[styles.rowMeta, { color: colors.icon }]} numberOfLines={1}>
+                              {buildEntryMeta(item, itemUserDataByKey, { showStatus: hasStatus })}
+                            </ThemedText>
+                            {getEffectiveEntryRating(item, itemUserDataByKey) ? (
+                              <RatingStars value={getEffectiveEntryRating(item, itemUserDataByKey)} size={12} />
+                            ) : null}
+                          </View>
                         </View>
-                      </View>
-                    </Pressable>
-                  </View>
-                </Swipeable>
-              )}
+                      </Pressable>
+                    </ListRowSurface>
+                  </Swipeable>
+                );
+              }}
+              ItemSeparatorComponent={() => <View style={styles.rowSeparator} />}
               contentContainerStyle={[
                 styles.listContent,
                 { paddingBottom: footerSpacerHeight },
@@ -1742,6 +1761,63 @@ function SublistPresetButton({
   );
 }
 
+function ListRowSurface({
+  children,
+  colors,
+  enabled,
+  supportsLiquidGlass,
+}: {
+  children: ReactNode;
+  colors: (typeof Colors)['light'] | (typeof Colors)['dark'];
+  enabled: boolean;
+  supportsLiquidGlass: boolean;
+}) {
+  if (!enabled) {
+    return (
+      <View
+        style={[
+          styles.row,
+          styles.rowFallbackSurface,
+          {
+            backgroundColor: colors.background,
+            borderColor: colors.icon + '14',
+          },
+        ]}
+      >
+        {children}
+      </View>
+    );
+  }
+
+  const iosSurfaceStyle: StyleProp<ViewStyle> = [
+    styles.row,
+    styles.rowGlassSurface,
+    !supportsLiquidGlass
+      ? [
+        styles.rowFallbackSurface,
+        {
+          backgroundColor: colors.background + 'B8',
+          borderColor: colors.icon + '18',
+        },
+      ]
+      : null,
+  ];
+
+  if (supportsLiquidGlass) {
+    return (
+      <GlassView glassEffectStyle="regular" style={iosSurfaceStyle}>
+        {children}
+      </GlassView>
+    );
+  }
+
+  return (
+    <BlurView intensity={90} tint="systemMaterial" style={iosSurfaceStyle}>
+      {children}
+    </BlurView>
+  );
+}
+
 function labelForSort(value: ListSortMode) {
   return value === 'manual'
     ? 'Manual'
@@ -1784,6 +1860,11 @@ function buildEntryMeta(
     parts.push(entry.status);
   }
   return parts.join(' · ');
+}
+
+function getEntryImageUrl(entry: Pick<ListEntry, 'coverAssetUri' | 'imageUrl'>): null | string {
+  const imageUrl = entry.coverAssetUri ?? entry.imageUrl;
+  return typeof imageUrl === 'string' && imageUrl.trim().length > 0 ? imageUrl.trim() : null;
 }
 
 const styles = StyleSheet.create({
@@ -1878,26 +1959,59 @@ const styles = StyleSheet.create({
   listTagLabel: { fontSize: 13 },
   listTagWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   listTagChip: { borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
-  listContent: { paddingHorizontal: 20, paddingTop: 4 },
+  listContent: { flex: 1, paddingHorizontal: 12, paddingTop: 6 },
+  rowSeparator: { height: 6 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    width: '100%',
+    minHeight: 88,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  rowGlassSurface: {
+    borderRadius: 22,
+    overflow: 'hidden',
+  },
+  rowFallbackSurface: {
+    borderRadius: 22,
+    borderWidth: 1,
+    overflow: 'hidden',
   },
   checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginRight: 8,
+    flexShrink: 0,
   },
-  rowMain: { flex: 1, flexDirection: 'row', alignItems: 'center' },
-  rowImage: { width: 56, height: 80, borderRadius: 6 },
-  rowInfo: { flex: 1, marginLeft: 14 },
-  rowTitle: { fontSize: 16, fontWeight: '600', marginBottom: 4 },
-  rowMetaWrap: { gap: 6 },
+  rowMain: {
+    flex: 1,
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  rowBulletSlot: {
+    width: 56,
+    height: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  rowBullet: {
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    flexShrink: 0,
+  },
+  rowImage: { width: 56, height: 72, borderRadius: 14 },
+  rowInfo: { flex: 1, alignSelf: 'stretch', justifyContent: 'center', gap: 4 },
+  rowTitle: { fontSize: 16, fontWeight: '600', lineHeight: 20 },
+  rowMetaWrap: { gap: 4, minHeight: 18, justifyContent: 'center' },
   rowMeta: { fontSize: 13 },
   rightActionContainer: {
     width: 192,
