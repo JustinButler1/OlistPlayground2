@@ -1,5 +1,6 @@
 import type { ImageSourcePropType } from "react-native";
 import type { SharedValue } from "react-native-reanimated";
+
 export interface VerticalPageItemProps<ItemT extends VerticalPageItem> {
   item: ItemT;
   index: number;

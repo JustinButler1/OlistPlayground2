@@ -17,7 +17,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 interface AddItemSheetProps {
   visible: boolean;
   onClose: () => void;
-  onAddEntry: (draft: EntryDraft) => void;
+  onAddEntry: (draft: EntryDraft) => Promise<void> | void;
   listTitle: string;
   currentListId?: string;
   listConfig?: ListConfig;
@@ -76,18 +76,18 @@ export function AddItemSheet({
     onClose();
   };
 
-  const handleAdd = (draft: EntryDraft) => {
-    onAddEntry(draft);
+  const handleAdd = async (draft: EntryDraft) => {
+    await onAddEntry(draft);
     closeAllSheets();
   };
 
-  const handleCreateSublist = () => {
+  const handleCreateSublist = async () => {
     const trimmedTitle = newSublistTitle.trim();
     if (!trimmedTitle || !currentListId) {
       return;
     }
 
-    const createdListId = createList(trimmedTitle, {
+    const createdListId = await createList(trimmedTitle, {
       preset: currentList?.preset,
       config: newSublistConfig,
       description: newSublistDescription.trim() || undefined,
@@ -99,7 +99,7 @@ export function AddItemSheet({
       return;
     }
 
-    handleAdd({
+    await handleAdd({
       title: trimmedTitle,
       type: 'list',
       linkedListId: createdListId,
@@ -180,7 +180,7 @@ export function AddItemSheet({
             {mode === 'catalog' ? (
               <CatalogSearchPanel
                 onSelectItem={(item) =>
-                  handleAdd({
+                  void handleAdd({
                     title: item.title,
                     type: item.type,
                     imageUrl: item.imageUrl,
@@ -200,7 +200,7 @@ export function AddItemSheet({
                 }
               />
             ) : null}
-            {mode === 'link' ? <LinkImportPanel onSubmit={handleAdd} /> : null}
+            {mode === 'link' ? <LinkImportPanel onSubmit={(draft) => void handleAdd(draft)} /> : null}
           </ScrollView>
         </Pressable>
 
@@ -234,7 +234,7 @@ export function AddItemSheet({
                     Inherits the current list&apos;s template and config.
                   </ThemedText>
                 </View>
-                <Pressable onPress={handleCreateSublist} style={styles.navButtonRight}>
+                <Pressable onPress={() => void handleCreateSublist()} style={styles.navButtonRight}>
                   <ThemedText style={{ color: colors.tint }}>Add</ThemedText>
                 </Pressable>
               </View>

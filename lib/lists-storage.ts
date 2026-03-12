@@ -896,6 +896,40 @@ export function parseImportedListsState(raw: string): ListsState {
   return normalized;
 }
 
+export async function loadListsStateForImport(): Promise<ListsState | null> {
+  try {
+    const raw = await SQLiteAsyncStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      return normalizeListsState(JSON.parse(raw));
+    }
+
+    const legacySqliteRaw = await SQLiteAsyncStorage.getItem(LEGACY_SQLITE_STORAGE_KEY);
+    if (legacySqliteRaw) {
+      return migrateLegacyState(JSON.parse(legacySqliteRaw));
+    }
+
+    const legacySqliteV2Raw = await SQLiteAsyncStorage.getItem(LEGACY_SQLITE_STORAGE_V2_KEY);
+    if (legacySqliteV2Raw) {
+      return migrateLegacyState(JSON.parse(legacySqliteV2Raw));
+    }
+
+    const legacySqliteV3Raw = await SQLiteAsyncStorage.getItem(LEGACY_SQLITE_STORAGE_V3_KEY);
+    if (legacySqliteV3Raw) {
+      return migrateLegacyState(JSON.parse(legacySqliteV3Raw));
+    }
+
+    const legacyAsyncRaw = await loadLegacyAsyncStorage();
+    if (legacyAsyncRaw) {
+      return migrateLegacyState(JSON.parse(legacyAsyncRaw));
+    }
+
+    return null;
+  } catch (error) {
+    console.warn('Failed to load lists state for import', error);
+    return null;
+  }
+}
+
 export async function loadListsState(): Promise<ListsState | null> {
   try {
     const raw = await SQLiteAsyncStorage.getItem(STORAGE_KEY);

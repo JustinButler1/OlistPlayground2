@@ -15,7 +15,7 @@ export default function ProfileScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const { activeLists, deletedLists } = useListsQuery();
   const { loadMockData } = useListActions();
-  const { isComplete, isHydrated, state } = useOnboarding();
+  const { isComplete, isHydrated, isSyncing, state } = useOnboarding();
   const hasStarted =
     !!state.profile.displayName.trim() ||
     !!state.profile.birthDate ||
@@ -23,11 +23,13 @@ export default function ProfileScreen() {
     state.profile.interests.length > 0;
 
   const confirmLoadMockData = () => {
-    const runLoad = () => loadMockData();
+    const runLoad = () => {
+      void loadMockData();
+    };
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       if (
         window.confirm(
-          'Replace your current list data with the power-user mock workspace? This overwrites existing lists on this device.'
+          'Replace the shared Convex workspace with the power-user mock workspace? This overwrites the current shared lists and templates.'
         )
       ) {
         runLoad();
@@ -37,7 +39,7 @@ export default function ProfileScreen() {
 
     Alert.alert(
       'Load mock data?',
-      'Replace your current lists with a seeded power-user workspace. This overwrites existing list data on this device.',
+      'Replace the shared Convex workspace with a seeded power-user workspace. This overwrites the current shared lists and templates.',
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Load', style: 'destructive', onPress: runLoad },
@@ -72,7 +74,7 @@ export default function ProfileScreen() {
         >
           <ThemedText type="subtitle">Data</ThemedText>
           <ThemedText style={[styles.supportingText, { color: colors.icon }]}>
-            New installs start empty. Demo data is only loaded from the button below.
+            This app now uses one shared Convex workspace. Images and tracker data persist from Convex, and reminder schedules are regenerated per device from Convex reminder times.
           </ThemedText>
           <ThemedText style={styles.metricsText}>
             {activeLists.length} active lists, {deletedLists.length} deleted lists
@@ -136,11 +138,11 @@ export default function ProfileScreen() {
           <ThemedText style={[styles.supportingText, { color: colors.icon }]}>
             {isHydrated
               ? isComplete
-                ? `Completed locally with ${state.profile.interests.length} saved interests.`
+                ? `Shared workspace profile complete with ${state.profile.interests.length} saved interests.`
                 : hasStarted
-                  ? 'Resume your local profile setup from where you left off.'
-                  : 'Launch the local-only profile onboarding flow from here.'
-              : 'Loading your local onboarding state...'}
+                  ? 'Resume the shared Convex-backed profile setup from where you left off.'
+                  : 'Launch the shared workspace onboarding flow from here.'
+              : 'Loading shared workspace profile...'}
           </ThemedText>
           <Pressable
             onPress={() => router.push('/profile-onboarding')}
@@ -163,11 +165,16 @@ export default function ProfileScreen() {
                     : 'Start Onboarding'}
               </ThemedText>
               <ThemedText style={[styles.linkCaption, { color: colors.icon }]}>
-                Profile-triggered only. Never launched automatically.
+                Shared across the app. Never launched automatically.
               </ThemedText>
             </View>
             <IconSymbol name="chevron.right" size={20} color={colors.icon} />
           </Pressable>
+          {isSyncing ? (
+            <ThemedText style={[styles.caption, { color: colors.icon }]}>
+              Syncing Convex workspace changes...
+            </ThemedText>
+          ) : null}
         </View>
       </ScrollView>
     </TabRootBackground>

@@ -25,7 +25,7 @@ import Animated, {
     withTiming,
 } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
-import { PaginationProps } from "./Pagination.types";
+import type { PaginationProps } from "@/components/molecules/Pagination.types";
 
 const ACTIVE_COLOR: string = "#c4c4c4";
 const INACTIVE_COLOR: string = "#363636";

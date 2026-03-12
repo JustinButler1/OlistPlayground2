@@ -1,6 +1,6 @@
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Pressable,
@@ -25,8 +25,14 @@ import { Colors, ThemePalette } from '@/constants/theme';
 import { useOnboarding } from '@/contexts/onboarding-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
-const STEPS = ['intro', 'profile', 'birthday', 'interests', 'finish'] as const;
-type OnboardingStep = (typeof STEPS)[number];
+type OnboardingStep = 'intro' | 'profile' | 'birthday' | 'interests' | 'finish';
+const STEPS: { id: OnboardingStep; image?: undefined }[] = [
+  { id: 'intro' },
+  { id: 'profile' },
+  { id: 'birthday' },
+  { id: 'interests' },
+  { id: 'finish' },
+];
 type ThemeColors = (typeof Colors)[keyof typeof Colors];
 
 function formatBirthday(value: string | null): string {
@@ -126,6 +132,8 @@ export function OnboardingFlow() {
   const {
     completeOnboarding,
     isHydrated,
+    isSyncing,
+    lastSyncError,
     state,
     setAvatarUri,
     setBirthDate,
@@ -134,6 +142,11 @@ export function OnboardingFlow() {
   } = useOnboarding();
   const [activeIndex, setActiveIndex] = useState(0);
   const [isCarouselLocked, setIsCarouselLocked] = useState(false);
+  const [displayNameDraft, setDisplayNameDraft] = useState(state.profile.displayName);
+
+  useEffect(() => {
+    setDisplayNameDraft(state.profile.displayName);
+  }, [state.profile.displayName]);
 
   const nextStep = () => {
     setActiveIndex((current) => Math.min(current + 1, STEPS.length - 1));
@@ -156,7 +169,7 @@ export function OnboardingFlow() {
     });
 
     if (!result.canceled && result.assets?.[0]?.uri) {
-      setAvatarUri(result.assets[0].uri);
+      void setAvatarUri(result.assets[0].uri);
     }
   };
 
@@ -171,9 +184,9 @@ export function OnboardingFlow() {
       case 'intro':
         return (
           <OnboardingPageShell
-            badge="Local only"
+            badge="Shared Sync"
             colors={colors}
-            description="This flow only opens from Profile. Nothing checks at startup, nothing requires an account, and you can revisit it any time."
+            description="This flow edits the shared Convex workspace profile. Changes sync across the app and can be revisited any time from Profile."
             footer={
               <FooterActions
                 colors={colors}
@@ -182,13 +195,13 @@ export function OnboardingFlow() {
                 showBack={false}
               />
             }
-            title="Set up your profile on this device"
+            title="Set up the shared workspace profile"
           >
             <View style={styles.featureStack}>
               {[
                 'Profile-triggered only, never auto-launched.',
-                'Interests stay local and do not create lists yet.',
-                'The final Pro page is only a stub for now.',
+                'Profile, interests, and avatar are shared workspace state.',
+                'Uploaded images persist in Convex file storage.',
               ].map((itemCopy) => (
                 <View
                   key={itemCopy}
@@ -219,13 +232,16 @@ export function OnboardingFlow() {
           <OnboardingPageShell
             badge="Profile"
             colors={colors}
-            description="Add a display name and optional image for the local profile card."
+            description="Add a shared display name and optional avatar. Picked images upload to Convex immediately."
             footer={
               <FooterActions
                 colors={colors}
                 nextLabel="Continue"
                 onBack={previousStep}
-                onNext={nextStep}
+                onNext={() => {
+                  void setDisplayName(displayNameDraft);
+                  nextStep();
+                }}
               />
             }
             title="Start with the basics"
@@ -239,7 +255,9 @@ export function OnboardingFlow() {
                     <ActionButton
                       colors={colors}
                       label="Remove"
-                      onPress={() => setAvatarUri(null)}
+                      onPress={() => {
+                        void setAvatarUri(null);
+                      }}
                       variant="secondary"
                     />
                   ) : null}
@@ -249,7 +267,7 @@ export function OnboardingFlow() {
                 <ThemedText style={styles.fieldLabel}>Display name</ThemedText>
                 <TextInput
                   onBlur={() => setIsCarouselLocked(false)}
-                  onChangeText={setDisplayName}
+                  onChangeText={setDisplayNameDraft}
                   onFocus={() => setIsCarouselLocked(true)}
                   placeholder="What should Olist call you?"
                   placeholderTextColor={colors.icon}
@@ -262,10 +280,10 @@ export function OnboardingFlow() {
                       color: colors.text,
                     },
                   ]}
-                  value={state.profile.displayName}
+                  value={displayNameDraft}
                 />
                 <ThemedText style={[styles.fieldCaption, { color: colors.icon }]}>
-                  Leave it blank if you want. You can update it later from Profile.
+                  This shared workspace name syncs through Convex. Leave it blank if you want.
                 </ThemedText>
               </View>
             </View>
@@ -276,7 +294,7 @@ export function OnboardingFlow() {
           <OnboardingPageShell
             badge="Birthday"
             colors={colors}
-            description="Birthday is optional and stays local to this device."
+            description="Birthday is optional and saved as shared workspace profile data."
             footer={
               <FooterActions
                 colors={colors}
@@ -304,7 +322,9 @@ export function OnboardingFlow() {
               </View>
               <BirthdayPicker
                 colors={colors}
-                onChange={setBirthDate}
+                onChange={(value) => {
+                  void setBirthDate(value);
+                }}
                 onOpenChange={setIsCarouselLocked}
                 value={state.profile.birthDate}
               />
@@ -316,7 +336,7 @@ export function OnboardingFlow() {
           <OnboardingPageShell
             badge="Interests"
             colors={colors}
-            description="Pick the topics you want Olist to remember. These selections are saved locally only for now."
+            description="Pick the topics you want Olist to remember in the shared workspace profile."
             footer={
               <FooterActions
                 colors={colors}
@@ -339,7 +359,9 @@ export function OnboardingFlow() {
                     <Pressable
                       key={interest.id}
                       accessibilityRole="button"
-                      onPress={() => toggleInterest(interest.id)}
+                      onPress={() => {
+                        void toggleInterest(interest.id);
+                      }}
                       style={({ pressed }) => [
                         styles.interestChip,
                         {
@@ -381,15 +403,16 @@ export function OnboardingFlow() {
           <OnboardingPageShell
             badge="Pro stub"
             colors={colors}
-            description="This final page only saves your local onboarding state. Pro behavior is still a placeholder."
+            description="Finishing marks the shared Convex onboarding profile complete. Reminder schedules are regenerated per device from Convex reminder times."
             footer={
               <FooterActions
                 colors={colors}
                 nextLabel="Finish"
                 onBack={previousStep}
                 onNext={() => {
-                  completeOnboarding();
-                  router.back();
+                  void completeOnboarding().then(() => {
+                    router.back();
+                  });
                 }}
               />
             }
@@ -407,7 +430,7 @@ export function OnboardingFlow() {
               >
                 <ThemedText style={styles.summaryLabel}>Display name</ThemedText>
                 <ThemedText type="subtitle" style={styles.summaryValue}>
-                  {state.profile.displayName.trim() || 'Not set'}
+                  {displayNameDraft.trim() || state.profile.displayName.trim() || 'Not set'}
                 </ThemedText>
               </View>
               <View
@@ -438,9 +461,14 @@ export function OnboardingFlow() {
                   {summaryInterests.length ? summaryInterests.join(', ') : 'None selected'}
                 </ThemedText>
               </View>
-              {!isHydrated ? (
+              {!isHydrated || isSyncing ? (
                 <ThemedText style={[styles.fieldCaption, { color: colors.icon }]}>
-                  Saving local onboarding state...
+                  Syncing shared Convex profile...
+                </ThemedText>
+              ) : null}
+              {lastSyncError ? (
+                <ThemedText style={[styles.fieldCaption, { color: '#cc3f3f' }]}>
+                  {lastSyncError}
                 </ThemedText>
               ) : null}
             </View>
@@ -470,7 +498,7 @@ export function OnboardingFlow() {
               activeDotColor: colors.tint,
               inactiveDotColor: colors.icon + '3a',
             }}
-            renderItem={({ item }) => renderStep(item)}
+            renderItem={({ item }) => renderStep((item as { id: OnboardingStep }).id)}
             scrollEnabled={!isCarouselLocked}
             style={styles.carousel}
           />

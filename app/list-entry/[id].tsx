@@ -40,12 +40,12 @@ export default function ListEntryDetailScreen() {
     ? formatProgressLabel(result.entry, itemUserDataByKey)
     : null;
 
-  const handleSave = (draft: EntryDraft) => {
+  const handleSave = async (draft: EntryDraft) => {
     if (!result) {
       return;
     }
 
-    updateEntry(result.list.id, result.entry.id, mapDraftToEntryUpdates(draft, result.entry));
+    await updateEntry(result.list.id, result.entry.id, mapDraftToEntryUpdates(draft, result.entry));
   };
 
   return (

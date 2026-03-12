@@ -93,6 +93,8 @@ export const Aurora: React.FC<IAurora> & React.FunctionComponent<IAurora> =
     },
   );
 
+Aurora.displayName = "Aurora";
+
 export default memo<React.FC<IAurora> & React.FunctionComponent<IAurora>>(
   Aurora,
 );

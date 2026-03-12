@@ -8,6 +8,7 @@ import {
 import React, { useEffect, useRef } from 'react';
 import {
   Dimensions,
+  FlatList,
   Platform,
   StyleSheet,
   View,
@@ -54,6 +55,7 @@ interface VerticalPaginationCarouselProps<ItemT extends VerticalPageItemBase> {
   rotationRange?: [number, number, number];
   opacityRange?: [number, number, number];
   useBlur?: boolean;
+  scrollEnabled?: boolean;
   style?: StyleProp<ViewStyle>;
   paginationStyle?: StyleProp<ViewStyle>;
   paginationProps?: Omit<PaginationProps, 'activeIndex' | 'totalItems' | 'onIndexChange'>;
@@ -177,6 +179,7 @@ export function VerticalPaginationCarousel<ItemT extends VerticalPageItemBase>({
   rotationRange = [0, 0, 0],
   opacityRange = [0.5, 1, 0.5],
   useBlur = true,
+  scrollEnabled = true,
   style,
   paginationStyle,
   paginationProps,
@@ -237,6 +240,7 @@ export function VerticalPaginationCarousel<ItemT extends VerticalPageItemBase>({
         horizontal={false}
         pagingEnabled={pagingEnabled}
         showsVerticalScrollIndicator={showVerticalScrollIndicator}
+        scrollEnabled={scrollEnabled}
         onScroll={onScroll}
         onMomentumScrollEnd={handleMomentumScrollEnd}
         scrollEventThrottle={16}

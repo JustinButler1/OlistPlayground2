@@ -1,3 +1,4 @@
+import { ConvexProvider } from 'convex/react';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
@@ -10,6 +11,7 @@ import { ThemePalette } from '@/constants/theme';
 import { OnboardingProvider } from '@/contexts/onboarding-context';
 import { ListsProvider } from '@/contexts/lists-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { convex } from '@/lib/convex-client';
 import { createQueryClient } from '@/lib/query-client';
 
 const LightTheme = {
@@ -51,28 +53,30 @@ export default function RootLayout() {
   return (
     <RootGestureHandlerView style={{ flex: 1 }}>
       <QueryClientProvider client={queryClient}>
-        <ThemeProvider value={colorScheme === 'dark' ? DarkThemeCustom : LightTheme}>
-          <OnboardingProvider>
-            <ListsProvider>
-              <Stack screenOptions={{ headerBackButtonDisplayMode: 'minimal' }}>
-                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                <Stack.Screen name="anime/[id]" />
-                <Stack.Screen name="manga/[id]" />
-                <Stack.Screen name="books/[id]" />
-                <Stack.Screen name="tv-movie/[type]/[id]" />
-                <Stack.Screen name="list/[id]" />
-                <Stack.Screen name="list-entry/[id]" />
-                <Stack.Screen name="games/[id]" />
-                <Stack.Screen name="product-import" options={{ title: 'Import Product' }} />
-                <Stack.Screen
-                  name="modal"
-                  options={{ presentation: 'modal', title: 'Modal' }}
-                />
-              </Stack>
-              <StatusBar style="auto" />
-            </ListsProvider>
-          </OnboardingProvider>
-        </ThemeProvider>
+        <ConvexProvider client={convex}>
+          <ThemeProvider value={colorScheme === 'dark' ? DarkThemeCustom : LightTheme}>
+            <OnboardingProvider>
+              <ListsProvider>
+                <Stack screenOptions={{ headerBackButtonDisplayMode: 'minimal' }}>
+                  <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                  <Stack.Screen name="anime/[id]" />
+                  <Stack.Screen name="manga/[id]" />
+                  <Stack.Screen name="books/[id]" />
+                  <Stack.Screen name="tv-movie/[type]/[id]" />
+                  <Stack.Screen name="list/[id]" />
+                  <Stack.Screen name="list-entry/[id]" />
+                  <Stack.Screen name="games/[id]" />
+                  <Stack.Screen name="product-import" options={{ title: 'Import Product' }} />
+                  <Stack.Screen
+                    name="modal"
+                    options={{ presentation: 'modal', title: 'Modal' }}
+                  />
+                </Stack>
+                <StatusBar style="auto" />
+              </ListsProvider>
+            </OnboardingProvider>
+          </ThemeProvider>
+        </ConvexProvider>
       </QueryClientProvider>
     </RootGestureHandlerView>
   );

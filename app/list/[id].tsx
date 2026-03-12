@@ -412,10 +412,11 @@ export default function ListDetailScreen() {
     }
 
     const runConversion = () => {
-      const convertedTag = convertSublistToTag(list.id);
-      if (convertedTag) {
-        router.replace(`/list/${list.parentListId}` as never);
-      }
+      void convertSublistToTag(list.id).then((convertedTag) => {
+        if (convertedTag) {
+          router.replace(`/list/${list.parentListId}` as never);
+        }
+      });
     };
 
     setMenuVisible(null);
@@ -1359,19 +1360,23 @@ export default function ListDetailScreen() {
                     if (!trimmed) {
                       return;
                     }
-                    const sublistId = createList(trimmed, sublistPreset, { parentListId: list.id });
-                    if (!sublistId) {
-                      return;
-                    }
-                    addEntryToList(list.id, {
-                      title: trimmed,
-                      type: 'list',
-                      detailPath: `list/${sublistId}`,
-                      linkedListId: sublistId,
-                      sourceRef: { source: 'custom', detailPath: `list/${sublistId}` },
-                    });
-                    setNewSublistVisible(false);
-                    setSublistTitle('');
+                    void (async () => {
+                      const sublistId = await createList(trimmed, sublistPreset, {
+                        parentListId: list.id,
+                      });
+                      if (!sublistId) {
+                        return;
+                      }
+                      await addEntryToList(list.id, {
+                        title: trimmed,
+                        type: 'list',
+                        detailPath: `list/${sublistId}`,
+                        linkedListId: sublistId,
+                        sourceRef: { source: 'custom', detailPath: `list/${sublistId}` },
+                      });
+                      setNewSublistVisible(false);
+                      setSublistTitle('');
+                    })();
                   }}
                   style={({ pressed }) => [
                     styles.primaryButton,

@@ -7,7 +7,7 @@ export const PLACEHOLDER_THUMBNAIL = require("../assets/images/placeholder-thumb
 interface ThumbnailImageProps {
   imageUrl?: string | null;
   style?: StyleProp<ImageStyle>;
-  contentFit?: "contain" | "cover" | "fill" | "none";
+  contentFit?: "contain" | "cover" | "fill" | "none" | "scale-down";
 }
 
 /**

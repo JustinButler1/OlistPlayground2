@@ -1,7 +1,9 @@
+import { useConvex, useMutation } from 'convex/react';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 
+import { api } from '@/convex/_generated/api';
 import { useListActions, useListsQuery } from '@/contexts/lists-context';
 import {
   createListAutomationBlock,
@@ -14,6 +16,7 @@ import {
   type ListFieldKind,
   type ListTemplate,
 } from '@/data/mock-lists';
+import { uploadImageToConvex, type UploadedStorageFile } from '@/lib/convex-upload';
 
 export type NewListCreateMode = 'scratch' | 'template';
 
@@ -53,7 +56,7 @@ export interface NewListFormController {
   beginSession: (sessionId: string) => void;
   reset: () => void;
   cancel: () => void;
-  submit: () => void;
+  submit: () => Promise<void>;
 }
 
 const NewListFormContext = createContext<NewListFormController | null>(null);
@@ -68,12 +71,15 @@ function createNewFieldDefinition(): ListFieldDefinition {
 
 function useNewListFormController(): NewListFormController {
   const router = useRouter();
+  const convex = useConvex();
   const { listTemplates } = useListsQuery();
   const { createList, createListFromTemplate, saveListAsTemplate, updateList } = useListActions();
+  const generateUploadUrl = useMutation(api.media.generateUploadUrl);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [formRevision, setFormRevision] = useState(0);
   const [title, setTitle] = useState('');
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [uploadedImage, setUploadedImage] = useState<UploadedStorageFile | null>(null);
   const [description, setDescription] = useState('');
   const [createMode, setCreateModeState] = useState<NewListCreateMode>('scratch');
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
@@ -93,6 +99,7 @@ function useNewListFormController(): NewListFormController {
     setSessionId(null);
     setTitle('');
     setImageUrl(null);
+    setUploadedImage(null);
     setDescription('');
     setCreateModeState('scratch');
     setSelectedTemplateId(null);
@@ -112,6 +119,7 @@ function useNewListFormController(): NewListFormController {
 
         setTitle('');
         setImageUrl(null);
+        setUploadedImage(null);
         setDescription('');
         setCreateModeState('scratch');
         setSelectedTemplateId(null);
@@ -143,12 +151,19 @@ function useNewListFormController(): NewListFormController {
     });
 
     if (!result.canceled && result.assets?.[0]?.uri) {
-      setImageUrl(result.assets[0].uri);
+      const uploaded = await uploadImageToConvex({
+        uri: result.assets[0].uri,
+        generateUploadUrl: () => generateUploadUrl({}),
+        resolveUrl: (storageId) => convex.query(api.media.getResolvedUrl, { storageId }),
+      });
+      setUploadedImage(uploaded);
+      setImageUrl(uploaded.url);
     }
-  }, []);
+  }, [convex, generateUploadUrl]);
 
   const clearImage = useCallback(() => {
     setImageUrl(null);
+    setUploadedImage(null);
   }, []);
 
   const setCreateMode = useCallback((mode: NewListCreateMode) => {
@@ -291,7 +306,7 @@ function useNewListFormController(): NewListFormController {
     router.back();
   }, [reset, router]);
 
-  const submit = useCallback(() => {
+  const submit = useCallback(async () => {
     const trimmedTitle = title.trim();
     if (!trimmedTitle) {
       return;
@@ -304,26 +319,28 @@ function useNewListFormController(): NewListFormController {
 
     const createdListId =
       createMode === 'template' && selectedTemplateId
-        ? createListFromTemplate(selectedTemplateId, {
+        ? await createListFromTemplate(selectedTemplateId, {
             title: trimmedTitle,
             description: trimmedDescription,
             imageUrl: imageUrl ?? undefined,
+            uploadedImage,
           })
-        : createList(trimmedTitle, {
+        : await createList(trimmedTitle, {
             config: draftConfig,
             description: trimmedDescription,
             imageUrl: imageUrl ?? undefined,
             templateId: selectedTemplateId ?? undefined,
+            uploadedImage,
           });
 
     if (createdListId && createMode === 'template') {
-      updateList(createdListId, {
+      await updateList(createdListId, {
         config: draftConfig,
       });
     }
 
     if (createdListId && saveAsTemplate && templateTitle.trim()) {
-      saveListAsTemplate(createdListId, {
+      await saveListAsTemplate(createdListId, {
         title: templateTitle.trim(),
         description: templateDescription.trim() || `${trimmedTitle} setup`,
       });
@@ -341,6 +358,7 @@ function useNewListFormController(): NewListFormController {
     createMode,
     description,
     draftConfig,
+    uploadedImage,
     imageUrl,
     reset,
     router,

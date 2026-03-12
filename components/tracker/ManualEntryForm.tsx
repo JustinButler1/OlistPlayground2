@@ -1,7 +1,9 @@
+import { useConvex, useMutation } from 'convex/react';
 import { useEffect, useMemo, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
+import { api } from '@/convex/_generated/api';
 import { RatingStars } from '@/components/tracker/RatingStars';
 import { ThumbnailImage } from '@/components/thumbnail-image';
 import { ThemedText } from '@/components/themed-text';
@@ -17,10 +19,11 @@ import type { EntryDraft } from '@/contexts/lists-context';
 import { useListsQuery } from '@/contexts/lists-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { LIST_STATUS_OPTIONS } from '@/lib/list-config-options';
+import { uploadImageToConvex, type UploadedStorageFile } from '@/lib/convex-upload';
 import { normalizeProgress, normalizeRating } from '@/lib/tracker-metadata';
 
 interface ManualEntryFormProps {
-  onSubmit: (draft: EntryDraft) => void;
+  onSubmit: (draft: EntryDraft) => Promise<void> | void;
   submitLabel?: string;
   initialEntry?: ListEntry | null;
   currentListId?: string;
@@ -45,6 +48,9 @@ export function ManualEntryForm({
   listConfig,
   onRequestCreateLinkedList,
 }: ManualEntryFormProps) {
+  const convex = useConvex();
+  const generateUploadUrl = useMutation(api.media.generateUploadUrl);
+  const attachEntryCover = useMutation(api.media.attachEntryCover);
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { activeLists } = useListsQuery();
@@ -69,6 +75,7 @@ export function ManualEntryForm({
     initialEntry?.progress?.unit ?? 'item'
   );
   const [coverAssetUri, setCoverAssetUri] = useState(initialEntry?.coverAssetUri);
+  const [uploadedCover, setUploadedCover] = useState<UploadedStorageFile | null>(null);
   const [selectedLinkedListId, setSelectedLinkedListId] = useState<string | null>(
     initialEntry?.linkedListId ?? null
   );
@@ -106,6 +113,7 @@ export function ManualEntryForm({
     );
     setProgressUnit(initialEntry.progress?.unit ?? 'item');
     setCoverAssetUri(initialEntry.coverAssetUri);
+    setUploadedCover(null);
     setSelectedLinkedListId(initialEntry.linkedListId ?? null);
     setCustomFieldValues(
       Object.fromEntries(
@@ -218,11 +226,30 @@ export function ManualEntryForm({
     });
 
     if (!result.canceled && result.assets?.[0]?.uri) {
-      setCoverAssetUri(result.assets[0].uri);
+      const uploaded = await uploadImageToConvex({
+        uri: result.assets[0].uri,
+        generateUploadUrl: () => generateUploadUrl({}),
+        resolveUrl: (storageId) => convex.query(api.media.getResolvedUrl, { storageId }),
+      });
+
+      if (initialEntry?.id) {
+        const attached = await attachEntryCover({
+          entryId: initialEntry.id,
+          storageId: uploaded.storageId,
+          mimeType: uploaded.mimeType,
+          fileName: uploaded.fileName,
+        });
+        setUploadedCover(null);
+        setCoverAssetUri(attached?.url ?? uploaded.url);
+        return;
+      }
+
+      setUploadedCover(uploaded);
+      setCoverAssetUri(uploaded.url);
     }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const linkedListDetailPath = selectedLinkedListId ? `list/${selectedLinkedListId}` : undefined;
     const trimmedTitle = type === 'list'
       ? (selectedLinkedList?.title.trim() ?? title.trim())
@@ -247,7 +274,7 @@ export function ManualEntryForm({
         }))
         .filter((field) => field.title && field.value) ?? [];
 
-    onSubmit({
+    await onSubmit({
       title: trimmedTitle,
       type,
       detailPath: linkedListDetailPath,
@@ -267,6 +294,7 @@ export function ManualEntryForm({
         : undefined,
       reminderAt: hasAddon('reminders') ? reminderAt : undefined,
       coverAssetUri: hasAddon('cover') ? coverAssetUri : undefined,
+      uploadedCover: hasAddon('cover') ? uploadedCover : undefined,
       productUrl:
         hasAddon('links') || type === 'link' ? productUrl.trim() || undefined : undefined,
       sourceRef: {
