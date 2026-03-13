@@ -1,17 +1,17 @@
-import { Dimensions, StyleSheet, View } from "react-native";
-import React from "react";
-import { CircularCarouselItemProps, CircularCarouselProps } from "./types";
 import { BlurView } from "expo-blur";
+import React from "react";
+import { Dimensions, StyleSheet, View } from "react-native";
 import Animated, {
+  Extrapolation,
   interpolate,
+  useAnimatedProps,
   useAnimatedScrollHandler,
   useAnimatedStyle,
-  useSharedValue,
-  Extrapolation,
-  useAnimatedProps,
   useDerivedValue,
+  useSharedValue,
 } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
+import { CircularCarouselItemProps, CircularCarouselProps } from "./types";
 
 const AnimatedBlurView = Animated.createAnimatedComponent(BlurView);
 
@@ -26,6 +26,7 @@ const CarouselItem = <ItemT,>({
   scrollX,
   renderItem,
   itemWidth = ITEM_WIDTH,
+  itemHeight,
   spacing = SPACING,
   dataLength,
 }: CircularCarouselItemProps<ItemT>) => {
@@ -104,7 +105,11 @@ const CarouselItem = <ItemT,>({
       style={[
         styles.itemContainer,
         animatedStyle,
-        { width: itemWidth, marginHorizontal: spacing / 2 },
+        {
+          width: itemWidth,
+          height: itemHeight,
+          marginHorizontal: spacing / 2,
+        },
         {
           marginRight:
             index === (dataLength ? dataLength - 1 : 0)
@@ -132,6 +137,7 @@ const CircularCarousel = <ItemT,>({
   renderItem,
   horizontalSpacing = SIDE_SPACING,
   itemWidth = ITEM_WIDTH,
+  itemHeight,
   spacing = SPACING,
   keyExtractor,
   onIndexChange,
@@ -164,6 +170,7 @@ const CircularCarousel = <ItemT,>({
       showsHorizontalScrollIndicator={false}
       onScroll={onScroll}
       scrollEventThrottle={16}
+      removeClippedSubviews={false}
       keyExtractor={(item, index) =>
         keyExtractor ? keyExtractor(item, index) : index.toString()
       }
@@ -178,10 +185,14 @@ const CircularCarousel = <ItemT,>({
         paddingHorizontal: horizontalSpacing - spacing / 2,
         marginBottom: 20,
         marginTop: 40,
+        overflow: "visible",
+        backgroundColor: "transparent",
       }}
       style={{
         flexGrow: 0,
         bottom: 2,
+        overflow: "visible",
+        backgroundColor: "transparent",
       }}
       renderItem={({ item, index }) => (
         <CarouselItem
@@ -191,6 +202,7 @@ const CircularCarousel = <ItemT,>({
           scrollX={scrollX}
           renderItem={renderItem}
           itemWidth={itemWidth}
+          itemHeight={itemHeight}
           spacing={spacing}
         />
       )}
@@ -204,9 +216,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   contentWrapper: {
+    width: "100%",
+    height: "100%",
     overflow: "hidden",
     borderRadius: 24,
-    backgroundColor: "white",
+    backgroundColor: "transparent",
     shadowColor: "#000",
     shadowOffset: {
       width: 0,

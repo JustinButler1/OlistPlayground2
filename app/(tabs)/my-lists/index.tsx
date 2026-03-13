@@ -518,12 +518,12 @@ const styles = StyleSheet.create({
   resultRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    paddingVertical: 12,
+    paddingVertical: 4,
   },
   resultPoster: {
     borderRadius: 6,
-    height: 80,
-    width: 56,
+    height: 96,
+    width: 67,
   },
   resultInfo: {
     flex: 1,
@@ -549,6 +549,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     minWidth: 16,
     textAlign: 'right',
+    lineHeight: 15,
   },
   viewToggle: {
     alignSelf: 'flex-end',
@@ -592,7 +593,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   gridCardContent: {
-    gap: 10,
     padding: 10,
   },
   gridPoster: {
@@ -604,13 +604,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 10,
-    minHeight: 44,
+    minHeight: 28,
+    marginTop: 4,
   },
   gridTitle: {
     flex: 1,
     fontSize: 15,
     fontWeight: '600',
-    lineHeight: 20,
+    lineHeight: 15,
   },
   swipeableContainer: {
     overflow: 'visible',

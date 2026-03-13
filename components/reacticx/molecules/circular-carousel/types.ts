@@ -7,6 +7,7 @@ export type CircularCarouselProps<ItemT> = {
   keyExtractor?: (item: ItemT, index: number) => string;
   spacing?: number;
   itemWidth?: number;
+  itemHeight?: number;
   horizontalSpacing?: number;
   onIndexChange?: <T extends number>(index: T) => void;
 };
@@ -18,5 +19,6 @@ export interface CircularCarouselItemProps<ItemT> {
   renderItem: (info: { item: ItemT; index: number }) => ReactNode;
   spacing?: number;
   itemWidth?: number;
+  itemHeight?: number;
   dataLength?: number;
 }

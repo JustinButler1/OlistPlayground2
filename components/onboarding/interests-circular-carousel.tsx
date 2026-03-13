@@ -1,7 +1,9 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 
+import { CircularCarousel } from '@/components/reacticx/molecules/circular-carousel';
 import { ThemedText } from '@/components/themed-text';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 import {
   ONBOARDING_INTEREST_OPTIONS,
   type OnboardingInterestId,
@@ -23,15 +25,15 @@ export function InterestsCircularCarousel({
   onToggleInterest,
   footer,
 }: InterestsCircularCarouselProps) {
-  const { width } = useWindowDimensions();
+  const { height, width } = useWindowDimensions();
   const [activeIndex, setActiveIndex] = useState(0);
   const clampedIndex = Math.min(
     Math.max(activeIndex, 0),
     Math.max(ONBOARDING_INTEREST_OPTIONS.length - 1, 0)
   );
-  const activeInterest = ONBOARDING_INTEREST_OPTIONS[clampedIndex];
-  const isActiveInterestSelected = selectedInterests.includes(activeInterest.id);
-  const itemWidth = Math.min(Math.max(width - 152, 216), 312);
+  const itemHeight = height * 0.76;
+  const itemWidth = width - 40;
+  const horizontalSpacing = 20;
   const selectedLabels = useMemo(
     () =>
       ONBOARDING_INTEREST_OPTIONS.filter((interest) =>
@@ -41,104 +43,130 @@ export function InterestsCircularCarousel({
   );
 
   return (
-    <View
-      style={[
-        styles.page,
-        {
-          backgroundColor: colors.background,
-        },
-      ]}
-    >
-      <View style={styles.header}>
-        <View
-          style={[
-            styles.badge,
-            {
-              backgroundColor: colors.tint + '14',
-              borderColor: colors.tint + '24',
-            },
-          ]}
-        >
-          <ThemedText style={[styles.badgeText, { color: colors.tint }]}>Interests</ThemedText>
-        </View>
-        <ThemedText type="title" style={styles.title}>
-          Choose what you care about
-        </ThemedText>
-        <ThemedText style={[styles.description, { color: colors.icon }]}>
-          Swipe sideways through interest lanes, then tap any card to add or remove it from
-          the shared workspace profile.
-        </ThemedText>
-      </View>
+    <View style={styles.page}>
+      <CircularCarousel
+        data={ONBOARDING_INTEREST_OPTIONS}
+        horizontalSpacing={horizontalSpacing}
+        itemHeight={itemHeight}
+        itemWidth={itemWidth}
+        keyExtractor={(interest) => interest.id}
+        onIndexChange={setActiveIndex}
+        renderItem={({ item }) => {
+          const isSelected = selectedInterests.includes(item.id);
 
-      <View style={styles.statusRow}>
-        <ThemedText style={[styles.selectionCount, { color: colors.icon }]}>
-          {selectedInterests.length} selected
-        </ThemedText>
-        <View
-          style={[
-            styles.swipeBadge,
-            {
-              backgroundColor: colors.tint + '12',
-              borderColor: colors.tint + '22',
-            },
-          ]}
-        >
-          <ThemedText style={[styles.swipeBadgeText, { color: colors.tint }]}>
-            Swipe sideways
-          </ThemedText>
-        </View>
-      </View>
-
-      <View style={styles.carouselSection}>
-
-      </View>
-
-      <View
-        style={[
-          styles.activeSummary,
-          {
-            backgroundColor: colors.tint + '10',
-            borderColor: colors.tint + '20',
-          },
-        ]}
-      >
-        <ThemedText style={styles.activeSummaryLabel}>Focused interest</ThemedText>
-        <ThemedText type="subtitle" style={styles.activeSummaryTitle}>
-          {activeInterest.label}
-        </ThemedText>
-        <ThemedText style={[styles.activeSummaryCopy, { color: colors.icon }]}>
-          {isActiveInterestSelected
-            ? 'This one is already part of the profile.'
-            : 'Swipe to explore more lanes, then tap a card to add it.'}
-        </ThemedText>
-      </View>
-
-      <View style={styles.selectedWrap}>
-        {selectedLabels.length ? (
-          selectedLabels.map((label) => (
-            <View
-              key={label}
-              style={[
-                styles.selectedChip,
+          return (
+            <Pressable
+              accessibilityHint={`Double tap to ${isSelected ? 'remove' : 'add'
+                } ${item.label} from your interests.`}
+              accessibilityRole="button"
+              accessibilityState={{ selected: isSelected }}
+              onPress={() => {
+                void onToggleInterest(item.id);
+              }}
+              style={({ pressed }) => [
+                styles.interestCard,
                 {
-                  backgroundColor: colors.tint + '12',
-                  borderColor: colors.tint + '22',
+                  backgroundColor: isSelected ? colors.tint : colors.background,
+                  borderColor: isSelected ? colors.tint : colors.icon + '22',
+                  opacity: pressed ? 0.9 : 1,
                 },
               ]}
             >
-              <ThemedText style={[styles.selectedChipText, { color: colors.tint }]}>
-                {label}
-              </ThemedText>
-            </View>
-          ))
-        ) : (
-          <ThemedText style={[styles.emptyStateCopy, { color: colors.icon }]}>
-            No interests selected yet.
-          </ThemedText>
-        )}
-      </View>
+              <View style={styles.cardHeader}>
+                <View
+                  style={[
+                    styles.cardStatusBadge,
+                    {
+                      backgroundColor: isSelected
+                        ? colors.background + '26'
+                        : colors.tint + '12',
+                      borderColor: isSelected
+                        ? colors.background + '40'
+                        : colors.tint + '1f',
+                    },
+                  ]}
+                >
+                  <ThemedText
+                    style={[
+                      styles.cardStatusBadgeText,
+                      {
+                        color: isSelected ? colors.background : colors.tint,
+                      },
+                    ]}
+                  >
+                    {isSelected ? 'Selected' : 'Tap to add'}
+                  </ThemedText>
+                </View>
+                <View
+                  style={[
+                    styles.cardIcon,
+                    {
+                      backgroundColor: isSelected
+                        ? colors.background + '1e'
+                        : colors.tint + '12',
+                      borderColor: isSelected
+                        ? colors.background + '36'
+                        : colors.tint + '1e',
+                    },
+                  ]}
+                >
+                  <IconSymbol
+                    color={isSelected ? colors.background : colors.tint}
+                    name={isSelected ? 'checkmark' : 'plus'}
+                    size={20}
+                  />
+                </View>
+              </View>
 
-      <View style={styles.footer}>{footer}</View>
+              <View style={styles.cardBody}>
+                <ThemedText
+                  style={[
+                    styles.interestLabel,
+                    { color: isSelected ? colors.background : colors.text },
+                  ]}
+                >
+                  {item.label}
+                </ThemedText>
+                <ThemedText
+                  style={[
+                    styles.interestDescription,
+                    {
+                      color: isSelected ? colors.background + 'd9' : colors.icon,
+                    },
+                  ]}
+                >
+                  {item.description}
+                </ThemedText>
+              </View>
+
+              <View
+                style={[
+                  styles.cardFooter,
+                  {
+                    borderColor: isSelected
+                      ? colors.background + '20'
+                      : colors.icon + '18',
+                  },
+                ]}
+              >
+                <ThemedText
+                  style={[
+                    styles.cardFooterCopy,
+                    {
+                      color: isSelected ? colors.background : colors.text,
+                    },
+                  ]}
+                >
+                  {isSelected
+                    ? 'Included in the shared profile.'
+                    : 'Add this lane to the shared profile.'}
+                </ThemedText>
+              </View>
+            </Pressable>
+          );
+        }}
+        spacing={18}
+      />
     </View>
   );
 }
@@ -146,9 +174,7 @@ export function InterestsCircularCarousel({
 const styles = StyleSheet.create({
   page: {
     flex: 1,
-    paddingHorizontal: 20,
-    paddingVertical: 22,
-    gap: 16,
+    justifyContent: 'center',
   },
   header: {
     gap: 12,
@@ -207,6 +233,7 @@ const styles = StyleSheet.create({
     minHeight: 320,
     paddingHorizontal: 20,
     paddingVertical: 20,
+    width: '100%',
   },
   cardHeader: {
     alignItems: 'center',

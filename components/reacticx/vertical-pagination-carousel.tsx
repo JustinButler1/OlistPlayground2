@@ -293,8 +293,8 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     borderRadius: 24,
-    overflow: 'hidden',
-    backgroundColor: '#1a1a1a',
+    overflow: 'visible',
+    backgroundColor: 'transparent',
   },
   imageContainer: {
     position: 'absolute',
