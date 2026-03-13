@@ -12,6 +12,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BirthdayPicker } from '@/components/onboarding/birthday-picker';
+import { InterestsCircularCarousel } from '@/components/onboarding/interests-circular-carousel';
 import { OnboardingPageShell } from '@/components/onboarding/onboarding-page-shell';
 import { VerticalPaginationCarousel } from '@/components/reacticx/vertical-pagination-carousel';
 import { TabRootBackground } from '@/components/tab-root-background';
@@ -333,10 +334,7 @@ export function OnboardingFlow() {
         );
       case 'interests':
         return (
-          <OnboardingPageShell
-            badge="Interests"
-            colors={colors}
-            description="Pick the topics you want Olist to remember in the shared workspace profile."
+          <InterestsCircularCarousel
             footer={
               <FooterActions
                 colors={colors}
@@ -345,58 +343,10 @@ export function OnboardingFlow() {
                 onNext={nextStep}
               />
             }
-            title="Choose what you care about"
-          >
-            <View style={styles.featureStack}>
-              <ThemedText style={[styles.selectionCount, { color: colors.icon }]}>
-                {state.profile.interests.length} selected
-              </ThemedText>
-              <View style={styles.interestGrid}>
-                {ONBOARDING_INTEREST_OPTIONS.map((interest) => {
-                  const isSelected = state.profile.interests.includes(interest.id);
-
-                  return (
-                    <Pressable
-                      key={interest.id}
-                      accessibilityRole="button"
-                      onPress={() => {
-                        void toggleInterest(interest.id);
-                      }}
-                      style={({ pressed }) => [
-                        styles.interestChip,
-                        {
-                          backgroundColor: isSelected ? colors.tint : colors.background,
-                          borderColor: isSelected ? colors.tint : colors.icon + '24',
-                          opacity: pressed ? 0.86 : 1,
-                        },
-                      ]}
-                    >
-                      <ThemedText
-                        style={[
-                          styles.interestLabel,
-                          {
-                            color: isSelected ? colors.background : colors.text,
-                          },
-                        ]}
-                      >
-                        {interest.label}
-                      </ThemedText>
-                      <ThemedText
-                        style={[
-                          styles.interestDescription,
-                          {
-                            color: isSelected ? colors.background + 'd9' : colors.icon,
-                          },
-                        ]}
-                      >
-                        {interest.description}
-                      </ThemedText>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
-          </OnboardingPageShell>
+            colors={colors}
+            onToggleInterest={toggleInterest}
+            selectedInterests={state.profile.interests}
+          />
         );
       case 'finish':
         return (
@@ -650,30 +600,5 @@ const styles = StyleSheet.create({
   summaryValue: {
     fontSize: 18,
     lineHeight: 22,
-  },
-  selectionCount: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  interestGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  interestChip: {
-    borderRadius: 20,
-    borderWidth: 1,
-    gap: 6,
-    minWidth: '47%',
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-  },
-  interestLabel: {
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  interestDescription: {
-    fontSize: 13,
-    lineHeight: 18,
   },
 });

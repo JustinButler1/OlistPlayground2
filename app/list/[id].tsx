@@ -77,10 +77,6 @@ export default function ListDetailScreen() {
   const latestMarkListOpenedRef = useRef(markListOpened);
   const lastOpenedListIdRef = useRef<string | null>(null);
   const list = activeLists.find((item) => item.id === id) ?? null;
-  const canCreateTaggedEntries = list?.config.addons.includes('tags') ?? false;
-  const canCreateUrlEntries = list?.config.addons.includes('links') ?? false;
-  const canCreateSublistEntries = list?.config.addons.includes('sublists') ?? false;
-  const canCreateLinkedEntries = canCreateUrlEntries || canCreateSublistEntries;
   const { preferences, setListPreferences } = useListPreferences(id ?? '');
   const [menuVisible, setMenuVisible] =
     useState<null | 'view' | 'sort' | 'filter' | 'tag-to-sublist'>(null);
@@ -105,10 +101,32 @@ export default function ListDetailScreen() {
   const [composerInputMounted, setComposerInputMounted] = useState(false);
   const [composerFocusPending, setComposerFocusPending] = useState(false);
 
+  const scrollComposerIntoView = useCallback((animated = true) => {
+    if (preferences.viewMode !== 'list') {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToEnd({ animated });
+    });
+  }, [preferences.viewMode]);
+
   const setComposerInputNode = useCallback((node: TextInput | null) => {
     composerInputRef.current = node;
     setComposerInputMounted(!!node);
   }, []);
+
+  const handleComposerFooterLayout = useCallback(() => {
+    if (!composerVisible) {
+      return;
+    }
+
+    scrollComposerIntoView(false);
+  }, [composerVisible, scrollComposerIntoView]);
+
+  const handleComposerInputFocus = useCallback(() => {
+    scrollComposerIntoView();
+  }, [scrollComposerIntoView]);
 
   const collapseComposer = useCallback(() => {
     setComposerVisible(false);
@@ -212,11 +230,11 @@ export default function ListDetailScreen() {
     }
 
     const timeout = setTimeout(() => {
-      listRef.current?.scrollToEnd({ animated: true });
+      scrollComposerIntoView();
     }, 80);
 
     return () => clearTimeout(timeout);
-  }, [composerVisible, preferences.viewMode, visibleEntries.length]);
+  }, [composerVisible, preferences.viewMode, scrollComposerIntoView, visibleEntries.length]);
 
   useEffect(() => {
     if (!composerVisible || preferences.viewMode !== 'list' || keyboardHeight <= 0) {
@@ -224,11 +242,11 @@ export default function ListDetailScreen() {
     }
 
     const timeout = setTimeout(() => {
-      listRef.current?.scrollToEnd({ animated: true });
+      scrollComposerIntoView();
     }, 80);
 
     return () => clearTimeout(timeout);
-  }, [composerVisible, keyboardHeight, preferences.viewMode]);
+  }, [composerVisible, keyboardHeight, preferences.viewMode, scrollComposerIntoView]);
 
   useEffect(() => {
     if (!isIos || !composerVisible || preferences.viewMode !== 'list' || !composerInputMounted) {
@@ -253,7 +271,7 @@ export default function ListDetailScreen() {
     }
 
     const timeout = setTimeout(() => {
-      listRef.current?.scrollToEnd({ animated: true });
+      scrollComposerIntoView();
       composerInputRef.current?.focus();
       setComposerFocusPending(false);
     }, 40);
@@ -266,6 +284,7 @@ export default function ListDetailScreen() {
     composerVisible,
     isIos,
     preferences.viewMode,
+    scrollComposerIntoView,
   ]);
 
   const tierRows = useMemo(
@@ -332,10 +351,6 @@ export default function ListDetailScreen() {
   }
 
   function buildPendingTags() {
-    if (!canCreateTaggedEntries) {
-      return [];
-    }
-
     return pendingTagsText
       .split(',')
       .map((tag) => tag.trim())
@@ -413,20 +428,6 @@ export default function ListDetailScreen() {
   }, []);
 
   const openLinkOptions = useCallback(() => {
-    if (canCreateUrlEntries && !canCreateSublistEntries) {
-      openUrlImportSheet();
-      return;
-    }
-
-    if (!canCreateUrlEntries && canCreateSublistEntries) {
-      openExistingListSheet();
-      return;
-    }
-
-    if (!canCreateUrlEntries && !canCreateSublistEntries) {
-      return;
-    }
-
     if (process.env.EXPO_OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
         {
@@ -454,8 +455,6 @@ export default function ListDetailScreen() {
       { text: 'Cancel', style: 'cancel' },
     ]);
   }, [
-    canCreateSublistEntries,
-    canCreateUrlEntries,
     colorScheme,
     openExistingListSheet,
     openUrlImportSheet,
@@ -944,8 +943,8 @@ export default function ListDetailScreen() {
               }
               ListFooterComponent={
                 composerVisible ? (
-                  <View style={styles.composerFooter}>
-                    {canCreateTaggedEntries && pendingTagsText.trim() ? (
+                  <View onLayout={handleComposerFooterLayout} style={styles.composerFooter}>
+                    {pendingTagsText.trim() ? (
                       <View style={styles.pendingMetaRow}>
                         <View style={[styles.pendingChip, { backgroundColor: colors.tint + '16' }]}>
                           <IconSymbol name="tag.fill" size={14} color={colors.tint} />
@@ -973,6 +972,7 @@ export default function ListDetailScreen() {
                         inputAccessoryViewID={isIos ? composerAccessoryId : undefined}
                         value={composerText}
                         onChangeText={setComposerText}
+                        onFocus={handleComposerInputFocus}
                         onSubmitEditing={submitComposer}
                         blurOnSubmit={false}
                         returnKeyType="done"
@@ -1110,8 +1110,6 @@ export default function ListDetailScreen() {
           onLinkPress={openLinkOptions}
           onSearchPress={() => setSearchVisible(true)}
           onTagPress={() => setTagSheetVisible(true)}
-          showLinkButton={canCreateLinkedEntries}
-          showTagButton={canCreateTaggedEntries}
         />
 
         <SelectionMenu
