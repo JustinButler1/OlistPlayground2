@@ -1,5 +1,7 @@
+import { BlurView } from 'expo-blur';
+import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
 import { Stack, useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useMemo, useState } from 'react';
 import { Alert, Animated, FlatList, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -21,6 +23,7 @@ type ViewMode = 'rows' | 'grid';
 export default function MyListsScreen() {
   const router = useRouter();
   const isIos = process.env.EXPO_OS === 'ios';
+  const supportsLiquidGlass = isIos && isGlassEffectAPIAvailable();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
@@ -99,20 +102,17 @@ export default function MyListsScreen() {
 
       return (
         <Animated.View style={[styles.rightActionContainer, { opacity }]}>
-          <Pressable
+          <SwipeActionButton
+            backgroundColor="#C62828"
+            icon="trash.fill"
+            iconColor="#fff"
+            isIos={isIos}
             onPress={onDelete}
-            style={({ pressed }) => [
-              styles.deleteAction,
-              { backgroundColor: '#C62828', opacity: pressed ? 0.85 : 1 },
-            ]}
-          >
-            <IconSymbol name="trash" size={18} color="#fff" />
-            <ThemedText style={styles.deleteActionText}>Delete</ThemedText>
-          </Pressable>
+          />
         </Animated.View>
       );
     },
-    []
+    [isIos]
   );
 
   const selectedSortLabel = sortMode === 'updated-desc' ? 'Recent' : 'A-Z';
@@ -150,36 +150,33 @@ export default function MyListsScreen() {
               <Pressable
                 onLongPress={() => confirmDeleteList(item)}
                 onPress={() => openListDetail(item)}
-                style={({ pressed }) => [
-                  styles.gridCard,
-                  {
-                    backgroundColor: colors.background,
-                    borderColor: colors.icon + '24',
-                    opacity: pressed ? 0.84 : 1,
-                  },
-                ]}
+                style={({ pressed }) => [styles.gridCard, { opacity: pressed ? 0.84 : 1 }]}
               >
-                <ThumbnailImage imageUrl={item.imageUrl} style={styles.gridPoster} />
-                <View style={styles.gridFooter}>
-                  <ThemedText style={styles.gridTitle} numberOfLines={2}>
-                    {item.title}
-                  </ThemedText>
-                  <View style={styles.countChevronGroup}>
-                    <ThemedText
-                      style={[styles.itemCount, { color: colors.icon }]}
-                      numberOfLines={1}
-                    >
-                      {item.entries.length}
+                <GridCardSurface colors={colors} supportsLiquidGlass={supportsLiquidGlass}>
+                  <ThumbnailImage imageUrl={item.imageUrl} style={styles.gridPoster} />
+                  <View style={styles.gridFooter}>
+                    <ThemedText style={styles.gridTitle} numberOfLines={2}>
+                      {item.title}
                     </ThemedText>
-                    <IconSymbol name="chevron.right" size={20} color={colors.icon} />
+                    <View style={styles.countChevronGroup}>
+                      <ThemedText
+                        style={[styles.itemCount, { color: colors.icon }]}
+                        numberOfLines={1}
+                      >
+                        {item.entries.length}
+                      </ThemedText>
+                      <IconSymbol name="chevron.right" size={20} color={colors.icon} />
+                    </View>
                   </View>
-                </View>
+                </GridCardSurface>
               </Pressable>
             );
           }
 
           return (
             <Swipeable
+              containerStyle={styles.swipeableContainer}
+              childrenContainerStyle={styles.swipeableChildren}
               overshootRight={false}
               rightThreshold={40}
               renderRightActions={(progress) =>
@@ -312,6 +309,45 @@ export default function MyListsScreen() {
   );
 }
 
+function GridCardSurface({
+  children,
+  colors,
+  supportsLiquidGlass,
+}: {
+  children: ReactNode;
+  colors: (typeof Colors)['light'] | (typeof Colors)['dark'];
+  supportsLiquidGlass: boolean;
+}) {
+  return (
+    <>
+      {supportsLiquidGlass ? (
+        <GlassView glassEffectStyle="regular" style={styles.gridCardSurfaceFill} />
+      ) : (
+        <BlurView
+          intensity={85}
+          tint="systemMaterial"
+          style={[
+            styles.gridCardSurfaceFill,
+            {
+              backgroundColor: colors.background + 'B8',
+            },
+          ]}
+        />
+      )}
+      <View
+        pointerEvents="none"
+        style={[
+          styles.gridCardSurfaceBorder,
+          {
+            borderColor: colors.icon + '20',
+          },
+        ]}
+      />
+      <View style={styles.gridCardContent}>{children}</View>
+    </>
+  );
+}
+
 function ViewModeButton({
   colors,
   icon,
@@ -351,6 +387,52 @@ function ViewModeButton({
         {label}
       </ThemedText>
     </Pressable>
+  );
+}
+
+function SwipeActionButton({
+  backgroundColor,
+  icon,
+  iconColor,
+  isIos,
+  onPress,
+}: {
+  backgroundColor: string;
+  icon: 'trash.fill';
+  iconColor: string;
+  isIos: boolean;
+  onPress: () => void;
+}) {
+  const circle = (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.swipeActionPressable, { opacity: pressed ? 0.78 : 1 }]}
+    >
+      <View style={[styles.swipeActionFill, { backgroundColor }]}>
+        <IconSymbol name={icon} size={20} color={iconColor} />
+      </View>
+    </Pressable>
+  );
+
+  if (!isIos) {
+    return circle;
+  }
+
+  if (isGlassEffectAPIAvailable()) {
+    return (
+      <GlassView glassEffectStyle="regular" isInteractive style={styles.swipeActionSurface}>
+        {circle}
+      </GlassView>
+    );
+  }
+
+  return (
+    <View style={styles.swipeActionSurface}>
+      <BlurView intensity={75} tint="systemMaterial" style={styles.swipeActionBlur}>
+        {circle}
+      </BlurView>
+    </View>
   );
 }
 
@@ -494,13 +576,23 @@ const styles = StyleSheet.create({
   },
   gridCard: {
     borderRadius: 18,
-    borderWidth: 1,
     flexBasis: '48%',
     flexGrow: 1,
-    gap: 10,
     marginBottom: 12,
     maxWidth: '48%',
     overflow: 'hidden',
+    position: 'relative',
+  },
+  gridCardSurfaceFill: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  gridCardSurfaceBorder: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 18,
+    borderWidth: 1,
+  },
+  gridCardContent: {
+    gap: 10,
     padding: 10,
   },
   gridPoster: {
@@ -520,21 +612,44 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 20,
   },
+  swipeableContainer: {
+    overflow: 'visible',
+  },
+  swipeableChildren: {
+    overflow: 'visible',
+  },
   rightActionContainer: {
-    alignItems: 'stretch',
-    justifyContent: 'center',
-    width: 96,
-  },
-  deleteAction: {
     alignItems: 'center',
-    flex: 1,
-    gap: 4,
+    flexDirection: 'row',
+    gap: 10,
     justifyContent: 'center',
+    width: 72,
   },
-  deleteActionText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '700',
+  swipeActionSurface: {
+    borderRadius: 999,
+    height: 54,
+    overflow: 'hidden',
+    width: 54,
+  },
+  swipeActionBlur: {
+    alignItems: 'center',
+    height: '100%',
+    justifyContent: 'center',
+    width: '100%',
+  },
+  swipeActionPressable: {
+    alignItems: 'center',
+    borderRadius: 999,
+    height: 54,
+    justifyContent: 'center',
+    width: 54,
+  },
+  swipeActionFill: {
+    alignItems: 'center',
+    borderRadius: 999,
+    height: 44,
+    justifyContent: 'center',
+    width: 44,
   },
   menuOverlay: {
     backgroundColor: 'rgba(0,0,0,0.28)',

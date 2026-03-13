@@ -1,27 +1,18 @@
-import { Stack } from 'expo-router';
 import { ScrollView, StyleSheet } from 'react-native';
 
+import { CommunityFeedList } from '@/components/community/community-feed-list';
 import { TabRootBackground } from '@/components/tab-root-background';
-import { ThemedText } from '@/components/themed-text';
 
 export default function CommunityScreen() {
   return (
     <TabRootBackground>
-      <Stack.Screen
-        options={{
-          headerShown: true,
-          title: 'Community',
-          headerTransparent: true,
-          headerShadowVisible: false,
-        }}
-      />
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         style={styles.container}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        <ThemedText style={styles.placeholder}>Community content goes here.</ThemedText>
+        <CommunityFeedList />
       </ScrollView>
     </TabRootBackground>
   );
@@ -33,14 +24,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   content: {
-    alignItems: 'center',
-    flexGrow: 1,
-    justifyContent: 'center',
-    paddingBottom: 24,
+    paddingBottom: 32,
     paddingHorizontal: 20,
-  },
-  placeholder: {
-    opacity: 0.7,
-    textAlign: 'center',
+    paddingTop: 16,
   },
 });
