@@ -4,6 +4,7 @@ import type {
   CatalogSearchOptions,
   CatalogSearchResponse,
 } from '@/services/catalog/types';
+import { getPreferredJikanTitle } from '@/services/catalog/jikan';
 import { normalizeRating } from '@/lib/tracker-metadata';
 
 const JIKAN_API = 'https://api.jikan.moe/v4';
@@ -14,6 +15,10 @@ interface JikanAnimeSearchResponse {
     mal_id: number;
     title: string;
     title_english?: string | null;
+    titles?: Array<{
+      type?: string | null;
+      title?: string | null;
+    }>;
     synopsis?: string | null;
     images?: {
       jpg?: { image_url?: string; small_image_url?: string };
@@ -76,7 +81,7 @@ async function searchAnime(
 
     return {
       id: String(item.mal_id),
-      title: item.title_english?.trim() || item.title,
+      title: getPreferredJikanTitle(item),
       description: item.synopsis?.trim() || undefined,
       subtitle: [location, progressLabel].filter(Boolean).join(' | '),
       location: location || undefined,

@@ -12,6 +12,8 @@ interface ComposerActionBarProps {
   onSearchPress: () => void;
   onTagPress: () => void;
   onLinkPress: () => void;
+  showTagButton?: boolean;
+  showLinkButton?: boolean;
 }
 
 export function ComposerActionBar({
@@ -21,6 +23,8 @@ export function ComposerActionBar({
   onSearchPress,
   onTagPress,
   onLinkPress,
+  showTagButton = true,
+  showLinkButton = true,
 }: ComposerActionBarProps) {
   if (!visible) {
     return null;
@@ -38,8 +42,12 @@ export function ComposerActionBar({
             style={styles.actionBar}
           >
             <ActionButton icon="magnifyingglass" color={colors.tint} onPress={onSearchPress} />
-            <ActionButton icon="tag.fill" color={colors.tint} onPress={onTagPress} />
-            <ActionButton icon="link" color={colors.tint} onPress={onLinkPress} />
+            {showTagButton ? (
+              <ActionButton icon="tag.fill" color={colors.tint} onPress={onTagPress} />
+            ) : null}
+            {showLinkButton ? (
+              <ActionButton icon="link" color={colors.tint} onPress={onLinkPress} />
+            ) : null}
           </GlassView>
         ) : (
           <View
@@ -53,8 +61,12 @@ export function ComposerActionBar({
             ]}
           >
             <ActionButton icon="magnifyingglass" color={colors.tint} onPress={onSearchPress} />
-            <ActionButton icon="tag.fill" color={colors.tint} onPress={onTagPress} />
-            <ActionButton icon="link" color={colors.tint} onPress={onLinkPress} />
+            {showTagButton ? (
+              <ActionButton icon="tag.fill" color={colors.tint} onPress={onTagPress} />
+            ) : null}
+            {showLinkButton ? (
+              <ActionButton icon="link" color={colors.tint} onPress={onLinkPress} />
+            ) : null}
           </View>
         )}
       </View>

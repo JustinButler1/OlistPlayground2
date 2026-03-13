@@ -12,7 +12,7 @@ interface ItemDetailTabsProps {
 }
 
 const TABS: { id: ItemDetailTabId; label: string }[] = [
-  { id: 'details', label: 'Details' },
+  { id: 'details', label: 'Add-ons' },
   { id: 'my-data', label: 'My Data' },
 ];
 

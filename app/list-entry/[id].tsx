@@ -6,14 +6,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ItemDetailTabs, type ItemDetailTabId } from '@/components/tracker/ItemDetailTabs';
 import { ItemUserDataPanel } from '@/components/tracker/ItemUserDataPanel';
 import { ManualEntryForm } from '@/components/tracker/ManualEntryForm';
-import { ThumbnailImage } from '@/components/thumbnail-image';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useEntryActions, useListsQuery } from '@/contexts/lists-context';
 import type { EntryDraft } from '@/contexts/lists-context';
 import type { EntryProgressUnit, ListEntry } from '@/data/mock-lists';
 import { getEntryItemKey, getEffectiveEntryRating } from '@/lib/tracker-metadata';
-import { findEntryLocation, formatProgressLabel } from '@/lib/tracker-selectors';
+import { findEntryLocation } from '@/lib/tracker-selectors';
 
 export default function ListEntryDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -36,9 +35,6 @@ export default function ListEntryDetailScreen() {
   const effectiveRating = result
     ? getEffectiveEntryRating(result.entry, itemUserDataByKey)
     : undefined;
-  const effectiveProgress = result
-    ? formatProgressLabel(result.entry, itemUserDataByKey)
-    : null;
 
   const handleSave = async (draft: EntryDraft) => {
     if (!result) {
@@ -50,7 +46,7 @@ export default function ListEntryDetailScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: result?.entry.title ?? 'Entry Info' }} />
+      <Stack.Screen options={{ title: activeTab === 'my-data' ? 'My Data' : 'Settings' }} />
       <ThemedView style={styles.container}>
         {!result ? (
           <View style={styles.centered}>
@@ -58,34 +54,6 @@ export default function ListEntryDetailScreen() {
           </View>
         ) : (
           <>
-            <View style={styles.summary}>
-              <ThumbnailImage
-                imageUrl={result.entry.coverAssetUri ?? result.entry.imageUrl}
-                style={styles.cover}
-              />
-              <View style={styles.summaryText}>
-                <ThemedText type="title" numberOfLines={2}>
-                  {result.entry.title}
-                </ThemedText>
-                <ThemedText style={styles.metaText}>{result.list.title}</ThemedText>
-                <ThemedText style={styles.metaText}>Type: {result.entry.type}</ThemedText>
-                {result.list.config.addons.includes('status') && result.entry.status ? (
-                  <ThemedText style={styles.metaText}>Status: {result.entry.status}</ThemedText>
-                ) : null}
-                {result.list.config.addons.includes('toggle') ? (
-                  <ThemedText style={styles.metaText}>
-                    Toggle: {result.entry.checked ? 'On' : 'Off'}
-                  </ThemedText>
-                ) : null}
-                {effectiveProgress ? (
-                  <ThemedText style={styles.metaText}>Progress: {effectiveProgress}</ThemedText>
-                ) : null}
-                {effectiveRating ? (
-                  <ThemedText style={styles.metaText}>Rating: {effectiveRating}</ThemedText>
-                ) : null}
-              </View>
-            </View>
-
             {showMyDataTab ? (
               <ItemDetailTabs activeTab={activeTab} onChange={setActiveTab} />
             ) : null}
@@ -109,10 +77,11 @@ export default function ListEntryDetailScreen() {
               </ScrollView>
             ) : (
               <ManualEntryForm
-                submitLabel="Save changes"
+                submitLabel="Save settings"
                 initialEntry={result.entry}
                 currentListId={result.list.id}
                 listConfig={result.list.config}
+                mode="addons"
                 onSubmit={handleSave}
               />
             )}
@@ -201,25 +170,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
-  },
-  summary: {
-    flexDirection: 'row',
-    gap: 16,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 16,
-  },
-  cover: {
-    width: 88,
-    height: 132,
-    borderRadius: 18,
-  },
-  summaryText: {
-    flex: 1,
-    gap: 4,
-  },
-  metaText: {
-    opacity: 0.75,
   },
   panelContent: {
     paddingHorizontal: 20,

@@ -190,7 +190,7 @@ export function createListPreferences(
 }
 
 export const DEFAULT_LIST_CONFIG: ListConfig = {
-  addons: ['notes', 'tags'],
+  addons: [],
   automationBlocks: [],
   fieldDefinitions: [],
   defaultEntryType: 'custom',

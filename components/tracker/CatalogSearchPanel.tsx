@@ -5,8 +5,10 @@ import {
   FlatList,
   Pressable,
   ScrollView,
+  type StyleProp,
   StyleSheet,
   TextInput,
+  type ViewStyle,
   View,
 } from 'react-native';
 
@@ -32,6 +34,8 @@ interface CatalogSearchPanelProps {
   initialQuery?: string;
   placeholder?: string;
   autoFocus?: boolean;
+  style?: StyleProp<ViewStyle>;
+  contentContainerStyle?: StyleProp<ViewStyle>;
 }
 
 export function CatalogSearchPanel({
@@ -40,6 +44,8 @@ export function CatalogSearchPanel({
   initialQuery = '',
   placeholder = 'Search the catalog',
   autoFocus = false,
+  style,
+  contentContainerStyle,
 }: CatalogSearchPanelProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
@@ -228,9 +234,11 @@ export function CatalogSearchPanel({
       renderItem={({ item }) => (
         <CatalogSearchResultRow item={item} onPress={() => onSelectItem(item)} />
       )}
+      style={style}
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
-      contentContainerStyle={styles.container}
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerStyle={[styles.container, contentContainerStyle]}
       ListHeaderComponent={header}
       ListEmptyComponent={
         <ThemedText style={[styles.emptyText, { color: colors.icon }]}>{emptyLabel}</ThemedText>

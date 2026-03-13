@@ -3,6 +3,7 @@ import { BlurView } from 'expo-blur';
 import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
 import { Image } from 'expo-image';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { openBrowserAsync, WebBrowserPresentationStyle } from 'expo-web-browser';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActionSheetIOS,
@@ -29,22 +30,22 @@ import { PLACEHOLDER_THUMBNAIL, ThumbnailImage } from '@/components/thumbnail-im
 import { CatalogSearchPanel } from '@/components/tracker/CatalogSearchPanel';
 import { ComposerActionBar } from '@/components/tracker/composer-action-bar';
 import { FilterSortControlRow } from '@/components/tracker/filter-sort-control-row';
+import { LinkImportPanel } from '@/components/tracker/LinkImportPanel';
 import { ListConfigurationEditor } from '@/components/tracker/ListConfigurationEditor';
-import { RatingStars } from '@/components/tracker/RatingStars';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import type { EntryDraft } from '@/contexts/lists-context';
 import { useEntryActions, useListActions, useListPreferences, useListsQuery } from '@/contexts/lists-context';
-import type { ItemUserData, ListEntry, ListFilterMode, ListPreset, ListSortMode, ListViewMode } from '@/data/mock-lists';
+import type { ListEntry, ListFilterMode, ListPreset, ListSortMode, ListViewMode } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { getEffectiveEntryRating } from '@/lib/tracker-metadata';
-import { formatProgressLabel, sortEntries } from '@/lib/tracker-selectors';
+import { sortEntries } from '@/lib/tracker-selectors';
 
 const TIER_COLORS = ['#2A1B60', '#3A227A', '#4E2899', '#5F34B0', '#1A5E85', '#139EC1', '#68C7DB'];
 const COMPOSER_TOOLBAR_HEIGHT = 76;
 const COMPOSER_TOOLBAR_OFFSET = 20;
 const BOTTOM_TOOLBAR_HEIGHT = 56;
 const BOTTOM_TOOLBAR_MARGIN = 16;
+const MAX_VISIBLE_ENTRY_TAGS = 3;
 
 export default function ListDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -76,6 +77,10 @@ export default function ListDetailScreen() {
   const latestMarkListOpenedRef = useRef(markListOpened);
   const lastOpenedListIdRef = useRef<string | null>(null);
   const list = activeLists.find((item) => item.id === id) ?? null;
+  const canCreateTaggedEntries = list?.config.addons.includes('tags') ?? false;
+  const canCreateUrlEntries = list?.config.addons.includes('links') ?? false;
+  const canCreateSublistEntries = list?.config.addons.includes('sublists') ?? false;
+  const canCreateLinkedEntries = canCreateUrlEntries || canCreateSublistEntries;
   const { preferences, setListPreferences } = useListPreferences(id ?? '');
   const [menuVisible, setMenuVisible] =
     useState<null | 'view' | 'sort' | 'filter' | 'tag-to-sublist'>(null);
@@ -94,6 +99,7 @@ export default function ListDetailScreen() {
   const [listSearchQuery, setListSearchQuery] = useState('');
   const [searchVisible, setSearchVisible] = useState(false);
   const [tagSheetVisible, setTagSheetVisible] = useState(false);
+  const [urlImportVisible, setUrlImportVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [composerAccessoryVisible, setComposerAccessoryVisible] = useState(false);
   const [composerInputMounted, setComposerInputMounted] = useState(false);
@@ -326,6 +332,10 @@ export default function ListDetailScreen() {
   }
 
   function buildPendingTags() {
+    if (!canCreateTaggedEntries) {
+      return [];
+    }
+
     return pendingTagsText
       .split(',')
       .map((tag) => tag.trim())
@@ -369,6 +379,19 @@ export default function ListDetailScreen() {
     focusNextComposerLine();
   }
 
+  function addUrlEntry(entry: EntryDraft) {
+    if (!list) {
+      return;
+    }
+
+    addEntryToList(list.id, {
+      ...entry,
+      tags: [...new Set([...(entry.tags ?? []), ...buildPendingTags()])],
+    });
+    setUrlImportVisible(false);
+    focusNextComposerLine();
+  }
+
   const openExistingListSheet = useCallback(() => {
     if (!list) {
       return;
@@ -384,7 +407,26 @@ export default function ListDetailScreen() {
     });
   }, [composerText, list, router]);
 
+  const openUrlImportSheet = useCallback(() => {
+    Keyboard.dismiss();
+    setUrlImportVisible(true);
+  }, []);
+
   const openLinkOptions = useCallback(() => {
+    if (canCreateUrlEntries && !canCreateSublistEntries) {
+      openUrlImportSheet();
+      return;
+    }
+
+    if (!canCreateUrlEntries && canCreateSublistEntries) {
+      openExistingListSheet();
+      return;
+    }
+
+    if (!canCreateUrlEntries && !canCreateSublistEntries) {
+      return;
+    }
+
     if (process.env.EXPO_OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
         {
@@ -394,6 +436,10 @@ export default function ListDetailScreen() {
           userInterfaceStyle: colorScheme ?? 'light',
         },
         (buttonIndex) => {
+          if (buttonIndex === 0) {
+            openUrlImportSheet();
+            return;
+          }
           if (buttonIndex === 1) {
             openExistingListSheet();
           }
@@ -403,11 +449,17 @@ export default function ListDetailScreen() {
     }
 
     Alert.alert('Link', undefined, [
-      { text: 'URL' },
+      { text: 'URL', onPress: openUrlImportSheet },
       { text: 'Existing List', onPress: openExistingListSheet },
       { text: 'Cancel', style: 'cancel' },
     ]);
-  }, [colorScheme, openExistingListSheet]);
+  }, [
+    canCreateSublistEntries,
+    canCreateUrlEntries,
+    colorScheme,
+    openExistingListSheet,
+    openUrlImportSheet,
+  ]);
 
   const openEntry = (entry: ListEntry) => {
     const pathname = entry.linkedListId
@@ -415,12 +467,31 @@ export default function ListDetailScreen() {
       : entry.detailPath
         ? `/${entry.detailPath}`
         : `/list-entry/${entry.id}`;
+
     router.push(pathname as never);
   };
 
   const openEntryMetadata = (entry: ListEntry) => {
     router.push(`/list-entry/${entry.id}` as never);
   };
+
+  const openEntryUrl = useCallback(async (entry: ListEntry) => {
+    const url = entry.productUrl?.trim();
+    if (!url) {
+      return;
+    }
+
+    if (process.env.EXPO_OS === 'web') {
+      if (typeof window !== 'undefined') {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
+      return;
+    }
+
+    await openBrowserAsync(url, {
+      presentationStyle: WebBrowserPresentationStyle.AUTOMATIC,
+    });
+  }, []);
 
   const openNewSublist = useCallback(() => {
     setMenuVisible(null);
@@ -550,6 +621,39 @@ export default function ListDetailScreen() {
     ? bottomToolbarInset + keyboardHeight + (isIos ? 24 : COMPOSER_TOOLBAR_HEIGHT + COMPOSER_TOOLBAR_OFFSET)
     : bottomToolbarInset;
   const actionBarBottom = keyboardHeight > 0 ? keyboardHeight + 12 : insets.bottom + 16;
+
+  function renderEntryTags(tags: string[]) {
+    const normalizedTags = tags
+      .map((tag) => tag.trim())
+      .filter((tag): tag is string => tag.length > 0)
+      .slice(0, MAX_VISIBLE_ENTRY_TAGS + 1);
+
+    if (!normalizedTags.length) {
+      return null;
+    }
+
+    const visibleTags = normalizedTags.slice(0, MAX_VISIBLE_ENTRY_TAGS);
+    const hasOverflow = normalizedTags.length > MAX_VISIBLE_ENTRY_TAGS;
+
+    return (
+      <View style={styles.entryTagRow}>
+        {visibleTags.map((tag, index) => (
+          <View key={`${tag}-${index}`} style={[styles.entryTagChip, { backgroundColor: colors.tint + '14' }]}>
+            <ThemedText style={[styles.entryTagText, { color: colors.tint }]} numberOfLines={1}>
+              {tag}
+            </ThemedText>
+          </View>
+        ))}
+        {hasOverflow ? (
+          <View style={[styles.entryOverflowChip, { backgroundColor: colors.icon + '14' }]}>
+            <ThemedText style={[styles.entryTagText, { color: colors.icon }]} numberOfLines={1}>
+              …
+            </ThemedText>
+          </View>
+        ) : null}
+      </View>
+    );
+  }
 
   return (
     <>
@@ -738,22 +842,23 @@ export default function ListDetailScreen() {
               keyboardShouldPersistTaps="handled"
             >
               <View style={styles.grid}>
-                {visibleEntries.map((entry) => (
-                  <Pressable key={entry.id} onPress={() => openEntry(entry)} style={styles.gridCard}>
-                    <ThumbnailImage imageUrl={entry.imageUrl} style={styles.gridImage} />
-                    <ThemedText style={styles.gridTitle} numberOfLines={2}>
-                      {entry.title}
-                    </ThemedText>
-                    {buildEntryMeta(entry, itemUserDataByKey, { showStatus: hasStatus }) ? (
-                      <ThemedText style={[styles.gridMeta, { color: colors.icon }]}>
-                        {buildEntryMeta(entry, itemUserDataByKey, { showStatus: hasStatus })}
+                {visibleEntries.map((entry) => {
+                  const entryImageUrl = getEntryImageUrl(entry);
+
+                  return (
+                    <Pressable
+                      key={entry.id}
+                      onPress={() => openEntry(entry)}
+                      style={styles.gridCard}
+                    >
+                      {entryImageUrl ? <ThumbnailImage imageUrl={entryImageUrl} style={styles.gridImage} /> : null}
+                      <ThemedText style={styles.gridTitle} numberOfLines={2}>
+                        {entry.title}
                       </ThemedText>
-                    ) : null}
-                    {getEffectiveEntryRating(entry, itemUserDataByKey) ? (
-                      <RatingStars value={getEffectiveEntryRating(entry, itemUserDataByKey)} size={12} />
-                    ) : null}
-                  </Pressable>
-                ))}
+                      {renderEntryTags(entry.tags)}
+                    </Pressable>
+                  );
+                })}
               </View>
               {!visibleEntries.length ? (
                 <ThemedText style={[styles.placeholder, { color: colors.icon }]}>
@@ -801,27 +906,28 @@ export default function ListDetailScreen() {
                         </Pressable>
                       ) : null}
                       <Pressable onPress={() => openEntry(item)} style={styles.rowMain}>
-                        {itemImageUrl ? (
-                          <ThumbnailImage imageUrl={itemImageUrl} style={styles.rowImage} />
-                        ) : !hasToggle ? (
-                          <View style={styles.rowBulletSlot}>
-                            <View style={[styles.rowBullet, { backgroundColor: colors.icon }]} />
-                          </View>
-                        ) : null}
+                        {itemImageUrl ? <ThumbnailImage imageUrl={itemImageUrl} style={styles.rowImage} /> : null}
                         <View style={styles.rowInfo}>
                           <ThemedText style={styles.rowTitle} numberOfLines={2}>
                             {item.title}
                           </ThemedText>
-                          <View style={styles.rowMetaWrap}>
-                            <ThemedText style={[styles.rowMeta, { color: colors.icon }]} numberOfLines={1}>
-                              {buildEntryMeta(item, itemUserDataByKey, { showStatus: hasStatus })}
-                            </ThemedText>
-                            {getEffectiveEntryRating(item, itemUserDataByKey) ? (
-                              <RatingStars value={getEffectiveEntryRating(item, itemUserDataByKey)} size={12} />
-                            ) : null}
-                          </View>
+                          {renderEntryTags(item.tags)}
                         </View>
                       </Pressable>
+                      {item.productUrl?.trim() ? (
+                        <Pressable
+                          accessibilityLabel={`Open ${item.title} link`}
+                          accessibilityRole="button"
+                          hitSlop={12}
+                          onPress={() => void openEntryUrl(item)}
+                          style={({ pressed }) => [
+                            styles.rowLinkButton,
+                            { opacity: pressed ? 0.68 : 1 },
+                          ]}
+                        >
+                          <IconSymbol name="link" size={18} color={colors.tint} />
+                        </Pressable>
+                      ) : null}
                     </ListRowSurface>
                   </Swipeable>
                 );
@@ -839,7 +945,7 @@ export default function ListDetailScreen() {
               ListFooterComponent={
                 composerVisible ? (
                   <View style={styles.composerFooter}>
-                    {pendingTagsText.trim() ? (
+                    {canCreateTaggedEntries && pendingTagsText.trim() ? (
                       <View style={styles.pendingMetaRow}>
                         <View style={[styles.pendingChip, { backgroundColor: colors.tint + '16' }]}>
                           <IconSymbol name="tag.fill" size={14} color={colors.tint} />
@@ -1004,6 +1110,8 @@ export default function ListDetailScreen() {
           onLinkPress={openLinkOptions}
           onSearchPress={() => setSearchVisible(true)}
           onTagPress={() => setTagSheetVisible(true)}
+          showLinkButton={canCreateLinkedEntries}
+          showTagButton={canCreateTaggedEntries}
         />
 
         <SelectionMenu
@@ -1135,35 +1243,31 @@ export default function ListDetailScreen() {
                 </ThemedText>
                 <View style={styles.sheetHeaderButton} />
               </View>
-              <ScrollView
-                contentContainerStyle={styles.sheetBody}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-              >
-                <CatalogSearchPanel
-                  initialQuery={composerText.trim()}
-                  autoFocus
-                  onSelectItem={(item) =>
-                    addCatalogEntry({
-                      title: item.title,
-                      type: item.type,
-                      imageUrl: item.imageUrl,
-                      detailPath: item.detailPath,
-                      sourceRef: item.sourceRef,
-                      rating: item.rating,
-                      progress:
-                        item.totalProgress && item.progressUnit
-                          ? {
-                            current: undefined,
-                            total: item.totalProgress,
-                            unit: item.progressUnit,
-                            updatedAt: Date.now(),
-                          }
-                          : undefined,
-                    })
-                  }
-                />
-              </ScrollView>
+              <CatalogSearchPanel
+                style={styles.sheetList}
+                contentContainerStyle={styles.sheetListContent}
+                initialQuery={composerText.trim()}
+                autoFocus
+                onSelectItem={(item) =>
+                  addCatalogEntry({
+                    title: item.title,
+                    type: item.type,
+                    imageUrl: item.imageUrl,
+                    detailPath: item.detailPath,
+                    sourceRef: item.sourceRef,
+                    rating: item.rating,
+                    progress:
+                      item.totalProgress && item.progressUnit
+                        ? {
+                          current: undefined,
+                          total: item.totalProgress,
+                          unit: item.progressUnit,
+                          updatedAt: Date.now(),
+                        }
+                        : undefined,
+                  })
+                }
+              />
             </View>
           ) : (
             <Pressable style={styles.modalOverlay} onPress={() => setSearchVisible(false)}>
@@ -1187,35 +1291,99 @@ export default function ListDetailScreen() {
                   </ThemedText>
                   <View style={styles.sheetHeaderButton} />
                 </View>
-                <ScrollView
-                  contentContainerStyle={styles.sheetBody}
-                  showsVerticalScrollIndicator={false}
-                  keyboardShouldPersistTaps="handled"
-                >
-                  <CatalogSearchPanel
-                    initialQuery={composerText.trim()}
+                <CatalogSearchPanel
+                  style={styles.sheetList}
+                  contentContainerStyle={styles.sheetListContent}
+                  initialQuery={composerText.trim()}
+                  autoFocus
+                  onSelectItem={(item) =>
+                    addCatalogEntry({
+                      title: item.title,
+                      type: item.type,
+                      imageUrl: item.imageUrl,
+                      detailPath: item.detailPath,
+                      sourceRef: item.sourceRef,
+                      rating: item.rating,
+                      progress:
+                        item.totalProgress && item.progressUnit
+                          ? {
+                            current: undefined,
+                            total: item.totalProgress,
+                            unit: item.progressUnit,
+                            updatedAt: Date.now(),
+                          }
+                          : undefined,
+                    })
+                  }
+                />
+              </Pressable>
+            </Pressable>
+          )}
+        </Modal>
+
+        <Modal
+          visible={urlImportVisible}
+          animationType="slide"
+          onRequestClose={() => setUrlImportVisible(false)}
+          presentationStyle={isIos ? 'pageSheet' : 'fullScreen'}
+          transparent={!isIos}
+        >
+          {isIos ? (
+            <View
+              style={[
+                styles.nativeSheetContainer,
+                {
+                  backgroundColor: colors.background,
+                  paddingBottom: insets.bottom + 24,
+                },
+              ]}
+            >
+              <View style={[styles.sheetHeader, { borderBottomColor: colors.icon + '30' }]}>
+                <Pressable onPress={() => setUrlImportVisible(false)} style={styles.sheetHeaderButton}>
+                  <IconSymbol name="xmark" size={24} color={colors.text} />
+                </Pressable>
+                <ThemedText type="subtitle" style={styles.sheetTitle}>
+                  Import URL
+                </ThemedText>
+                <View style={styles.sheetHeaderButton} />
+              </View>
+              <View style={styles.sheetList}>
+                <LinkImportPanel
+                  autoFocus
+                  initialUrl={composerText.trim()}
+                  onSubmit={addUrlEntry}
+                />
+              </View>
+            </View>
+          ) : (
+            <Pressable style={styles.modalOverlay} onPress={() => setUrlImportVisible(false)}>
+              <Pressable
+                style={[
+                  styles.sheet,
+                  {
+                    backgroundColor: colors.background,
+                    paddingBottom: insets.bottom + 24,
+                    height: Dimensions.get('window').height * 0.78,
+                  },
+                ]}
+                onPress={(event) => event.stopPropagation()}
+              >
+                <View style={[styles.sheetHeader, { borderBottomColor: colors.icon + '30' }]}>
+                  <Pressable onPress={() => setUrlImportVisible(false)} style={styles.sheetHeaderButton}>
+                    <IconSymbol name="xmark" size={24} color={colors.text} />
+                  </Pressable>
+                  <ThemedText type="subtitle" style={styles.sheetTitle}>
+                    Import URL
+                  </ThemedText>
+                  <View style={styles.sheetHeaderButton} />
+                </View>
+                <View style={styles.sheetList}>
+                  <LinkImportPanel
                     autoFocus
-                    onSelectItem={(item) =>
-                      addCatalogEntry({
-                        title: item.title,
-                        type: item.type,
-                        imageUrl: item.imageUrl,
-                        detailPath: item.detailPath,
-                        sourceRef: item.sourceRef,
-                        rating: item.rating,
-                        progress:
-                          item.totalProgress && item.progressUnit
-                            ? {
-                              current: undefined,
-                              total: item.totalProgress,
-                              unit: item.progressUnit,
-                              updatedAt: Date.now(),
-                            }
-                            : undefined,
-                      })
-                    }
+                    initialUrl={composerText.trim()}
+                    onSubmit={addUrlEntry}
                   />
-                </ScrollView>
+                </View>
               </Pressable>
             </Pressable>
           )}
@@ -1836,22 +2004,6 @@ function labelForFilter(value: ListFilterMode) {
               : 'Archived';
 }
 
-function buildEntryMeta(
-  entry: ListEntry,
-  itemUserDataByKey?: Record<string, ItemUserData>,
-  options?: { showStatus?: boolean }
-) {
-  const parts = [entry.type === 'list' ? 'List' : entry.type];
-  const progress = formatProgressLabel(entry, itemUserDataByKey);
-  if (progress) {
-    parts.splice(1, 0, progress);
-  }
-  if (options?.showStatus && entry.status) {
-    parts.push(entry.status);
-  }
-  return parts.join(' · ');
-}
-
 function getEntryImageUrl(entry: Pick<ListEntry, 'coverAssetUri' | 'imageUrl'>): null | string {
   const imageUrl = entry.coverAssetUri ?? entry.imageUrl;
   return typeof imageUrl === 'string' && imageUrl.trim().length > 0 ? imageUrl.trim() : null;
@@ -1994,24 +2146,39 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
-  rowBulletSlot: {
-    width: 56,
-    height: 72,
+  rowImage: { width: 56, height: 72, borderRadius: 14 },
+  rowInfo: { flex: 1, alignSelf: 'stretch', justifyContent: 'center', gap: 6 },
+  rowLinkButton: {
     alignItems: 'center',
     justifyContent: 'center',
-    flexShrink: 0,
+    minHeight: 44,
+    paddingHorizontal: 6,
   },
-  rowBullet: {
-    width: 10,
-    height: 10,
-    borderRadius: 999,
-    flexShrink: 0,
-  },
-  rowImage: { width: 56, height: 72, borderRadius: 14 },
-  rowInfo: { flex: 1, alignSelf: 'stretch', justifyContent: 'center', gap: 4 },
   rowTitle: { fontSize: 16, fontWeight: '600', lineHeight: 20 },
-  rowMetaWrap: { gap: 4, minHeight: 18, justifyContent: 'center' },
-  rowMeta: { fontSize: 13 },
+  entryTagRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    overflow: 'hidden',
+    minHeight: 24,
+  },
+  entryTagChip: {
+    maxWidth: 120,
+    flexShrink: 1,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  entryOverflowChip: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  entryTagText: {
+    fontSize: 11,
+    fontWeight: '600',
+    lineHeight: 14,
+  },
   rightActionContainer: {
     width: 132,
     flexDirection: 'row',
@@ -2117,6 +2284,8 @@ const styles = StyleSheet.create({
   sheetHeaderButton: { minWidth: 44, padding: 8, alignItems: 'center' },
   sheetTitle: { flex: 1, textAlign: 'center' },
   sheetBody: { flex: 1, flexGrow: 1, paddingHorizontal: 20, paddingTop: 16, gap: 14 },
+  sheetList: { flex: 1 },
+  sheetListContent: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 16 },
   input: {
     borderWidth: 1,
     borderRadius: 12,

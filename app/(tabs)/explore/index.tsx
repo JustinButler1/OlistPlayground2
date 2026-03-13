@@ -294,6 +294,7 @@ export default function ExploreScreen() {
   const { activeLists } = useListsQuery();
   const { addEntryToList } = useEntryActions();
   const [query, setQuery] = useState('');
+  const [isSearchBarActive, setIsSearchBarActive] = useState(false);
   const [pendingItem, setPendingItem] = useState<CatalogSearchItem | null>(null);
   const [mediaScope, setMediaScope] = useState<SearchMediaScope>('all-media');
   const [sortId, setSortId] = useState<SearchSortId>('relevance');
@@ -301,6 +302,8 @@ export default function ExploreScreen() {
   const [isContentNoticeVisible, setIsContentNoticeVisible] = useState(true);
   const debouncedQuery = useDebouncedValue(query, 350);
   const trimmedQuery = debouncedQuery.trim();
+  const hasTypedQuery = query.trim().length > 0;
+  const isSearchContext = isSearchBarActive || hasTypedQuery || trimmedQuery.length > 0;
 
   const visibleLists = useMemo(
     () => activeLists.filter((list) => !list.archivedAt),
@@ -363,8 +366,11 @@ export default function ExploreScreen() {
     ],
     [localListResults, remoteSearchQueries]
   );
+  const hasRemoteSearchResults = remoteSearchQueries.some(
+    (remoteQuery) => (remoteQuery.data?.items.length ?? 0) > 0
+  );
 
-  const isWaitingForDebounce = query.trim().length > 0 && query.trim() !== trimmedQuery;
+  const isWaitingForDebounce = hasTypedQuery && query.trim() !== trimmedQuery;
   const isLoading =
     isWaitingForDebounce ||
     (trimmedQuery.length > 0 &&
@@ -397,6 +403,8 @@ export default function ExploreScreen() {
 
     return nextError;
   }, [mediaScope, remoteSearchQueries, trimmedQuery]);
+  const shouldShowContentNotice =
+    isSearchContext && isContentNoticeVisible && !isLoading && !error && hasRemoteSearchResults;
 
   const sortedResults = useMemo(
     () =>
@@ -450,8 +458,18 @@ export default function ExploreScreen() {
           hideNavigationBar={false}
           hideWhenScrolling={false}
           obscureBackground={false}
-          onCancelButtonPress={() => setQuery('')}
+          onBlur={() => {
+            if (!query.trim()) {
+              setIsSearchBarActive(false);
+            }
+          }}
+          onCancelButtonPress={() => {
+            setQuery('');
+            setIsSearchBarActive(false);
+          }}
           onChangeText={(event) => setQuery(event.nativeEvent.text)}
+          onFocus={() => setIsSearchBarActive(true)}
+          onOpen={() => setIsSearchBarActive(true)}
           onSearchButtonPress={(event) => setQuery(event.nativeEvent.text)}
           placeholder="Search anime, manga, books, TV, movies, and lists"
           placement="automatic"
@@ -487,6 +505,12 @@ export default function ExploreScreen() {
               placeholderTextColor={colors.icon}
               value={query}
               onChangeText={setQuery}
+              onFocus={() => setIsSearchBarActive(true)}
+              onBlur={() => {
+                if (!query.trim()) {
+                  setIsSearchBarActive(false);
+                }
+              }}
               autoCapitalize="none"
               autoCorrect={false}
               returnKeyType="search"
@@ -494,47 +518,49 @@ export default function ExploreScreen() {
           </View>
         ) : null}
 
-        <SearchControlRow
-          colors={colors}
-          selectedScopeLabel={selectedScopeLabel}
-          mediaScope={mediaScope}
-          scopeOptions={SEARCH_SCOPE_OPTIONS.map((option) => ({
-            value: option.id,
-            label: option.label,
-          }))}
-          onMediaScopeChange={(value) => setMediaScope(value as SearchMediaScope)}
-          sortId={sortId}
-          sortOptions={sortOptions.map((option) => ({
-            value: option.id,
-            label: option.label,
-          }))}
-          onSortChange={(value) => setSortId(value as SearchSortId)}
-          onOpenFilter={() => router.push('/explore/filter-sheet')}
-          onOpenScopeMenu={() =>
-            openSelectionMenu({
-              title: 'Search Scope',
-              options: SEARCH_SCOPE_OPTIONS.map((option) => ({
-                value: option.id,
-                label: option.label,
-              })),
-              selectedValue: mediaScope,
-              onSelect: (value) => setMediaScope(value as SearchMediaScope),
-            })
-          }
-          onOpenSortMenu={() =>
-            openSelectionMenu({
-              title: 'Sort Results',
-              options: sortOptions.map((option) => ({
-                value: option.id,
-                label: option.label,
-              })),
-              selectedValue: sortId,
-              onSelect: (value) => setSortId(value as SearchSortId),
-            })
-          }
-        />
+        {isSearchContext ? (
+          <SearchControlRow
+            colors={colors}
+            selectedScopeLabel={selectedScopeLabel}
+            mediaScope={mediaScope}
+            scopeOptions={SEARCH_SCOPE_OPTIONS.map((option) => ({
+              value: option.id,
+              label: option.label,
+            }))}
+            onMediaScopeChange={(value) => setMediaScope(value as SearchMediaScope)}
+            sortId={sortId}
+            sortOptions={sortOptions.map((option) => ({
+              value: option.id,
+              label: option.label,
+            }))}
+            onSortChange={(value) => setSortId(value as SearchSortId)}
+            onOpenFilter={() => router.push('/explore/filter-sheet')}
+            onOpenScopeMenu={() =>
+              openSelectionMenu({
+                title: 'Search Scope',
+                options: SEARCH_SCOPE_OPTIONS.map((option) => ({
+                  value: option.id,
+                  label: option.label,
+                })),
+                selectedValue: mediaScope,
+                onSelect: (value) => setMediaScope(value as SearchMediaScope),
+              })
+            }
+            onOpenSortMenu={() =>
+              openSelectionMenu({
+                title: 'Sort Results',
+                options: sortOptions.map((option) => ({
+                  value: option.id,
+                  label: option.label,
+                })),
+                selectedValue: sortId,
+                onSelect: (value) => setSortId(value as SearchSortId),
+              })
+            }
+          />
+        ) : null}
 
-        {isContentNoticeVisible ? (
+        {shouldShowContentNotice ? (
           <Pressable
             onPress={() => router.push('/explore/content-filter-info')}
             style={({ pressed }) => [
@@ -586,13 +612,13 @@ export default function ExploreScreen() {
         ) : null}
         {error ? <ThemedText style={styles.errorText}>{error}</ThemedText> : null}
 
-        {!query.trim() && !isLoading ? (
+        {!hasTypedQuery && !isLoading ? (
           <View style={styles.discoveryState}>
             <ExplorePlaceholderSections />
           </View>
         ) : null}
 
-        {query.trim() && !isLoading && !error && sortedResults.length === 0 ? (
+        {hasTypedQuery && !isLoading && !error && sortedResults.length === 0 ? (
           <ThemedText style={[styles.placeholder, { color: colors.icon }]}>
             {getScopeEmptyState(mediaScope, query)}
           </ThemedText>

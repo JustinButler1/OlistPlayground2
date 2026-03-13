@@ -1,33 +1,12 @@
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Link } from 'expo-router';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { ThumbnailImage } from '@/components/thumbnail-image';
-import { ThemePalette } from '@/constants/theme';
+import { IconSymbol } from '@/components/ui/icon-symbol';
+import { MOCK_EXPLORE_SECTIONS } from '@/data/mock-explore-sections';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-
-const PLACEHOLDER_SECTIONS = [
-  {
-    title: 'Things You Might Like',
-    items: ['Weekend Queue', 'Hidden Gems', 'Top Rated', 'Editor Picks', 'Fresh Finds'],
-  },
-  {
-    title: 'Near You',
-    items: ['Local Favorites', 'Popular Nearby', 'Friends Are Watching', 'Book Clubs', 'Game Nights'],
-  },
-  {
-    title: 'More Anime',
-    items: ['Shonen Picks', 'Late Night Anime', 'Fantasy Worlds', 'Underrated Series', 'Seasonal Buzz'],
-  },
-  {
-    title: 'More Books',
-    items: ['Page Turners', 'Award Winners', 'BookTok Picks', 'Cozy Reads', 'Longform Favorites'],
-  },
-  {
-    title: 'More TV/Movies',
-    items: ['Slow Burn', 'Emotional Picks', 'Award Winners', 'Sleeper Hits', 'Late Night'],
-  },
-] as const;
 
 export function ExplorePlaceholderSections() {
   const colorScheme = useColorScheme();
@@ -35,60 +14,70 @@ export function ExplorePlaceholderSections() {
 
   return (
     <View style={styles.sectionStack}>
-      {PLACEHOLDER_SECTIONS.map((section) => (
-        <View key={section.title} style={styles.section}>
-          <View style={styles.sectionHeader}>
+      {MOCK_EXPLORE_SECTIONS.map((section) => {
+        const hasDetailPage = section.items.length > 6;
+        const previewItems = section.items.slice(0, 6);
+
+        const sectionHeaderContent = (
+          <View style={styles.sectionHeaderContent}>
             <ThemedText type="subtitle" style={styles.sectionTitle}>
               {section.title}
             </ThemedText>
-            <ThemedText
-              style={[
-                styles.sectionMeta,
-                { color: isDark ? 'rgba(255,255,255,0.72)' : 'rgba(7,22,44,0.64)' },
-              ]}
-            >
-              Placeholder
-            </ThemedText>
+            {hasDetailPage ? (
+              <IconSymbol
+                name="chevron.right"
+                size={18}
+                color={isDark ? 'rgba(255,255,255,0.72)' : 'rgba(7,22,44,0.64)'}
+              />
+            ) : null}
           </View>
-          <ScrollView
-            horizontal
-            style={styles.rowViewport}
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.rowContent}
-          >
-            {section.items.map((item) => (
-              <View key={item} style={styles.cardShell}>
-                <ThemedView
-                  style={[
-                    styles.card,
-                    {
-                      backgroundColor: isDark
-                        ? 'rgba(7, 22, 44, 0.72)'
-                        : 'rgba(255, 255, 255, 0.72)',
-                    },
-                  ]}
+        );
+
+        return (
+          <View key={section.slug} style={styles.section}>
+            <View style={styles.sectionHeader}>
+              {hasDetailPage ? (
+                <Link
+                  href={{
+                    pathname: '/explore/[sectionSlug]',
+                    params: { sectionSlug: section.slug },
+                  }}
+                  asChild
                 >
-                  <ThumbnailImage style={styles.thumbnail} />
-                  <View style={styles.cardCopy}>
-                    <ThemedText type="defaultSemiBold" numberOfLines={1}>
-                      {item}
-                    </ThemedText>
-                    <ThemedText
-                      numberOfLines={1}
-                      style={[
-                        styles.cardMeta,
-                        { color: isDark ? 'rgba(255,255,255,0.68)' : ThemePalette.secondaryAccent },
-                      ]}
-                    >
-                      Placeholder row item
-                    </ThemedText>
-                  </View>
-                </ThemedView>
-              </View>
-            ))}
-          </ScrollView>
-        </View>
-      ))}
+                  <Pressable style={styles.sectionHeaderPressable}>
+                    {sectionHeaderContent}
+                  </Pressable>
+                </Link>
+              ) : (
+                sectionHeaderContent
+              )}
+            </View>
+            <ScrollView
+              horizontal
+              style={styles.rowViewport}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.rowContent}
+            >
+              {previewItems.map((item) => (
+                <View key={item} style={styles.cardShell}>
+                  <ThemedView
+                    style={[
+                      styles.card,
+                      {
+                        backgroundColor: isDark
+                          ? 'rgba(7, 22, 44, 0.72)'
+                          : 'rgba(255, 255, 255, 0.72)',
+                      },
+                    ]}
+                  >
+                    <ThumbnailImage style={styles.thumbnail} />
+                  </ThemedView>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        );
+      })}
     </View>
   );
 }
@@ -101,18 +90,18 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   sectionHeader: {
+    alignItems: 'flex-start',
+  },
+  sectionHeaderContent: {
     alignItems: 'center',
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    gap: 4,
+  },
+  sectionHeaderPressable: {
+    alignSelf: 'flex-start',
   },
   sectionTitle: {
     fontSize: 22,
-  },
-  sectionMeta: {
-    fontSize: 13,
-    fontWeight: '600',
-    letterSpacing: 0.3,
-    textTransform: 'uppercase',
   },
   rowViewport: {
     marginHorizontal: -20,
@@ -135,15 +124,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   thumbnail: {
-    width: '100%',
     aspectRatio: 0.72,
-  },
-  cardCopy: {
-    gap: 2,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-  },
-  cardMeta: {
-    fontSize: 13,
+    width: '100%',
   },
 });

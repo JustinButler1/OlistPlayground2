@@ -24,7 +24,7 @@ export default function MyListsScreen() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const { activeLists, listTemplates } = useListsQuery();
+  const { activeLists } = useListsQuery();
   const { deleteList } = useListActions();
   const [sortMode, setSortMode] = useState<SortMode>('updated-desc');
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
@@ -145,7 +145,6 @@ export default function MyListsScreen() {
         numColumns={isGridView ? 2 : 1}
         columnWrapperStyle={isGridView ? styles.gridColumn : undefined}
         renderItem={({ item }) => {
-          const template = listTemplates.find((entry) => entry.id === item.templateId) ?? null;
           if (isGridView) {
             return (
               <Pressable
@@ -161,15 +160,19 @@ export default function MyListsScreen() {
                 ]}
               >
                 <ThumbnailImage imageUrl={item.imageUrl} style={styles.gridPoster} />
-                <View style={styles.gridInfo}>
+                <View style={styles.gridFooter}>
                   <ThemedText style={styles.gridTitle} numberOfLines={2}>
                     {item.title}
                   </ThemedText>
-                  <ThemedText style={[styles.gridMeta, { color: colors.icon }]} numberOfLines={3}>
-                    {template ? `${template.title} template` : `${item.config.addons.length} add-ons`}
-                    {' | '}
-                    {item.entries.length} item{item.entries.length === 1 ? '' : 's'}
-                  </ThemedText>
+                  <View style={styles.countChevronGroup}>
+                    <ThemedText
+                      style={[styles.itemCount, { color: colors.icon }]}
+                      numberOfLines={1}
+                    >
+                      {item.entries.length}
+                    </ThemedText>
+                    <IconSymbol name="chevron.right" size={20} color={colors.icon} />
+                  </View>
                 </View>
               </Pressable>
             );
@@ -192,18 +195,18 @@ export default function MyListsScreen() {
                   <ThemedText style={styles.resultTitle} numberOfLines={2}>
                     {item.title}
                   </ThemedText>
-                  <ThemedText style={[styles.resultMeta, { color: colors.icon }]} numberOfLines={2}>
-                    {template ? `${template.title} template` : `${item.config.addons.length} add-ons`}
-                    {' | '}
-                    {item.entries.length} item{item.entries.length === 1 ? '' : 's'}
-                  </ThemedText>
                 </View>
-                <IconSymbol
-                  name="chevron.right"
-                  size={24}
-                  color={colors.icon}
-                  style={styles.resultChevron}
-                />
+                <View style={styles.countChevronGroup}>
+                  <ThemedText style={[styles.itemCount, { color: colors.icon }]} numberOfLines={1}>
+                    {item.entries.length}
+                  </ThemedText>
+                  <IconSymbol
+                    name="chevron.right"
+                    size={24}
+                    color={colors.icon}
+                    style={styles.resultChevron}
+                  />
+                </View>
               </Pressable>
             </Swipeable>
           );
@@ -447,13 +450,23 @@ const styles = StyleSheet.create({
   resultTitle: {
     fontSize: 16,
     fontWeight: '600',
-    marginBottom: 4,
-  },
-  resultMeta: {
-    fontSize: 13,
+    lineHeight: 22,
   },
   resultChevron: {
-    marginLeft: 8,
+    marginLeft: 2,
+  },
+  countChevronGroup: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+    marginLeft: 12,
+  },
+  itemCount: {
+    fontSize: 15,
+    fontVariant: ['tabular-nums'],
+    fontWeight: '600',
+    minWidth: 16,
+    textAlign: 'right',
   },
   viewToggle: {
     alignSelf: 'flex-end',
@@ -495,18 +508,17 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     width: '100%',
   },
-  gridInfo: {
-    gap: 4,
-    minHeight: 76,
+  gridFooter: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+    minHeight: 44,
   },
   gridTitle: {
+    flex: 1,
     fontSize: 15,
     fontWeight: '600',
     lineHeight: 20,
-  },
-  gridMeta: {
-    fontSize: 12,
-    lineHeight: 18,
   },
   rightActionContainer: {
     alignItems: 'stretch',

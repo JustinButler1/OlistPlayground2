@@ -5,6 +5,7 @@ import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native
 
 import { api } from '@/convex/_generated/api';
 import { RatingStars } from '@/components/tracker/RatingStars';
+import { SelectionRow } from '@/components/tracker/selection-row';
 import { ThumbnailImage } from '@/components/thumbnail-image';
 import { ThemedText } from '@/components/themed-text';
 import { Colors } from '@/constants/theme';
@@ -29,6 +30,7 @@ interface ManualEntryFormProps {
   currentListId?: string;
   listConfig?: ListConfig;
   onRequestCreateLinkedList?: () => void;
+  mode?: 'full' | 'addons';
 }
 
 const TYPE_OPTIONS: ListEntryType[] = ['custom', 'book', 'anime', 'manga', 'movie', 'tv', 'link', 'list'];
@@ -39,6 +41,16 @@ const PROGRESS_UNIT_OPTIONS: EntryProgressUnit[] = [
   'volume',
   'percent',
 ];
+const ENTRY_SETTINGS_ADDONS = [
+  'status',
+  'progress',
+  'rating',
+  'tags',
+  'notes',
+  'reminders',
+  'cover',
+  'links',
+] as const satisfies readonly ListConfig['addons'][number][];
 
 export function ManualEntryForm({
   onSubmit,
@@ -47,6 +59,7 @@ export function ManualEntryForm({
   currentListId,
   listConfig,
   onRequestCreateLinkedList,
+  mode = 'full',
 }: ManualEntryFormProps) {
   const convex = useConvex();
   const generateUploadUrl = useMutation(api.media.generateUploadUrl);
@@ -58,7 +71,9 @@ export function ManualEntryForm({
   const [type, setType] = useState<ListEntryType>(
     initialEntry?.type ?? listConfig?.defaultEntryType ?? 'custom'
   );
-  const [status, setStatus] = useState<EntryStatus>(initialEntry?.status ?? 'planned');
+  const [status, setStatus] = useState<EntryStatus | ''>(
+    initialEntry?.status ?? (mode === 'addons' ? '' : 'planned')
+  );
   const [notes, setNotes] = useState(initialEntry?.notes ?? '');
   const [productUrl, setProductUrl] = useState(initialEntry?.productUrl ?? '');
   const [tagsText, setTagsText] = useState(initialEntry?.tags.join(', ') ?? '');
@@ -71,8 +86,8 @@ export function ManualEntryForm({
   const [totalText, setTotalText] = useState(
     initialEntry?.progress?.total !== undefined ? String(initialEntry.progress.total) : ''
   );
-  const [progressUnit, setProgressUnit] = useState<EntryProgressUnit>(
-    initialEntry?.progress?.unit ?? 'item'
+  const [progressUnit, setProgressUnit] = useState<EntryProgressUnit | ''>(
+    initialEntry?.progress?.unit ?? (mode === 'addons' ? '' : 'item')
   );
   const [coverAssetUri, setCoverAssetUri] = useState(initialEntry?.coverAssetUri);
   const [uploadedCover, setUploadedCover] = useState<UploadedStorageFile | null>(null);
@@ -100,7 +115,7 @@ export function ManualEntryForm({
 
     setTitle(initialEntry.title);
     setType(initialEntry.type);
-    setStatus(initialEntry.status ?? 'planned');
+    setStatus(initialEntry.status ?? (mode === 'addons' ? '' : 'planned'));
     setNotes(initialEntry.notes ?? '');
     setProductUrl(initialEntry.productUrl ?? '');
     setTagsText(initialEntry.tags.join(', '));
@@ -111,7 +126,7 @@ export function ManualEntryForm({
     setTotalText(
       initialEntry.progress?.total !== undefined ? String(initialEntry.progress.total) : ''
     );
-    setProgressUnit(initialEntry.progress?.unit ?? 'item');
+    setProgressUnit(initialEntry.progress?.unit ?? (mode === 'addons' ? '' : 'item'));
     setCoverAssetUri(initialEntry.coverAssetUri);
     setUploadedCover(null);
     setSelectedLinkedListId(initialEntry.linkedListId ?? null);
@@ -123,7 +138,7 @@ export function ManualEntryForm({
         ])
       )
     );
-  }, [initialEntry, listConfig?.fieldDefinitions]);
+  }, [initialEntry, listConfig?.fieldDefinitions, mode]);
 
   useEffect(() => {
     if (!initialEntry && listConfig?.defaultEntryType) {
@@ -131,17 +146,21 @@ export function ManualEntryForm({
     }
   }, [initialEntry, listConfig?.defaultEntryType]);
 
-  const addons = listConfig?.addons ?? [
-    'status',
-    'progress',
-    'rating',
-    'tags',
-    'notes',
-    'reminders',
-    'cover',
-    'custom-fields',
-  ];
+  const addons =
+    mode === 'addons'
+      ? ENTRY_SETTINGS_ADDONS
+      : (listConfig?.addons ?? [
+          'status',
+          'progress',
+          'rating',
+          'tags',
+          'notes',
+          'reminders',
+          'cover',
+          'custom-fields',
+        ]);
   const hasAddon = (addon: string) => addons.includes(addon as never);
+  const showCoreFields = mode === 'full';
 
   const blockedLinkedListIds = useMemo(() => {
     const blocked = new Set<string>();
@@ -205,6 +224,37 @@ export function ManualEntryForm({
 
   const selectedLinkedList =
     activeLists.find((list) => list.id === selectedLinkedListId) ?? null;
+  const typeOptions = TYPE_OPTIONS.map((option) => ({
+    label: option[0].toUpperCase() + option.slice(1),
+    value: option,
+  }));
+  const statusOptions = [
+    { label: 'None', value: '' },
+    ...LIST_STATUS_OPTIONS.map((option) => ({
+      label: option.label,
+      value: option.value,
+    })),
+  ] as const;
+  const progressOptions = [
+    { label: 'None', value: '' },
+    ...PROGRESS_UNIT_OPTIONS.map((unit) => ({
+      label: unit[0].toUpperCase() + unit.slice(1),
+      value: unit,
+    })),
+  ] as const;
+  const reminderOptions = [
+    { label: 'None', value: 'none' },
+    { label: 'Tomorrow', value: '1' },
+    { label: '3 days', value: '3' },
+    { label: '7 days', value: '7' },
+  ] as const;
+  const selectedStatusLabel =
+    statusOptions.find((option) => option.value === status)?.label ?? 'None';
+  const selectedProgressLabel =
+    progressOptions.find((option) => option.value === progressUnit)?.label ?? 'None';
+  const selectedReminderValue = reminderDays ? String(reminderDays) : 'none';
+  const selectedReminderLabel =
+    reminderOptions.find((option) => option.value === selectedReminderValue)?.label ?? 'None';
 
   const reminderAt = useMemo(() => {
     if (!reminderDays) {
@@ -249,6 +299,11 @@ export function ManualEntryForm({
     }
   };
 
+  const clearCover = () => {
+    setUploadedCover(null);
+    setCoverAssetUri(undefined);
+  };
+
   const handleSubmit = async () => {
     const linkedListDetailPath = selectedLinkedListId ? `list/${selectedLinkedListId}` : undefined;
     const trimmedTitle = type === 'list'
@@ -279,12 +334,12 @@ export function ManualEntryForm({
       type,
       detailPath: linkedListDetailPath,
       linkedListId: type === 'list' ? selectedLinkedListId ?? undefined : undefined,
-      status: hasAddon('status') ? status : undefined,
+      status: hasAddon('status') ? status || undefined : undefined,
       notes: hasAddon('notes') ? notes.trim() || undefined : undefined,
       customFields: customFields.length ? customFields : undefined,
       tags: hasAddon('tags') ? tags : [],
       rating: hasAddon('rating') ? normalizeRating(ratingValue) : undefined,
-      progress: hasAddon('progress')
+      progress: hasAddon('progress') && progressUnit
         ? normalizeProgress({
             current: currentText.trim() && Number.isFinite(current) ? current : undefined,
             total: totalText.trim() && Number.isFinite(total) && total > 0 ? total : undefined,
@@ -313,38 +368,57 @@ export function ManualEntryForm({
           <ThumbnailImage imageUrl={coverAssetUri} style={styles.coverPreview} />
           <View style={styles.coverActions}>
             <ThemedText type="defaultSemiBold">Custom cover</ThemedText>
-            <Pressable
-              onPress={pickCover}
-              style={({ pressed }) => [
-                styles.secondaryButton,
-                {
-                  backgroundColor: colors.tint + '14',
-                  borderColor: colors.tint + '35',
-                  opacity: pressed ? 0.84 : 1,
-                },
-              ]}
-            >
-              <ThemedText style={{ color: colors.tint }}>Choose image</ThemedText>
-            </Pressable>
+            <View style={styles.coverButtonRow}>
+              <Pressable
+                onPress={pickCover}
+                style={({ pressed }) => [
+                  styles.secondaryButton,
+                  {
+                    backgroundColor: colors.tint + '14',
+                    borderColor: colors.tint + '35',
+                    opacity: pressed ? 0.84 : 1,
+                  },
+                ]}
+              >
+                <ThemedText style={{ color: colors.tint }}>Choose image</ThemedText>
+              </Pressable>
+              {coverAssetUri ? (
+                <Pressable
+                  onPress={clearCover}
+                  style={({ pressed }) => [
+                    styles.secondaryButton,
+                    {
+                      backgroundColor: colors.icon + '10',
+                      borderColor: colors.icon + '35',
+                      opacity: pressed ? 0.84 : 1,
+                    },
+                  ]}
+                >
+                  <ThemedText style={{ color: colors.text }}>Remove</ThemedText>
+                </Pressable>
+              ) : null}
+            </View>
           </View>
         </View>
       ) : null}
 
-      <TextInput
-        style={[
-          styles.input,
-          {
-            color: colors.text,
-            borderColor: colors.icon + '28',
-            backgroundColor: colors.icon + '10',
-          },
-        ]}
-        placeholder={type === 'list' ? 'Linked list title' : 'Title'}
-        placeholderTextColor={colors.icon}
-        value={type === 'list' ? (selectedLinkedList?.title ?? title) : title}
-        onChangeText={setTitle}
-        editable={type !== 'list'}
-      />
+      {showCoreFields ? (
+        <TextInput
+          style={[
+            styles.input,
+            {
+              color: colors.text,
+              borderColor: colors.icon + '28',
+              backgroundColor: colors.icon + '10',
+            },
+          ]}
+          placeholder={type === 'list' ? 'Linked list title' : 'Title'}
+          placeholderTextColor={colors.icon}
+          value={type === 'list' ? (selectedLinkedList?.title ?? title) : title}
+          onChangeText={setTitle}
+          editable={type !== 'list'}
+        />
+      ) : null}
 
       {hasAddon('notes') ? (
         <TextInput
@@ -384,33 +458,17 @@ export function ManualEntryForm({
         />
       ) : null}
 
-      <View style={styles.section}>
-        <ThemedText type="defaultSemiBold">Type</ThemedText>
-        <View style={styles.chipWrap}>
-          {TYPE_OPTIONS.map((option) => (
-            <Pressable
-              key={option}
-              onPress={() => setType(option)}
-              style={[
-                styles.chip,
-                {
-                  backgroundColor: type === option ? colors.tint : colors.icon + '10',
-                },
-              ]}
-            >
-              <ThemedText
-                style={{
-                  color: type === option ? colors.background : colors.text,
-                }}
-              >
-                {option}
-              </ThemedText>
-            </Pressable>
-          ))}
-        </View>
-      </View>
+      {showCoreFields ? (
+          <SelectionRow
+            title="Type"
+            value={typeOptions.find((option) => option.value === type)?.label ?? 'Custom'}
+            options={typeOptions}
+            selectedValue={type}
+            onValueChange={(value: string) => setType(value as ListEntryType)}
+          />
+      ) : null}
 
-      {type === 'list' ? (
+      {showCoreFields && type === 'list' ? (
         <View style={styles.section}>
           <ThemedText type="defaultSemiBold">Linked list</ThemedText>
           <ThemedText style={{ color: colors.icon }}>
@@ -478,89 +536,65 @@ export function ManualEntryForm({
 
       {hasAddon('status') ? (
         <View style={styles.section}>
-          <ThemedText type="defaultSemiBold">Status</ThemedText>
-          <View style={styles.chipWrap}>
-            {LIST_STATUS_OPTIONS.map((option) => (
-              <Pressable
-                key={option.value}
-                onPress={() => setStatus(option.value)}
-                style={[
-                  styles.chip,
-                  {
-                    backgroundColor: status === option.value ? colors.tint : colors.icon + '10',
-                  },
-                ]}
-              >
-                <ThemedText
-                  style={{
-                    color: status === option.value ? colors.background : colors.text,
-                  }}
-                >
-                  {option.label}
-                </ThemedText>
-              </Pressable>
-            ))}
-          </View>
+          <SelectionRow
+            title="Status"
+            value={selectedStatusLabel}
+            options={statusOptions}
+            selectedValue={status}
+            onValueChange={(value: string) => setStatus(value as EntryStatus | '')}
+          />
         </View>
       ) : null}
 
       {hasAddon('progress') ? (
         <View style={styles.section}>
-          <ThemedText type="defaultSemiBold">Progress</ThemedText>
-          <View style={styles.inlineFields}>
-            <TextInput
-              style={[
-                styles.smallInput,
-                {
-                  color: colors.text,
-                  borderColor: colors.icon + '28',
-                  backgroundColor: colors.icon + '10',
-                },
-              ]}
-              keyboardType="numeric"
-              placeholder="Current"
-              placeholderTextColor={colors.icon}
-              value={currentText}
-              onChangeText={setCurrentText}
-            />
-            <TextInput
-              style={[
-                styles.smallInput,
-                {
-                  color: colors.text,
-                  borderColor: colors.icon + '28',
-                  backgroundColor: colors.icon + '10',
-                },
-              ]}
-              keyboardType="numeric"
-              placeholder="Total"
-              placeholderTextColor={colors.icon}
-              value={totalText}
-              onChangeText={setTotalText}
-            />
-          </View>
-          <View style={styles.chipWrap}>
-            {PROGRESS_UNIT_OPTIONS.map((unit) => (
-              <Pressable
-                key={unit}
-                onPress={() => setProgressUnit(unit)}
+          <SelectionRow
+            title="Progress"
+            value={selectedProgressLabel}
+            options={progressOptions}
+            selectedValue={progressUnit}
+            onValueChange={(value: string) => {
+              setProgressUnit(value as EntryProgressUnit | '');
+              if (!value) {
+                setCurrentText('');
+                setTotalText('');
+              }
+            }}
+          />
+          {progressUnit ? (
+            <View style={styles.inlineFields}>
+              <TextInput
                 style={[
-                  styles.chip,
+                  styles.smallInput,
                   {
-                    backgroundColor: progressUnit === unit ? colors.tint : colors.icon + '10',
+                    color: colors.text,
+                    borderColor: colors.icon + '28',
+                    backgroundColor: colors.icon + '10',
                   },
                 ]}
-              >
-                <ThemedText
-                  style={{
-                    color: progressUnit === unit ? colors.background : colors.text,
-                  }}
-                >
-                  {unit}
-                </ThemedText>
-              </Pressable>
-            ))}
-          </View>
+                keyboardType="numeric"
+                placeholder="Current"
+                placeholderTextColor={colors.icon}
+                value={currentText}
+                onChangeText={setCurrentText}
+              />
+              <TextInput
+                style={[
+                  styles.smallInput,
+                  {
+                    color: colors.text,
+                    borderColor: colors.icon + '28',
+                    backgroundColor: colors.icon + '10',
+                  },
+                ]}
+                keyboardType="numeric"
+                placeholder="Total"
+                placeholderTextColor={colors.icon}
+                value={totalText}
+                onChangeText={setTotalText}
+              />
+            </View>
+          ) : null}
         </View>
       ) : null}
 
@@ -619,46 +653,15 @@ export function ManualEntryForm({
 
       {hasAddon('reminders') ? (
         <View style={styles.section}>
-          <ThemedText type="defaultSemiBold">Reminder</ThemedText>
-          <View style={styles.chipWrap}>
-            {[1, 3, 7].map((days) => (
-              <Pressable
-                key={days}
-                onPress={() => setReminderDays(days)}
-                style={[
-                  styles.chip,
-                  {
-                    backgroundColor: reminderDays === days ? colors.tint : colors.icon + '10',
-                  },
-                ]}
-              >
-                <ThemedText
-                  style={{
-                    color: reminderDays === days ? colors.background : colors.text,
-                  }}
-                >
-                  {days === 1 ? 'Tomorrow' : `${days} days`}
-                </ThemedText>
-              </Pressable>
-            ))}
-            <Pressable
-              onPress={() => setReminderDays(null)}
-              style={[
-                styles.chip,
-                {
-                  backgroundColor: reminderDays === null ? colors.tint : colors.icon + '10',
-                },
-              ]}
-            >
-              <ThemedText
-                style={{
-                  color: reminderDays === null ? colors.background : colors.text,
-                }}
-              >
-                None
-              </ThemedText>
-            </Pressable>
-          </View>
+          <SelectionRow
+            title="Reminder"
+            value={selectedReminderLabel}
+            options={reminderOptions}
+            selectedValue={selectedReminderValue}
+            onValueChange={(value: string) =>
+              setReminderDays(value === 'none' ? null : Number(value))
+            }
+          />
         </View>
       ) : null}
 
@@ -697,6 +700,11 @@ const styles = StyleSheet.create({
   },
   coverActions: {
     flex: 1,
+    gap: 10,
+  },
+  coverButtonRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 10,
   },
   input: {

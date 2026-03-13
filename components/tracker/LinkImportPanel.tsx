@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
 import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
@@ -11,17 +11,29 @@ import { importProductFromUrl } from '@/lib/product-link-import';
 
 interface LinkImportPanelProps {
   onSubmit: (draft: EntryDraft) => void;
+  initialUrl?: string;
+  autoFocus?: boolean;
 }
 
-export function LinkImportPanel({ onSubmit }: LinkImportPanelProps) {
+export function LinkImportPanel({
+  onSubmit,
+  initialUrl = '',
+  autoFocus = false,
+}: LinkImportPanelProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const [url, setUrl] = useState('');
+  const [url, setUrl] = useState(initialUrl);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<Awaited<ReturnType<typeof importProductFromUrl>> | null>(
     null
   );
+
+  useEffect(() => {
+    setUrl(initialUrl);
+    setError(null);
+    setPreview(null);
+  }, [initialUrl]);
 
   const handlePaste = async () => {
     const clipboardValue = await Clipboard.getStringAsync();
@@ -59,15 +71,6 @@ export function LinkImportPanel({ onSubmit }: LinkImportPanelProps) {
       type: 'link',
       imageUrl: preview.preview.imageUrl,
       productUrl: preview.preview.canonicalUrl,
-      price:
-        typeof preview.preview.price === 'number'
-          ? new Intl.NumberFormat('en-US', {
-              style: 'currency',
-              currency: preview.preview.currency ?? 'USD',
-            }).format(preview.preview.price)
-          : undefined,
-      notes: `Imported from ${preview.preview.storeDomain}`,
-      tags: ['beta-import'],
       sourceRef: {
         source: 'link',
         canonicalUrl: preview.preview.canonicalUrl,
@@ -78,7 +81,7 @@ export function LinkImportPanel({ onSubmit }: LinkImportPanelProps) {
   return (
     <View style={styles.container}>
       <ThemedText style={[styles.betaLabel, { color: colors.icon }]}>
-        Beta import. Best for quick capture while backend support is still deferred.
+        Paste a URL to pull in the page title and share image.
       </ThemedText>
       <View style={styles.inputRow}>
         <TextInput
@@ -94,8 +97,10 @@ export function LinkImportPanel({ onSubmit }: LinkImportPanelProps) {
           placeholderTextColor={colors.icon}
           value={url}
           onChangeText={setUrl}
+          autoFocus={autoFocus}
           autoCapitalize="none"
           autoCorrect={false}
+          keyboardType="url"
         />
         <Pressable
           onPress={handlePaste}
