@@ -20,8 +20,22 @@ export interface CatalogSearchItem {
   totalProgress?: number;
 }
 
+export interface CatalogSearchOptions {
+  page?: number;
+  signal?: AbortSignal;
+}
+
+export interface CatalogSearchResponse {
+  items: CatalogSearchItem[];
+  page: number;
+  totalPages: number;
+  totalResults?: number;
+  hasPreviousPage: boolean;
+  hasNextPage: boolean;
+}
+
 export interface CatalogAdapter {
   id: CatalogCategory;
   label: string;
-  search(query: string, signal?: AbortSignal): Promise<CatalogSearchItem[]>;
+  search(query: string, options?: CatalogSearchOptions): Promise<CatalogSearchResponse>;
 }

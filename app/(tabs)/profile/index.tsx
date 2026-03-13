@@ -1,6 +1,7 @@
 import { Stack, useRouter } from 'expo-router';
 import { Alert, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
+import { AvatarIcon } from '@/components/avatar-icon';
 import { TabRootBackground } from '@/components/tab-root-background';
 import { ThemedText } from '@/components/themed-text';
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -135,6 +136,15 @@ export default function ProfileScreen() {
           ]}
         >
           <ThemedText type="subtitle">Onboarding</ThemedText>
+          <View style={styles.avatarRow}>
+            <AvatarIcon profileId="shared-workspace-profile" />
+            <View style={styles.avatarCopy}>
+              <ThemedText style={styles.avatarTitle}>Shared profile avatar</ThemedText>
+              <ThemedText style={[styles.caption, { color: colors.icon }]}>
+                Profile photos are not implemented yet, so this currently shows the generic avatar.
+              </ThemedText>
+            </View>
+          </View>
           <ThemedText style={[styles.supportingText, { color: colors.icon }]}>
             {isHydrated
               ? isComplete
@@ -236,6 +246,19 @@ const styles = StyleSheet.create({
   linkCopy: {
     flex: 1,
     gap: 4,
+  },
+  avatarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  avatarCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  avatarTitle: {
+    fontSize: 15,
+    fontWeight: '600',
   },
   linkCaption: {
     fontSize: 13,

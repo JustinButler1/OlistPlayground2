@@ -159,25 +159,8 @@ export function AddItemSheet({
             ))}
           </View>
 
-          <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-            {mode === 'manual' ? (
-              <ManualEntryForm
-                onSubmit={handleAdd}
-                currentListId={currentListId}
-                listConfig={listConfig}
-                onRequestCreateLinkedList={
-                  currentListId
-                    ? () => {
-                        setNewSublistTitle('');
-                        setNewSublistDescription(currentList?.description ?? '');
-                        setNewSublistConfig(createListConfig(currentList?.config ?? listConfig));
-                        setNewSublistVisible(true);
-                      }
-                    : undefined
-                }
-              />
-            ) : null}
-            {mode === 'catalog' ? (
+          {mode === 'catalog' ? (
+            <View style={styles.catalogContent}>
               <CatalogSearchPanel
                 onSelectItem={(item) =>
                   void handleAdd({
@@ -199,9 +182,31 @@ export function AddItemSheet({
                   })
                 }
               />
-            ) : null}
-            {mode === 'link' ? <LinkImportPanel onSubmit={(draft) => void handleAdd(draft)} /> : null}
-          </ScrollView>
+            </View>
+          ) : (
+            <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+              {mode === 'manual' ? (
+                <ManualEntryForm
+                  onSubmit={handleAdd}
+                  currentListId={currentListId}
+                  listConfig={listConfig}
+                  onRequestCreateLinkedList={
+                    currentListId
+                      ? () => {
+                          setNewSublistTitle('');
+                          setNewSublistDescription(currentList?.description ?? '');
+                          setNewSublistConfig(createListConfig(currentList?.config ?? listConfig));
+                          setNewSublistVisible(true);
+                        }
+                      : undefined
+                  }
+                />
+              ) : null}
+              {mode === 'link' ? (
+                <LinkImportPanel onSubmit={(draft) => void handleAdd(draft)} />
+              ) : null}
+            </ScrollView>
+          )}
         </Pressable>
 
         {newSublistVisible ? (
@@ -350,6 +355,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 16,
     paddingBottom: 24,
+  },
+  catalogContent: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 16,
   },
   input: {
     borderWidth: 1,

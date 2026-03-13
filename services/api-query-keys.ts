@@ -10,8 +10,8 @@ export const apiQueryKeys = {
   },
   catalog: {
     all: ['catalog'] as const,
-    search: (category: CatalogCategory, query: string) =>
-      ['catalog', 'search', category, query] as const,
+    search: (category: CatalogCategory, query: string, page = 1) =>
+      ['catalog', 'search', category, query, page] as const,
   },
   game: {
     detail: (id: string) => ['game', 'detail', id] as const,

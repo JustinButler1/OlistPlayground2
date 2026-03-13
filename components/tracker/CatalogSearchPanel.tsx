@@ -1,6 +1,14 @@
-import { useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  FlatList,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
+} from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import {
@@ -35,8 +43,10 @@ export function CatalogSearchPanel({
 }: CatalogSearchPanelProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const listRef = useRef<FlatList<CatalogSearchItem>>(null);
   const [category, setCategory] = useState<CatalogCategory>(initialCategory);
   const [query, setQuery] = useState(initialQuery);
+  const [page, setPage] = useState(1);
   const debouncedQuery = useDebouncedValue(query, 350);
   const trimmedQuery = debouncedQuery.trim();
 
@@ -44,22 +54,44 @@ export function CatalogSearchPanel({
     setQuery(initialQuery);
   }, [initialQuery]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [category, trimmedQuery]);
+
   const searchQuery = useQuery({
-    queryKey: apiQueryKeys.catalog.search(category, trimmedQuery),
-    queryFn: ({ signal }) => searchCatalog(category, trimmedQuery, signal),
+    queryKey: apiQueryKeys.catalog.search(category, trimmedQuery, page),
+    queryFn: ({ signal }) => searchCatalog(category, trimmedQuery, { page, signal }),
     enabled: trimmedQuery.length > 0,
     staleTime: 1000 * 60 * 5,
+    placeholderData: (previousData, previousQuery) => {
+      const previousKey = previousQuery?.queryKey;
+      const sameSearch =
+        Array.isArray(previousKey) &&
+        previousKey[0] === 'catalog' &&
+        previousKey[1] === 'search' &&
+        previousKey[2] === category &&
+        previousKey[3] === trimmedQuery;
+
+      return sameSearch ? keepPreviousData(previousData) : undefined;
+    },
   });
 
   const isWaitingForDebounce = query.trim().length > 0 && query.trim() !== trimmedQuery;
   const isLoading = isWaitingForDebounce || searchQuery.isFetching;
-  const results = searchQuery.data ?? [];
+  const results = searchQuery.data?.items ?? [];
+  const totalPages = searchQuery.data?.totalPages ?? 1;
+  const currentPage = searchQuery.data?.page ?? page;
   const error =
     searchQuery.error instanceof Error && searchQuery.error.message === 'missing_tmdb_api_key'
       ? 'TMDB is not configured in this build environment.'
       : searchQuery.isError
       ? 'Search failed. Check your connection and try again.'
       : null;
+  const canGoToFirstPage = currentPage > 1;
+  const canGoToPreviousPage = searchQuery.data?.hasPreviousPage ?? currentPage > 1;
+  const canGoToNextPage = searchQuery.data?.hasNextPage ?? currentPage < totalPages;
+  const canGoToLastPage = currentPage < totalPages;
+  const showPagination = trimmedQuery.length > 0 && !error;
 
   const emptyLabel = useMemo(() => {
     if (!query.trim()) {
@@ -71,8 +103,37 @@ export function CatalogSearchPanel({
     return 'No matches yet.';
   }, [isLoading, query]);
 
-  return (
-    <View style={styles.container}>
+  function handlePageChange(nextPage: number) {
+    const normalizedPage = Math.max(1, Math.min(totalPages, nextPage));
+    if (normalizedPage === currentPage) {
+      return;
+    }
+
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+    setPage(normalizedPage);
+  }
+
+  function renderPaginationButton(label: string, onPress: () => void, disabled: boolean) {
+    return (
+      <Pressable
+        onPress={onPress}
+        disabled={disabled}
+        style={[
+          styles.paginationButton,
+          {
+            borderColor: colors.icon + '28',
+            backgroundColor: disabled ? colors.icon + '08' : colors.icon + '10',
+            opacity: disabled ? 0.45 : 1,
+          },
+        ]}
+      >
+        <ThemedText style={styles.paginationButtonLabel}>{label}</ThemedText>
+      </Pressable>
+    );
+  }
+
+  const header = (
+    <View style={styles.headerContent}>
       <View
         style={[
           styles.searchBar,
@@ -102,12 +163,14 @@ export function CatalogSearchPanel({
         {catalogAdapters.map((adapter) => (
           <Pressable
             key={adapter.id}
-            onPress={() => setCategory(adapter.id)}
+            onPress={() => {
+              setCategory(adapter.id);
+              setPage(1);
+            }}
             style={[
               styles.chip,
               {
-                backgroundColor:
-                  category === adapter.id ? colors.tint : colors.icon + '10',
+                backgroundColor: category === adapter.id ? colors.tint : colors.icon + '10',
               },
             ]}
           >
@@ -128,29 +191,63 @@ export function CatalogSearchPanel({
         </View>
       ) : null}
       {error ? <ThemedText style={styles.errorText}>{error}</ThemedText> : null}
-
-      <ScrollView contentContainerStyle={styles.results} showsVerticalScrollIndicator={false}>
-        {!results.length ? (
-          <ThemedText style={[styles.emptyText, { color: colors.icon }]}>
-            {emptyLabel}
-          </ThemedText>
-        ) : (
-          results.map((item) => (
-            <CatalogSearchResultRow
-              key={`${item.type}-${item.id}`}
-              item={item}
-              onPress={() => onSelectItem(item)}
-            />
-          ))
-        )}
-      </ScrollView>
     </View>
+  );
+
+  const footer = showPagination ? (
+    <View style={styles.paginationRow}>
+      {renderPaginationButton('First', () => handlePageChange(1), !canGoToFirstPage)}
+      {renderPaginationButton(
+        'Prev',
+        () => handlePageChange(currentPage - 1),
+        !canGoToPreviousPage
+      )}
+      <View
+        style={[
+          styles.paginationStatus,
+          {
+            borderColor: colors.icon + '28',
+            backgroundColor: colors.icon + '10',
+          },
+        ]}
+      >
+        <ThemedText style={styles.paginationStatusText}>
+          Page {currentPage} of {totalPages}
+        </ThemedText>
+      </View>
+      {renderPaginationButton('Next', () => handlePageChange(currentPage + 1), !canGoToNextPage)}
+      {renderPaginationButton('Last', () => handlePageChange(totalPages), !canGoToLastPage)}
+    </View>
+  ) : null;
+
+  return (
+    <FlatList
+      ref={listRef}
+      data={results}
+      keyExtractor={(item) => `${item.type}-${item.id}`}
+      renderItem={({ item }) => (
+        <CatalogSearchResultRow item={item} onPress={() => onSelectItem(item)} />
+      )}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={styles.container}
+      ListHeaderComponent={header}
+      ListEmptyComponent={
+        <ThemedText style={[styles.emptyText, { color: colors.icon }]}>{emptyLabel}</ThemedText>
+      }
+      ListFooterComponent={footer}
+      ItemSeparatorComponent={() => <View style={styles.resultSeparator} />}
+    />
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    paddingBottom: 24,
+  },
+  headerContent: {
     gap: 14,
+    paddingBottom: 14,
   },
   searchBar: {
     borderWidth: 1,
@@ -173,9 +270,42 @@ const styles = StyleSheet.create({
   centered: {
     alignItems: 'center',
   },
-  results: {
-    gap: CATALOG_SEARCH_RESULT_ROW_GAP,
-    paddingBottom: 12,
+  resultSeparator: {
+    height: CATALOG_SEARCH_RESULT_ROW_GAP,
+  },
+  paginationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+    marginTop: 14,
+  },
+  paginationButton: {
+    minWidth: 58,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  paginationButtonLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  paginationStatus: {
+    flex: 1,
+    minWidth: 132,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  paginationStatusText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
   emptyText: {
     paddingVertical: 16,

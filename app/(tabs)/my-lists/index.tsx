@@ -16,6 +16,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 
 type SortMode = 'updated-desc' | 'title-asc';
 type FilterMode = 'all' | 'progress' | 'sublists';
+type ViewMode = 'rows' | 'grid';
 
 export default function MyListsScreen() {
   const router = useRouter();
@@ -27,6 +28,7 @@ export default function MyListsScreen() {
   const { deleteList } = useListActions();
   const [sortMode, setSortMode] = useState<SortMode>('updated-desc');
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
+  const [viewMode, setViewMode] = useState<ViewMode>('rows');
   const [menuVisible, setMenuVisible] = useState<null | 'sort' | 'filter'>(null);
 
   const items = useMemo(() => {
@@ -116,6 +118,7 @@ export default function MyListsScreen() {
   const selectedSortLabel = sortMode === 'updated-desc' ? 'Recent' : 'A-Z';
   const selectedFilterLabel =
     filterMode === 'all' ? 'All Lists' : filterMode === 'progress' ? 'Progress' : 'Sublists';
+  const isGridView = viewMode === 'grid';
 
   return (
     <TabRootBackground>
@@ -134,12 +137,44 @@ export default function MyListsScreen() {
         }}
       />
       <FlatList
+        key={viewMode}
         contentInsetAdjustmentBehavior="automatic"
         style={styles.container}
         data={items}
         keyExtractor={(item) => item.id}
+        numColumns={isGridView ? 2 : 1}
+        columnWrapperStyle={isGridView ? styles.gridColumn : undefined}
         renderItem={({ item }) => {
           const template = listTemplates.find((entry) => entry.id === item.templateId) ?? null;
+          if (isGridView) {
+            return (
+              <Pressable
+                onLongPress={() => confirmDeleteList(item)}
+                onPress={() => openListDetail(item)}
+                style={({ pressed }) => [
+                  styles.gridCard,
+                  {
+                    backgroundColor: colors.background,
+                    borderColor: colors.icon + '24',
+                    opacity: pressed ? 0.84 : 1,
+                  },
+                ]}
+              >
+                <ThumbnailImage imageUrl={item.imageUrl} style={styles.gridPoster} />
+                <View style={styles.gridInfo}>
+                  <ThemedText style={styles.gridTitle} numberOfLines={2}>
+                    {item.title}
+                  </ThemedText>
+                  <ThemedText style={[styles.gridMeta, { color: colors.icon }]} numberOfLines={3}>
+                    {template ? `${template.title} template` : `${item.config.addons.length} add-ons`}
+                    {' | '}
+                    {item.entries.length} item{item.entries.length === 1 ? '' : 's'}
+                  </ThemedText>
+                </View>
+              </Pressable>
+            );
+          }
+
           return (
             <Swipeable
               overshootRight={false}
@@ -196,6 +231,30 @@ export default function MyListsScreen() {
               sortValue={sortMode}
               onSortChange={(value) => setSortMode(value as SortMode)}
             />
+            <View
+              style={[
+                styles.viewToggle,
+                {
+                  backgroundColor: colors.background,
+                  borderColor: colors.icon + '24',
+                },
+              ]}
+            >
+              <ViewModeButton
+                colors={colors}
+                icon="list.bullet"
+                isSelected={viewMode === 'rows'}
+                label="Rows"
+                onPress={() => setViewMode('rows')}
+              />
+              <ViewModeButton
+                colors={colors}
+                icon="square.grid.2x2"
+                isSelected={viewMode === 'grid'}
+                label="Grid"
+                onPress={() => setViewMode('grid')}
+              />
+            </View>
           </View>
         }
         ListEmptyComponent={
@@ -247,6 +306,48 @@ export default function MyListsScreen() {
         </>
       ) : null}
     </TabRootBackground>
+  );
+}
+
+function ViewModeButton({
+  colors,
+  icon,
+  isSelected,
+  label,
+  onPress,
+}: {
+  colors: (typeof Colors)['light'] | (typeof Colors)['dark'];
+  icon: 'list.bullet' | 'square.grid.2x2';
+  isSelected: boolean;
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected: isSelected }}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.viewToggleButton,
+        {
+          backgroundColor: isSelected ? colors.tint : 'transparent',
+          opacity: pressed ? 0.84 : 1,
+        },
+      ]}
+    >
+      <IconSymbol name={icon} size={16} color={isSelected ? '#fff' : colors.icon} />
+      <ThemedText
+        type="defaultSemiBold"
+        style={[
+          styles.viewToggleButtonLabel,
+          {
+            color: isSelected ? '#fff' : colors.text,
+          },
+        ]}
+      >
+        {label}
+      </ThemedText>
+    </Pressable>
   );
 }
 
@@ -318,6 +419,7 @@ const styles = StyleSheet.create({
   },
   listHeader: {
     paddingBottom: 14,
+    gap: 12,
   },
   placeholder: {
     paddingTop: 12,
@@ -352,6 +454,59 @@ const styles = StyleSheet.create({
   },
   resultChevron: {
     marginLeft: 8,
+  },
+  viewToggle: {
+    alignSelf: 'flex-end',
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 4,
+    padding: 4,
+  },
+  viewToggleButton: {
+    alignItems: 'center',
+    borderRadius: 999,
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  viewToggleButtonLabel: {
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  gridColumn: {
+    gap: 12,
+    justifyContent: 'space-between',
+  },
+  gridCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    flexBasis: '48%',
+    flexGrow: 1,
+    gap: 10,
+    marginBottom: 12,
+    maxWidth: '48%',
+    overflow: 'hidden',
+    padding: 10,
+  },
+  gridPoster: {
+    aspectRatio: 2 / 3,
+    borderRadius: 12,
+    width: '100%',
+  },
+  gridInfo: {
+    gap: 4,
+    minHeight: 76,
+  },
+  gridTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    lineHeight: 20,
+  },
+  gridMeta: {
+    fontSize: 12,
+    lineHeight: 18,
   },
   rightActionContainer: {
     alignItems: 'stretch',

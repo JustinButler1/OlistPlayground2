@@ -68,7 +68,7 @@ export async function searchGoogleBooksVolumes(
   }
 
   const url = buildGoogleBooksUrl();
-  url.searchParams.append('q', trimmedQuery);
+  url.searchParams.append('q', `intitle:${trimmedQuery}`);
   url.searchParams.append('maxResults', String(options?.maxResults ?? 25));
   url.searchParams.append('startIndex', String(options?.startIndex ?? 0));
 

@@ -5,6 +5,7 @@ import { Image } from 'expo-image';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActionSheetIOS,
   Alert,
   Animated,
   Dimensions,
@@ -89,12 +90,10 @@ export default function ListDetailScreen() {
   const [composerVisible, setComposerVisible] = useState(false);
   const [composerText, setComposerText] = useState('');
   const [pendingTagsText, setPendingTagsText] = useState('');
-  const [pendingLinkUrl, setPendingLinkUrl] = useState('');
   const [listSearchVisible, setListSearchVisible] = useState(false);
   const [listSearchQuery, setListSearchQuery] = useState('');
   const [searchVisible, setSearchVisible] = useState(false);
   const [tagSheetVisible, setTagSheetVisible] = useState(false);
-  const [linkSheetVisible, setLinkSheetVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [composerAccessoryVisible, setComposerAccessoryVisible] = useState(false);
   const [composerInputMounted, setComposerInputMounted] = useState(false);
@@ -110,7 +109,6 @@ export default function ListDetailScreen() {
     setComposerFocusPending(false);
     setComposerText('');
     setPendingTagsText('');
-    setPendingLinkUrl('');
   }, []);
 
   useEffect(() => {
@@ -139,8 +137,7 @@ export default function ListDetailScreen() {
         process.env.EXPO_OS !== 'ios' &&
         !listSearchVisible &&
         !searchVisible &&
-        !tagSheetVisible &&
-        !linkSheetVisible
+        !tagSheetVisible
       ) {
         collapseComposer();
       }
@@ -150,7 +147,7 @@ export default function ListDetailScreen() {
       showSubscription.remove();
       hideSubscription.remove();
     };
-  }, [collapseComposer, linkSheetVisible, listSearchVisible, searchVisible, tagSheetVisible]);
+  }, [collapseComposer, listSearchVisible, searchVisible, tagSheetVisible]);
 
   const openComposer = useCallback(() => {
     if (preferences.viewMode !== 'list') {
@@ -319,7 +316,6 @@ export default function ListDetailScreen() {
 
   function clearPendingComposerMetadata() {
     setPendingTagsText('');
-    setPendingLinkUrl('');
   }
 
   function focusNextComposerLine() {
@@ -347,15 +343,12 @@ export default function ListDetailScreen() {
       return;
     }
 
-    const trimmedLink = pendingLinkUrl.trim();
     const draft: EntryDraft = {
       title: trimmedTitle,
-      type: trimmedLink ? 'link' : list.config.defaultEntryType ?? 'custom',
+      type: list.config.defaultEntryType ?? 'custom',
       tags: buildPendingTags(),
-      productUrl: trimmedLink || undefined,
       sourceRef: {
-        source: trimmedLink ? 'link' : 'custom',
-        canonicalUrl: trimmedLink || undefined,
+        source: 'custom',
       },
     };
 
@@ -375,6 +368,46 @@ export default function ListDetailScreen() {
     setSearchVisible(false);
     focusNextComposerLine();
   }
+
+  const openExistingListSheet = useCallback(() => {
+    if (!list) {
+      return;
+    }
+
+    Keyboard.dismiss();
+    router.push({
+      pathname: '/list-existing-sheet',
+      params: {
+        targetListId: list.id,
+        query: composerText.trim() || undefined,
+      },
+    });
+  }, [composerText, list, router]);
+
+  const openLinkOptions = useCallback(() => {
+    if (process.env.EXPO_OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          title: 'Link',
+          options: ['URL', 'Existing List', 'Cancel'],
+          cancelButtonIndex: 2,
+          userInterfaceStyle: colorScheme ?? 'light',
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 1) {
+            openExistingListSheet();
+          }
+        }
+      );
+      return;
+    }
+
+    Alert.alert('Link', undefined, [
+      { text: 'URL' },
+      { text: 'Existing List', onPress: openExistingListSheet },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }, [colorScheme, openExistingListSheet]);
 
   const openEntry = (entry: ListEntry) => {
     const pathname = entry.linkedListId
@@ -806,24 +839,14 @@ export default function ListDetailScreen() {
               ListFooterComponent={
                 composerVisible ? (
                   <View style={styles.composerFooter}>
-                    {(pendingTagsText.trim() || pendingLinkUrl.trim()) ? (
+                    {pendingTagsText.trim() ? (
                       <View style={styles.pendingMetaRow}>
-                        {pendingTagsText.trim() ? (
-                          <View style={[styles.pendingChip, { backgroundColor: colors.tint + '16' }]}>
-                            <IconSymbol name="tag.fill" size={14} color={colors.tint} />
-                            <ThemedText style={{ color: colors.tint }} numberOfLines={1}>
-                              {pendingTagsText}
-                            </ThemedText>
-                          </View>
-                        ) : null}
-                        {pendingLinkUrl.trim() ? (
-                          <View style={[styles.pendingChip, { backgroundColor: colors.tint + '16' }]}>
-                            <IconSymbol name="link" size={14} color={colors.tint} />
-                            <ThemedText style={{ color: colors.tint }} numberOfLines={1}>
-                              {pendingLinkUrl}
-                            </ThemedText>
-                          </View>
-                        ) : null}
+                        <View style={[styles.pendingChip, { backgroundColor: colors.tint + '16' }]}>
+                          <IconSymbol name="tag.fill" size={14} color={colors.tint} />
+                          <ThemedText style={{ color: colors.tint }} numberOfLines={1}>
+                            {pendingTagsText}
+                          </ThemedText>
+                        </View>
                       </View>
                     ) : null}
                     <Pressable
@@ -978,7 +1001,7 @@ export default function ListDetailScreen() {
           visible={composerAccessoryVisible}
           colors={colors}
           bottom={actionBarBottom}
-          onLinkPress={() => setLinkSheetVisible(true)}
+          onLinkPress={openLinkOptions}
           onSearchPress={() => setSearchVisible(true)}
           onTagPress={() => setTagSheetVisible(true)}
         />
@@ -1246,77 +1269,6 @@ export default function ListDetailScreen() {
                   onChangeText={setPendingTagsText}
                   autoFocus
                 />
-              </View>
-            </Pressable>
-          </Pressable>
-        </Modal>
-
-        <Modal
-          visible={linkSheetVisible}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setLinkSheetVisible(false)}
-        >
-          <Pressable style={styles.modalOverlay} onPress={() => setLinkSheetVisible(false)}>
-            <Pressable
-              style={[
-                styles.sheet,
-                {
-                  backgroundColor: colors.background,
-                  paddingBottom: insets.bottom + 24,
-                  height: Dimensions.get('window').height * 0.34,
-                },
-              ]}
-              onPress={(event) => event.stopPropagation()}
-            >
-              <View style={[styles.sheetHeader, { borderBottomColor: colors.icon + '30' }]}>
-                <Pressable onPress={() => setLinkSheetVisible(false)} style={styles.sheetHeaderButton}>
-                  <IconSymbol name="xmark" size={24} color={colors.text} />
-                </Pressable>
-                <ThemedText type="subtitle" style={styles.sheetTitle}>
-                  Link
-                </ThemedText>
-                <Pressable
-                  onPress={() => setLinkSheetVisible(false)}
-                  style={styles.sheetHeaderButton}
-                >
-                  <IconSymbol name="checkmark" size={24} color={colors.tint} />
-                </Pressable>
-              </View>
-              <View style={styles.sheetBody}>
-                <TextInput
-                  style={[
-                    styles.input,
-                    {
-                      color: colors.text,
-                      borderColor: colors.icon + '28',
-                      backgroundColor: colors.icon + '10',
-                    },
-                  ]}
-                  keyboardType="url"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  placeholder="https://example.com"
-                  placeholderTextColor={colors.icon}
-                  value={pendingLinkUrl}
-                  onChangeText={setPendingLinkUrl}
-                  autoFocus
-                />
-                {pendingLinkUrl.trim() ? (
-                  <Pressable
-                    onPress={() => setPendingLinkUrl('')}
-                    style={({ pressed }) => [
-                      styles.secondaryButton,
-                      {
-                        borderColor: colors.icon + '28',
-                        backgroundColor: colors.icon + '10',
-                        opacity: pressed ? 0.84 : 1,
-                      },
-                    ]}
-                  >
-                    <ThemedText style={{ color: colors.icon }}>Clear link</ThemedText>
-                  </Pressable>
-                ) : null}
               </View>
             </Pressable>
           </Pressable>

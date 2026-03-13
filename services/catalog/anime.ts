@@ -1,7 +1,13 @@
-import type { CatalogAdapter, CatalogSearchItem } from '@/services/catalog/types';
+import type {
+  CatalogAdapter,
+  CatalogSearchItem,
+  CatalogSearchOptions,
+  CatalogSearchResponse,
+} from '@/services/catalog/types';
 import { normalizeRating } from '@/lib/tracker-metadata';
 
 const JIKAN_API = 'https://api.jikan.moe/v4';
+const PAGE_SIZE = 25;
 
 interface JikanAnimeSearchResponse {
   data?: Array<{
@@ -22,24 +28,42 @@ interface JikanAnimeSearchResponse {
       name: string;
     }>;
   }>;
+  pagination?: {
+    current_page?: number;
+    last_visible_page?: number;
+    has_next_page?: boolean;
+    items?: {
+      total?: number;
+    };
+  };
 }
 
-async function searchAnime(query: string, signal?: AbortSignal): Promise<CatalogSearchItem[]> {
+async function searchAnime(
+  query: string,
+  options?: CatalogSearchOptions
+): Promise<CatalogSearchResponse> {
   if (!query.trim()) {
-    return [];
+    return {
+      items: [],
+      page: 1,
+      totalPages: 1,
+      totalResults: 0,
+      hasPreviousPage: false,
+      hasNextPage: false,
+    };
   }
 
+  const page = Math.max(1, options?.page ?? 1);
   const response = await fetch(
-    `${JIKAN_API}/anime?q=${encodeURIComponent(query.trim())}&limit=25`,
-    { signal }
+    `${JIKAN_API}/anime?q=${encodeURIComponent(query.trim())}&limit=${PAGE_SIZE}&page=${page}`,
+    { signal: options?.signal }
   );
   if (!response.ok) {
     throw new Error('anime_search_failed');
   }
 
   const json: JikanAnimeSearchResponse = await response.json();
-
-  return (json.data ?? []).map((item) => {
+  const items = (json.data ?? []).map((item) => {
     const imageUrl =
       item.images?.jpg?.image_url ??
       item.images?.webp?.image_url ??
@@ -69,8 +93,24 @@ async function searchAnime(query: string, signal?: AbortSignal): Promise<Catalog
       rating: normalizeRating(typeof item.score === 'number' ? item.score : undefined),
       progressUnit: 'episode',
       totalProgress: typeof item.episodes === 'number' ? item.episodes : undefined,
-    };
+    } satisfies CatalogSearchItem;
   });
+
+  const currentPage = Math.max(1, json.pagination?.current_page ?? page);
+  const totalPages = Math.max(1, json.pagination?.last_visible_page ?? currentPage);
+  const totalResults = json.pagination?.items?.total;
+
+  return {
+    items,
+    page: currentPage,
+    totalPages,
+    totalResults,
+    hasPreviousPage: currentPage > 1,
+    hasNextPage:
+      typeof json.pagination?.has_next_page === 'boolean'
+        ? json.pagination.has_next_page
+        : currentPage < totalPages,
+  };
 }
 
 export const animeCatalogAdapter: CatalogAdapter = {

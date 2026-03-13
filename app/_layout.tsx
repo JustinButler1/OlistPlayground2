@@ -49,6 +49,16 @@ const RootGestureHandlerView = GestureHandlerRootView as unknown as ComponentTyp
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const [queryClient] = useState(createQueryClient);
+  const isIos = process.env.EXPO_OS === 'ios';
+  const sheetOptions = {
+    presentation: isIos ? 'formSheet' : 'modal',
+    ...(isIos
+      ? {
+          sheetGrabberVisible: true,
+          contentStyle: { backgroundColor: 'transparent' },
+        }
+      : {}),
+  } as const;
 
   return (
     <RootGestureHandlerView style={{ flex: 1 }}>
@@ -64,6 +74,14 @@ export default function RootLayout() {
                   <Stack.Screen name="books/[id]" />
                   <Stack.Screen name="tv-movie/[type]/[id]" />
                   <Stack.Screen name="list/[id]" />
+                  <Stack.Screen
+                    name="list-existing-sheet"
+                    options={{
+                      ...sheetOptions,
+                      title: 'Existing List',
+                      ...(isIos ? { sheetAllowedDetents: [0.55, 0.92] } : {}),
+                    }}
+                  />
                   <Stack.Screen name="list-entry/[id]" />
                   <Stack.Screen name="games/[id]" />
                   <Stack.Screen name="product-import" options={{ title: 'Import Product' }} />

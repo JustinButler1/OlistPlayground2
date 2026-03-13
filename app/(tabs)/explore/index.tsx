@@ -342,7 +342,7 @@ export default function ExploreScreen() {
     queries: remoteCategories.map((category) => ({
       queryKey: apiQueryKeys.catalog.search(category, trimmedQuery),
       queryFn: ({ signal }: { signal: AbortSignal }) =>
-        searchCatalog(category, trimmedQuery, signal),
+        searchCatalog(category, trimmedQuery, { signal }),
       enabled: trimmedQuery.length > 0,
       staleTime: 1000 * 60 * 5,
     })),
@@ -359,7 +359,7 @@ export default function ExploreScreen() {
   const results = useMemo(
     () => [
       ...localListResults,
-      ...remoteSearchQueries.flatMap((remoteQuery) => remoteQuery.data ?? []),
+      ...remoteSearchQueries.flatMap((remoteQuery) => remoteQuery.data?.items ?? []),
     ],
     [localListResults, remoteSearchQueries]
   );

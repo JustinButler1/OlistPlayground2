@@ -2,9 +2,21 @@ import { animeCatalogAdapter } from '@/services/catalog/anime';
 import { booksCatalogAdapter } from '@/services/catalog/books';
 import { mangaCatalogAdapter } from '@/services/catalog/manga';
 import { tmdbCatalogAdapter } from '@/services/catalog/tmdb';
-import type { CatalogAdapter, CatalogCategory, CatalogSearchItem } from '@/services/catalog/types';
+import type {
+  CatalogAdapter,
+  CatalogCategory,
+  CatalogSearchItem,
+  CatalogSearchOptions,
+  CatalogSearchResponse,
+} from '@/services/catalog/types';
 
-export type { CatalogAdapter, CatalogCategory, CatalogSearchItem } from '@/services/catalog/types';
+export type {
+  CatalogAdapter,
+  CatalogCategory,
+  CatalogSearchItem,
+  CatalogSearchOptions,
+  CatalogSearchResponse,
+} from '@/services/catalog/types';
 
 export const catalogAdapters: CatalogAdapter[] = [
   animeCatalogAdapter,
@@ -58,8 +70,12 @@ export function sortCatalogSearchItemsByRelevance(
 export async function searchCatalog(
   category: CatalogCategory,
   query: string,
-  signal?: AbortSignal
-): Promise<CatalogSearchItem[]> {
-  const items = await catalogAdapterById[category].search(query, signal);
-  return sortCatalogSearchItemsByRelevance(dedupeCatalogSearchItems(items));
+  options?: CatalogSearchOptions
+): Promise<CatalogSearchResponse> {
+  const result = await catalogAdapterById[category].search(query, options);
+
+  return {
+    ...result,
+    items: sortCatalogSearchItemsByRelevance(dedupeCatalogSearchItems(result.items)),
+  };
 }

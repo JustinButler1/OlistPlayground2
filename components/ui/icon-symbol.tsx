@@ -15,6 +15,7 @@ type IconSymbolName = keyof typeof MAPPING;
  */
 const MAPPING = {
   'house.fill': 'home',
+  'pin.fill': 'push-pin',
   'paperplane.fill': 'send',
   'person.3': 'groups',
   'person.3.fill': 'groups',
