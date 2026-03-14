@@ -32,7 +32,9 @@ export default function MyListsScreen() {
   const [sortMode, setSortMode] = useState<SortMode>('updated-desc');
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [viewMode, setViewMode] = useState<ViewMode>('rows');
-  const [menuVisible, setMenuVisible] = useState<null | 'sort' | 'filter'>(null);
+  const [menuVisible, setMenuVisible] = useState<null | 'header' | 'sort' | 'filter'>(null);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [selectedListIds, setSelectedListIds] = useState<string[]>([]);
 
   const items = useMemo(() => {
     const filtered = activeLists.filter((list) => {
@@ -74,9 +76,31 @@ export default function MyListsScreen() {
     [router]
   );
 
+  const enterEditMode = useCallback(() => {
+    setMenuVisible(null);
+    setSelectedListIds([]);
+    setIsEditMode(true);
+  }, []);
+
+  const exitEditMode = useCallback(() => {
+    setMenuVisible(null);
+    setSelectedListIds([]);
+    setIsEditMode(false);
+  }, []);
+
+  const toggleListSelection = useCallback((listId: string) => {
+    setSelectedListIds((current) =>
+      current.includes(listId)
+        ? current.filter((currentId) => currentId !== listId)
+        : [...current, listId]
+    );
+  }, []);
+
   const confirmDeleteList = useCallback(
     (item: TrackerList) => {
-      const runDelete = () => deleteList(item.id);
+      const runDelete = () => {
+        void deleteList(item.id);
+      };
       if (Platform.OS === 'web' && typeof window !== 'undefined') {
         if (window.confirm(`Delete "${item.title}"? This cannot be undone.`)) {
           runDelete();
@@ -91,6 +115,43 @@ export default function MyListsScreen() {
     },
     [deleteList]
   );
+
+  const confirmDeleteSelectedLists = useCallback(() => {
+    const selectedLists = activeLists.filter((list) => selectedListIds.includes(list.id));
+    if (!selectedLists.length) {
+      return;
+    }
+
+    const runDelete = async () => {
+      await Promise.all(selectedLists.map((list) => deleteList(list.id)));
+      exitEditMode();
+    };
+
+    const title =
+      selectedLists.length === 1 ? 'Delete selected list?' : `Delete ${selectedLists.length} lists?`;
+    const message =
+      selectedLists.length === 1
+        ? `Delete "${selectedLists[0]?.title}" and its items? This cannot be undone.`
+        : `Delete ${selectedLists.length} selected lists and their items? This cannot be undone.`;
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      if (window.confirm(message)) {
+        void runDelete();
+      }
+      return;
+    }
+
+    Alert.alert(title, message, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          void runDelete();
+        },
+      },
+    ]);
+  }, [activeLists, deleteList, exitEditMode, selectedListIds]);
 
   const renderDeleteAction = useCallback(
     (progress: Animated.AnimatedInterpolation<number>, onDelete: () => void) => {
@@ -119,23 +180,101 @@ export default function MyListsScreen() {
   const selectedFilterLabel =
     filterMode === 'all' ? 'All Lists' : filterMode === 'progress' ? 'Progress' : 'Sublists';
   const isGridView = viewMode === 'grid';
+  const selectedListIdSet = useMemo(() => new Set(selectedListIds), [selectedListIds]);
+  const hasSelectedLists = selectedListIds.length > 0;
 
   return (
     <TabRootBackground>
       <Stack.Screen
         options={{
-          headerRight: () => (
-            <Pressable
-              onPress={openNewListRoute}
-              style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.7 : 1 }]}
-              accessibilityRole="button"
-              accessibilityLabel="Add list"
-            >
-              <IconSymbol name="plus" size={26} color={colors.tint} />
-            </Pressable>
-          ),
+          headerLeft:
+            isIos || !isEditMode
+              ? undefined
+              : () => (
+                <Pressable
+                  accessibilityLabel="Delete selected lists"
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: !hasSelectedLists }}
+                  disabled={!hasSelectedLists}
+                  hitSlop={8}
+                  onPress={confirmDeleteSelectedLists}
+                  style={({ pressed }) => [
+                    styles.headerLeftButton,
+                    {
+                      opacity: !hasSelectedLists ? 0.35 : pressed ? 0.7 : 1,
+                    },
+                  ]}
+                >
+                  <ThemedText style={[styles.headerLeftButtonText, { color: '#C62828' }]}>
+                    Delete
+                  </ThemedText>
+                </Pressable>
+              ),
+          headerRight: isIos
+            ? undefined
+            : () => (
+                <View style={styles.headerRightActions}>
+                  <Pressable
+                    onPress={openNewListRoute}
+                    style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.7 : 1 }]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Add list"
+                  >
+                    <IconSymbol name="plus" size={26} color={colors.tint} />
+                  </Pressable>
+                  <Pressable
+                    onPress={isEditMode ? exitEditMode : () => setMenuVisible('header')}
+                    style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.7 : 1 }]}
+                    accessibilityRole="button"
+                    accessibilityLabel={isEditMode ? 'Done editing lists' : 'Open lists menu'}
+                  >
+                    <IconSymbol
+                      name={isEditMode ? 'checkmark' : 'ellipsis'}
+                      size={24}
+                      color={colors.tint}
+                    />
+                  </Pressable>
+                </View>
+              ),
         }}
       />
+      {isIos ? (
+        <>
+          <Stack.Toolbar placement="left">
+            <Stack.Toolbar.Button
+              hidden={!isEditMode}
+              disabled={!hasSelectedLists}
+              tintColor="#C62828"
+              onPress={confirmDeleteSelectedLists}
+            >
+              Delete
+            </Stack.Toolbar.Button>
+          </Stack.Toolbar>
+          <Stack.Toolbar placement="right">
+            <Stack.Toolbar.Button icon="plus" onPress={openNewListRoute} />
+            <Stack.Toolbar.Menu hidden={isEditMode} icon="ellipsis">
+              <Stack.Toolbar.MenuAction
+                key="rows-view"
+                isOn={viewMode === 'rows'}
+                onPress={() => setViewMode('rows')}
+              >
+                Row view
+              </Stack.Toolbar.MenuAction>
+              <Stack.Toolbar.MenuAction
+                key="grid-view"
+                isOn={viewMode === 'grid'}
+                onPress={() => setViewMode('grid')}
+              >
+                Grid view
+              </Stack.Toolbar.MenuAction>
+              <Stack.Toolbar.MenuAction key="edit-lists" onPress={enterEditMode}>
+                Edit lists
+              </Stack.Toolbar.MenuAction>
+            </Stack.Toolbar.Menu>
+            <Stack.Toolbar.Button hidden={!isEditMode} icon="checkmark" onPress={exitEditMode} />
+          </Stack.Toolbar>
+        </>
+      ) : null}
       <FlatList
         key={viewMode}
         contentInsetAdjustmentBehavior="automatic"
@@ -145,14 +284,30 @@ export default function MyListsScreen() {
         numColumns={isGridView ? 2 : 1}
         columnWrapperStyle={isGridView ? styles.gridColumn : undefined}
         renderItem={({ item }) => {
+          const isSelected = selectedListIdSet.has(item.id);
+
           if (isGridView) {
             return (
               <Pressable
-                onLongPress={() => confirmDeleteList(item)}
-                onPress={() => openListDetail(item)}
-                style={({ pressed }) => [styles.gridCard, { opacity: pressed ? 0.84 : 1 }]}
+                accessibilityRole="button"
+                accessibilityState={isEditMode ? { selected: isSelected } : undefined}
+                onLongPress={isEditMode ? undefined : () => confirmDeleteList(item)}
+                onPress={() => (isEditMode ? toggleListSelection(item.id) : openListDetail(item))}
+                style={({ pressed }) => [
+                  styles.gridCard,
+                  isEditMode ? styles.gridCardEditMode : null,
+                  {
+                    opacity: pressed ? 0.84 : 1,
+                    borderColor: isEditMode && isSelected ? colors.tint : 'transparent',
+                  },
+                ]}
               >
                 <GridCardSurface colors={colors} supportsLiquidGlass={supportsLiquidGlass}>
+                  {isEditMode ? (
+                    <View style={styles.selectionIndicatorFloating}>
+                      <SelectionIndicator color={colors.tint} selected={isSelected} />
+                    </View>
+                  ) : null}
                   <ThumbnailImage imageUrl={item.imageUrl} style={styles.gridPoster} />
                   <View style={styles.gridFooter}>
                     <ThemedText style={styles.gridTitle} numberOfLines={2}>
@@ -165,10 +320,42 @@ export default function MyListsScreen() {
                       >
                         {item.entries.length}
                       </ThemedText>
-                      <IconSymbol name="chevron.right" size={20} color={colors.icon} />
+                      {!isEditMode ? (
+                        <IconSymbol name="chevron.right" size={20} color={colors.icon} />
+                      ) : null}
                     </View>
                   </View>
                 </GridCardSurface>
+              </Pressable>
+            );
+          }
+
+          if (isEditMode) {
+            return (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ selected: isSelected }}
+                onPress={() => toggleListSelection(item.id)}
+                style={({ pressed }) => [
+                  styles.resultRow,
+                  styles.resultRowEditMode,
+                  {
+                    opacity: pressed ? 0.8 : 1,
+                    borderColor: isSelected ? colors.tint : colors.icon + '20',
+                    backgroundColor: isSelected ? colors.tint + '12' : colors.background + '72',
+                  },
+                ]}
+              >
+                <SelectionIndicator color={colors.tint} selected={isSelected} />
+                <ThumbnailImage imageUrl={item.imageUrl} style={styles.resultPoster} />
+                <View style={styles.resultInfo}>
+                  <ThemedText style={styles.resultTitle} numberOfLines={2}>
+                    {item.title}
+                  </ThemedText>
+                </View>
+                <ThemedText style={[styles.itemCount, { color: colors.icon }]} numberOfLines={1}>
+                  {item.entries.length}
+                </ThemedText>
               </Pressable>
             );
           }
@@ -231,30 +418,6 @@ export default function MyListsScreen() {
               sortValue={sortMode}
               onSortChange={(value) => setSortMode(value as SortMode)}
             />
-            <View
-              style={[
-                styles.viewToggle,
-                {
-                  backgroundColor: colors.background,
-                  borderColor: colors.icon + '24',
-                },
-              ]}
-            >
-              <ViewModeButton
-                colors={colors}
-                icon="list.bullet"
-                isSelected={viewMode === 'rows'}
-                label="Rows"
-                onPress={() => setViewMode('rows')}
-              />
-              <ViewModeButton
-                colors={colors}
-                icon="square.grid.2x2"
-                isSelected={viewMode === 'grid'}
-                label="Grid"
-                onPress={() => setViewMode('grid')}
-              />
-            </View>
           </View>
         }
         ListEmptyComponent={
@@ -273,6 +436,26 @@ export default function MyListsScreen() {
 
       {!isIos ? (
         <>
+          <SelectionMenu
+            visible={menuVisible === 'header'}
+            title="List actions"
+            options={[
+              { value: 'rows', label: 'Row view' },
+              { value: 'grid', label: 'Grid view' },
+              { value: 'edit', label: 'Edit lists' },
+            ]}
+            selectedValue={viewMode}
+            onClose={() => setMenuVisible(null)}
+            onSelect={(value) => {
+              if (value === 'edit') {
+                enterEditMode();
+                return;
+              }
+              setViewMode(value as ViewMode);
+              setMenuVisible(null);
+            }}
+          />
+
           <SelectionMenu
             visible={menuVisible === 'sort'}
             title="Sort lists"
@@ -348,45 +531,25 @@ function GridCardSurface({
   );
 }
 
-function ViewModeButton({
-  colors,
-  icon,
-  isSelected,
-  label,
-  onPress,
+function SelectionIndicator({
+  color,
+  selected,
 }: {
-  colors: (typeof Colors)['light'] | (typeof Colors)['dark'];
-  icon: 'list.bullet' | 'square.grid.2x2';
-  isSelected: boolean;
-  label: string;
-  onPress: () => void;
+  color: string;
+  selected: boolean;
 }) {
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected: isSelected }}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.viewToggleButton,
+    <View
+      style={[
+        styles.selectionIndicator,
         {
-          backgroundColor: isSelected ? colors.tint : 'transparent',
-          opacity: pressed ? 0.84 : 1,
+          borderColor: color,
+          backgroundColor: selected ? color : 'transparent',
         },
       ]}
     >
-      <IconSymbol name={icon} size={16} color={isSelected ? '#fff' : colors.icon} />
-      <ThemedText
-        type="defaultSemiBold"
-        style={[
-          styles.viewToggleButtonLabel,
-          {
-            color: isSelected ? '#fff' : colors.text,
-          },
-        ]}
-      >
-        {label}
-      </ThemedText>
-    </Pressable>
+      {selected ? <IconSymbol name="checkmark" size={14} color="#fff" /> : null}
+    </View>
   );
 }
 
@@ -502,9 +665,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  headerLeftButton: {
+    justifyContent: 'center',
+    minHeight: 32,
+  },
+  headerLeftButtonText: {
+    fontSize: 17,
+    fontWeight: '600',
+  },
+  headerRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   listHeader: {
     paddingBottom: 14,
-    gap: 12,
   },
   placeholder: {
     paddingTop: 12,
@@ -529,6 +703,12 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 14,
   },
+  resultRowEditMode: {
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
   resultTitle: {
     fontSize: 16,
     fontWeight: '600',
@@ -551,25 +731,13 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     lineHeight: 15,
   },
-  viewToggle: {
-    alignSelf: 'flex-end',
-    borderRadius: 999,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 4,
-    padding: 4,
-  },
-  viewToggleButton: {
+  selectionIndicator: {
     alignItems: 'center',
     borderRadius: 999,
-    flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  viewToggleButtonLabel: {
-    fontSize: 15,
-    lineHeight: 20,
+    borderWidth: 1.5,
+    height: 24,
+    justifyContent: 'center',
+    width: 24,
   },
   gridColumn: {
     gap: 12,
@@ -577,12 +745,16 @@ const styles = StyleSheet.create({
   },
   gridCard: {
     borderRadius: 18,
+    borderWidth: 1,
     flexBasis: '48%',
     flexGrow: 1,
     marginBottom: 12,
     maxWidth: '48%',
     overflow: 'hidden',
     position: 'relative',
+  },
+  gridCardEditMode: {
+    borderWidth: 2,
   },
   gridCardSurfaceFill: {
     ...StyleSheet.absoluteFillObject,
@@ -606,6 +778,12 @@ const styles = StyleSheet.create({
     gap: 10,
     minHeight: 28,
     marginTop: 4,
+  },
+  selectionIndicatorFloating: {
+    position: 'absolute',
+    right: 12,
+    top: 12,
+    zIndex: 2,
   },
   gridTitle: {
     flex: 1,

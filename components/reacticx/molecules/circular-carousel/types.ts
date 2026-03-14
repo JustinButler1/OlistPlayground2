@@ -20,5 +20,4 @@ export interface CircularCarouselItemProps<ItemT> {
   spacing?: number;
   itemWidth?: number;
   itemHeight?: number;
-  dataLength?: number;
 }

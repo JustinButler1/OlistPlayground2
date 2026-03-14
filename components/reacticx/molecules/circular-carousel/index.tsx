@@ -28,7 +28,6 @@ const CarouselItem = <ItemT,>({
   itemWidth = ITEM_WIDTH,
   itemHeight,
   spacing = SPACING,
-  dataLength,
 }: CircularCarouselItemProps<ItemT>) => {
   const itemWidthWithSpacing = itemWidth + spacing;
 
@@ -108,13 +107,6 @@ const CarouselItem = <ItemT,>({
         {
           width: itemWidth,
           height: itemHeight,
-          marginHorizontal: spacing / 2,
-        },
-        {
-          marginRight:
-            index === (dataLength ? dataLength - 1 : 0)
-              ? SIDE_SPACING - spacing / 2
-              : undefined,
         },
       ]}
     >
@@ -175,14 +167,15 @@ const CircularCarousel = <ItemT,>({
         keyExtractor ? keyExtractor(item, index) : index.toString()
       }
       horizontal
-      pagingEnabled
       snapToInterval={itemWidthWithSpacing}
+      snapToAlignment="start"
+      disableIntervalMomentum
       decelerationRate="fast"
       directionalLockEnabled
       nestedScrollEnabled
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={{
-        paddingHorizontal: horizontalSpacing - spacing / 2,
+        paddingHorizontal: horizontalSpacing,
         marginBottom: 20,
         marginTop: 40,
         overflow: "visible",
@@ -198,7 +191,6 @@ const CircularCarousel = <ItemT,>({
         <CarouselItem
           item={item}
           index={index}
-          dataLength={data.length}
           scrollX={scrollX}
           renderItem={renderItem}
           itemWidth={itemWidth}
@@ -206,6 +198,7 @@ const CircularCarousel = <ItemT,>({
           spacing={spacing}
         />
       )}
+      ItemSeparatorComponent={() => <View style={{ width: spacing }} />}
     />
   );
 };

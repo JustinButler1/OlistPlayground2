@@ -31,6 +31,7 @@ const MAPPING = {
   'tag.fill': 'label',
   'list.bullet': 'list',
   'person.fill': 'person',
+  'gearshape': 'settings',
   'info.circle': 'info-outline',
   'trash': 'delete',
   'ellipsis': 'more-vert',

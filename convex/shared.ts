@@ -1,7 +1,6 @@
 import {
   applyAutomationBlocks,
   createListConfig,
-  createPowerUserMockSeed,
   DEFAULT_LIST_PREFERENCES,
   derivePresetFromConfig,
   sanitizeListPreferencesForConfig,
@@ -15,6 +14,7 @@ import {
   type ListTemplate,
   type TrackerList,
 } from "../data/mock-lists";
+import { createPowerUserMockSeedFromJson } from "../data/power-user-mock-seed";
 import { normalizeProgress, normalizeRating } from "../lib/tracker-metadata";
 import { MAIN_WORKSPACE_SLUG } from "./model";
 
@@ -749,7 +749,7 @@ export async function importListStateIntoWorkspace(
 }
 
 export async function createMockWorkspaceState(ctx: any) {
-  const seed = createPowerUserMockSeed();
+  const seed = createPowerUserMockSeedFromJson();
   await importListStateIntoWorkspace(ctx, {
     lists: seed.lists,
     deletedLists: seed.deletedLists,
@@ -935,7 +935,7 @@ export async function collectSnapshot(ctx: any): Promise<SnapshotPayload> {
   };
 }
 
-export function nextAppendSortOrder(entries: Array<{ sortOrder: number }>): number {
+export function nextAppendSortOrder(entries: { sortOrder: number }[]): number {
   return entries.length ? entries[entries.length - 1]!.sortOrder + ENTRY_SORT_STEP : ENTRY_SORT_STEP;
 }
 

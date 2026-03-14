@@ -5,7 +5,6 @@ import SQLiteAsyncStorage from 'expo-sqlite/kv-store';
 import {
   cloneList,
   cloneTemplate,
-  createPowerUserMockSeed,
   createListConfig,
   DEFAULT_LISTS,
   DEFAULT_LIST_PREFERENCES,
@@ -32,6 +31,7 @@ import {
   type ListViewMode,
   type TrackerList,
 } from '@/data/mock-lists';
+import { createPowerUserMockSeedFromJson } from '@/data/power-user-mock-seed';
 import {
   normalizeProgress as normalizeTrackerProgress,
   normalizeRating,
@@ -115,7 +115,7 @@ export function createInitialListsState(): ListsState {
 }
 
 export function createPowerUserMockListsState(): ListsState {
-  const seed = createPowerUserMockSeed();
+  const seed = createPowerUserMockSeedFromJson();
   const normalizeSeedList = (list: TrackerList): TrackerList => ({
     ...cloneList(list),
     entries: list.entries.map((entry) => ({

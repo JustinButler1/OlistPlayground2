@@ -33,7 +33,7 @@ export function InterestsCircularCarousel({
   );
   const itemHeight = height * 0.76;
   const itemWidth = width - 40;
-  const horizontalSpacing = 20;
+  const horizontalSpacing = 0;
   const selectedLabels = useMemo(
     () =>
       ONBOARDING_INTEREST_OPTIONS.filter((interest) =>
