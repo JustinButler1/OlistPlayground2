@@ -3,6 +3,7 @@ import {
   createListConfig,
   DEFAULT_LIST_PREFERENCES,
   derivePresetFromConfig,
+  hydrateListHierarchy,
   sanitizeListPreferencesForConfig,
   type EntrySourceRef,
   type ItemUserData,
@@ -267,6 +268,7 @@ export function isCurrentListRecord(value: any): value is {
   imageUrl?: string;
   description?: string;
   templateId?: string;
+  showInMyLists?: boolean;
   parentListId?: string;
   archivedAt?: number;
   deletedAt?: number;
@@ -670,6 +672,7 @@ export async function importListStateIntoWorkspace(
         createdAt: list.createdAt,
         updatedAt: list.updatedAt,
         templateId: list.templateId,
+        showInMyLists: list.showInMyLists,
         parentListId: list.parentListId,
         archivedAt: list.archivedAt,
         deletedAt: list.deletedAt,
@@ -850,17 +853,21 @@ export async function collectSnapshot(ctx: any): Promise<SnapshotPayload> {
         createdAt: listDoc.createdAt,
         updatedAt: listDoc.updatedAt,
         templateId: listDoc.templateId,
+        showInMyLists: listDoc.showInMyLists ?? !listDoc.parentListId,
         parentListId: listDoc.parentListId,
+        childListIds: [],
         archivedAt: listDoc.archivedAt,
         deletedAt: listDoc.deletedAt,
       }) as TrackerList;
     })
   );
 
-  const activeLists = normalizedLists.filter((list) => !list.deletedAt);
-  const deletedLists = normalizedLists
-    .filter((list) => !!list.deletedAt)
-    .sort((left, right) => (right.deletedAt ?? 0) - (left.deletedAt ?? 0));
+  const activeLists = hydrateListHierarchy(normalizedLists.filter((list) => !list.deletedAt));
+  const deletedLists = hydrateListHierarchy(
+    normalizedLists
+      .filter((list) => !!list.deletedAt)
+      .sort((left, right) => (right.deletedAt ?? 0) - (left.deletedAt ?? 0))
+  );
 
   const avatarUrl = onboardingProfile.avatarStorageId
     ? (await resolveStorageUrl(ctx, onboardingProfile.avatarStorageId)) ??
@@ -1033,7 +1040,10 @@ export function applyItemUserDataProgressToEntry(
 export function buildListRecordFromTemplate(
   template: ListTemplate,
   overrides?: Partial<
-    Pick<TrackerList, "title" | "description" | "imageUrl" | "pinned" | "tags" | "parentListId">
+    Pick<
+      TrackerList,
+      "title" | "description" | "imageUrl" | "pinned" | "tags" | "showInMyLists" | "parentListId"
+    >
   >
 ) {
   const timestamp = Date.now();
@@ -1076,7 +1086,9 @@ export function buildListRecordFromTemplate(
       createdAt: timestamp,
       updatedAt: timestamp,
       templateId: template.id,
+      showInMyLists: overrides?.showInMyLists ?? !overrides?.parentListId,
       parentListId: overrides?.parentListId,
+      childListIds: [],
     }) as TrackerList,
     clientId,
   };
@@ -1091,6 +1103,7 @@ export function createBlankListRecord(args: {
   pinned?: boolean;
   templateId?: string;
   tags?: string[];
+  showInMyLists?: boolean;
   parentListId?: string;
 }) {
   const timestamp = Date.now();
@@ -1121,7 +1134,9 @@ export function createBlankListRecord(args: {
     createdAt: timestamp,
     updatedAt: timestamp,
     templateId: args.templateId,
+    showInMyLists: args.showInMyLists ?? !args.parentListId,
     parentListId: args.parentListId,
+    childListIds: [],
   }) as TrackerList;
 }
 

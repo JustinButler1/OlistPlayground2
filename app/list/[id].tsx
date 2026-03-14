@@ -1502,6 +1502,7 @@ export default function ListDetailScreen() {
                     }
                     void (async () => {
                       const sublistId = await createList(trimmed, sublistPreset, {
+                        showInMyLists: false,
                         parentListId: list.id,
                       });
                       if (!sublistId) {

@@ -147,7 +147,9 @@ export interface TrackerList {
   createdAt: number;
   updatedAt: number;
   templateId?: string;
+  showInMyLists: boolean;
   parentListId?: string;
+  childListIds: string[];
   archivedAt?: number;
   deletedAt?: number;
 }
@@ -187,6 +189,26 @@ export function createListPreferences(
     ...DEFAULT_LIST_PREFERENCES,
     ...overrides,
   };
+}
+
+export function hydrateListHierarchy(lists: TrackerList[]): TrackerList[] {
+  const childListIdsByParent = new Map<string, string[]>();
+
+  for (const list of lists) {
+    if (!list.parentListId) {
+      continue;
+    }
+
+    const childIds = childListIdsByParent.get(list.parentListId) ?? [];
+    childIds.push(list.id);
+    childListIdsByParent.set(list.parentListId, childIds);
+  }
+
+  return lists.map((list) => ({
+    ...list,
+    showInMyLists: list.showInMyLists ?? !list.parentListId,
+    childListIds: childListIdsByParent.get(list.id) ?? [],
+  }));
 }
 
 export const DEFAULT_LIST_CONFIG: ListConfig = {
@@ -441,7 +463,9 @@ function createSeedList(
     createdAt: options.createdAt ?? NOW,
     updatedAt: options.updatedAt ?? NOW,
     templateId: options.templateId,
+    showInMyLists: options.showInMyLists ?? !options.parentListId,
     parentListId: options.parentListId,
+    childListIds: options.childListIds ? [...options.childListIds] : [],
     archivedAt: options.archivedAt,
     deletedAt: options.deletedAt,
   };
@@ -1543,6 +1567,7 @@ export function cloneList(list: TrackerList): TrackerList {
     tags: [...list.tags],
     config: createListConfig(list.config),
     preferences: { ...list.preferences },
+    childListIds: [...list.childListIds],
     entries: list.entries.map(cloneEntry),
   };
 }

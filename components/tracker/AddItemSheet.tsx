@@ -93,6 +93,7 @@ export function AddItemSheet({
       description: newSublistDescription.trim() || undefined,
       templateId: currentList?.templateId,
       tags: currentList?.tags,
+      showInMyLists: false,
       parentListId: currentListId,
     });
     if (!createdListId) {

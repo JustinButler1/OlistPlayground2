@@ -1,6 +1,7 @@
 import {
   createListConfig,
   DEFAULT_LIST_PREFERENCES,
+  hydrateListHierarchy,
   sanitizeListPreferencesForConfig,
   type EntryProgress,
   type ItemUserData,
@@ -51,6 +52,8 @@ function normalizeList(list: TrackerList): TrackerList {
       list.preferences ?? DEFAULT_LIST_PREFERENCES,
       nextConfig
     ),
+    showInMyLists: list.showInMyLists ?? !list.parentListId,
+    childListIds: list.childListIds ?? [],
     entries: list.entries.map(normalizeEntry),
   };
 }
@@ -82,8 +85,8 @@ function normalizeItemUserData(item: ItemUserData): ItemUserData {
 
 export function createPowerUserMockSeedFromJson(): MockListsSeed {
   return {
-    lists: rawSeed.lists.map(normalizeList),
-    deletedLists: rawSeed.deletedLists.map(normalizeList),
+    lists: hydrateListHierarchy(rawSeed.lists.map(normalizeList)),
+    deletedLists: hydrateListHierarchy(rawSeed.deletedLists.map(normalizeList)),
     savedTemplates: rawSeed.savedTemplates.map(normalizeTemplate),
     itemUserDataByKey: Object.fromEntries(
       Object.entries(rawSeed.itemUserDataByKey).map(([itemKey, item]) => [

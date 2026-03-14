@@ -1,19 +1,29 @@
 import { Image } from 'expo-image';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 
-const AVATAR_SIZE = 44;
-const AVATAR_ICON_SIZE = 22;
+const DEFAULT_AVATAR_SIZE = 44;
+const DEFAULT_AVATAR_ICON_SIZE = 22;
 
 function getProfilePhotoUrl(profileId: string): null | string {
   void profileId;
   return null;
 }
 
-export function AvatarIcon({ profileId }: { profileId: string }) {
+export function AvatarIcon({
+  profileId,
+  size = DEFAULT_AVATAR_SIZE,
+  iconSize = DEFAULT_AVATAR_ICON_SIZE,
+  style,
+}: {
+  profileId: string;
+  size?: number;
+  iconSize?: number;
+  style?: StyleProp<ViewStyle>;
+}) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const profilePhotoUrl = getProfilePhotoUrl(profileId);
@@ -28,15 +38,19 @@ export function AvatarIcon({ profileId }: { profileId: string }) {
       style={[
         styles.avatar,
         {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
           backgroundColor: colors.icon + '12',
           borderColor: colors.icon + '20',
         },
+        style,
       ]}
     >
       {shouldShowProfilePhoto ? (
         <Image source={{ uri: profilePhotoUrl.trim() }} style={styles.image} contentFit="cover" />
       ) : (
-        <IconSymbol name="person.fill" size={AVATAR_ICON_SIZE} color={colors.icon} />
+        <IconSymbol name="person.fill" size={iconSize} color={colors.icon} />
       )}
     </View>
   );
@@ -44,9 +58,6 @@ export function AvatarIcon({ profileId }: { profileId: string }) {
 
 const styles = StyleSheet.create({
   avatar: {
-    width: AVATAR_SIZE,
-    height: AVATAR_SIZE,
-    borderRadius: AVATAR_SIZE / 2,
     borderCurve: 'continuous',
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',

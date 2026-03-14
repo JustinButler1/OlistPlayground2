@@ -9,6 +9,7 @@ import {
   DEFAULT_LISTS,
   DEFAULT_LIST_PREFERENCES,
   deriveListConfigFromLegacy,
+  hydrateListHierarchy,
   LEGACY_MOCK_LISTS,
   LEGACY_MOCK_TIER_SUBLISTS,
   sanitizeListPreferencesForConfig,
@@ -525,7 +526,14 @@ function normalizeList(value: unknown): TrackerList | null {
     createdAt: typeof value.createdAt === 'number' ? value.createdAt : Date.now(),
     updatedAt: typeof value.updatedAt === 'number' ? value.updatedAt : Date.now(),
     templateId: typeof value.templateId === 'string' ? value.templateId : undefined,
+    showInMyLists:
+      typeof value.showInMyLists === 'boolean'
+        ? value.showInMyLists
+        : !(typeof value.parentListId === 'string'),
     parentListId: typeof value.parentListId === 'string' ? value.parentListId : undefined,
+    childListIds: Array.isArray(value.childListIds)
+      ? value.childListIds.filter((item): item is string => typeof item === 'string')
+      : [],
     archivedAt: typeof value.archivedAt === 'number' ? value.archivedAt : undefined,
     deletedAt: typeof value.deletedAt === 'number' ? value.deletedAt : undefined,
   };
@@ -568,14 +576,18 @@ function normalizeListsState(value: unknown): ListsState | null {
     return null;
   }
 
-  const lists = Array.isArray(value.lists)
-    ? value.lists.map((list) => normalizeList(list)).filter((list): list is TrackerList => list !== null)
-    : [];
-  const deletedLists = Array.isArray(value.deletedLists)
-    ? value.deletedLists
-        .map((list) => normalizeList(list))
-        .filter((list): list is TrackerList => list !== null)
-    : [];
+  const lists = hydrateListHierarchy(
+    Array.isArray(value.lists)
+      ? value.lists.map((list) => normalizeList(list)).filter((list): list is TrackerList => list !== null)
+      : []
+  );
+  const deletedLists = hydrateListHierarchy(
+    Array.isArray(value.deletedLists)
+      ? value.deletedLists
+          .map((list) => normalizeList(list))
+          .filter((list): list is TrackerList => list !== null)
+      : []
+  );
   const savedTemplates = Array.isArray(value.savedTemplates)
     ? value.savedTemplates
         .map((template) => normalizeTemplate(template))
@@ -787,7 +799,9 @@ function convertLegacyList(
       legacy.listMetadataById?.[list.id]?.updatedAt ??
       mergedEntries.reduce((max, entry) => Math.max(max, entry.updatedAt), timestamp),
     templateId: undefined,
+    showInMyLists: true,
     parentListId: undefined,
+    childListIds: [],
     archivedAt: undefined,
     deletedAt: undefined,
   };

@@ -10,6 +10,7 @@ import {
   createListConfig,
   DEFAULT_LIST_PREFERENCES,
   derivePresetFromConfig,
+  hydrateListHierarchy,
   type EntryProgress,
   type EntrySourceRef,
   type EntryStatus,
@@ -87,13 +88,20 @@ interface ListActionsValue {
           preset?: ListPreset;
           templateId?: string;
           tags?: string[];
+          showInMyLists?: boolean;
           parentListId?: string;
           uploadedImage?: UploadedStorageFile | null;
         },
     options?: Partial<
       Pick<
         TrackerList,
-        'description' | 'imageUrl' | 'pinned' | 'templateId' | 'tags' | 'parentListId'
+        | 'description'
+        | 'imageUrl'
+        | 'pinned'
+        | 'templateId'
+        | 'tags'
+        | 'showInMyLists'
+        | 'parentListId'
       > & { uploadedImage?: UploadedStorageFile | null }
     >
   ) => Promise<string | null>;
@@ -102,7 +110,7 @@ interface ListActionsValue {
     overrides?: Partial<
       Pick<
         TrackerList,
-        'title' | 'description' | 'imageUrl' | 'pinned' | 'tags' | 'parentListId'
+        'title' | 'description' | 'imageUrl' | 'pinned' | 'tags' | 'showInMyLists' | 'parentListId'
       > & { uploadedImage?: UploadedStorageFile | null }
     >
   ) => Promise<string | null>;
@@ -118,6 +126,7 @@ interface ListActionsValue {
         | 'config'
         | 'templateId'
         | 'tags'
+        | 'showInMyLists'
         | 'parentListId'
       >
     >
@@ -212,8 +221,11 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
   }, [reminderNotificationIds]);
 
   const state = snapshot?.listsState;
-  const lists = state?.lists ?? [];
-  const deletedLists = state?.deletedLists ?? [];
+  const lists = useMemo(() => hydrateListHierarchy(state?.lists ?? []), [state?.lists]);
+  const deletedLists = useMemo(
+    () => hydrateListHierarchy(state?.deletedLists ?? []),
+    [state?.deletedLists]
+  );
   const activeLists = lists;
 
   useEffect(() => {
@@ -310,6 +322,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
               preset: normalizedOptions.preset,
               templateId: normalizedOptions.templateId,
               tags: normalizedOptions.tags,
+              showInMyLists: normalizedOptions.showInMyLists,
               parentListId: normalizedOptions.parentListId,
               uploadedImage: normalizedOptions.uploadedImage ?? undefined,
             },

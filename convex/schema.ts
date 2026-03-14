@@ -61,6 +61,7 @@ export default defineSchema(
     createdAt: v.number(),
     updatedAt: v.number(),
     templateId: v.optional(v.string()),
+    showInMyLists: v.optional(v.boolean()),
     parentListId: v.optional(v.string()),
     archivedAt: v.optional(v.number()),
     deletedAt: v.optional(v.number()),

@@ -38,7 +38,7 @@ export default function MyListsScreen() {
 
   const items = useMemo(() => {
     const filtered = activeLists.filter((list) => {
-      if (list.archivedAt) {
+      if (list.archivedAt || !list.showInMyLists) {
         return false;
       }
       if (filterMode === 'progress') {
@@ -153,6 +153,19 @@ export default function MyListsScreen() {
     ]);
   }, [activeLists, deleteList, exitEditMode, selectedListIds]);
 
+  const openPinDialog = useCallback((item: TrackerList) => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.alert(`Pin "${item.title}"\n\nPin to Quick Access\nPin to Profile`);
+      return;
+    }
+
+    Alert.alert('Pin list', `Choose where to pin "${item.title}".`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Pin to Quick Access' },
+      { text: 'Pin to Profile' },
+    ]);
+  }, []);
+
   const renderDeleteAction = useCallback(
     (progress: Animated.AnimatedInterpolation<number>, onDelete: () => void) => {
       const opacity = progress.interpolate({
@@ -162,7 +175,7 @@ export default function MyListsScreen() {
       });
 
       return (
-        <Animated.View style={[styles.rightActionContainer, { opacity }]}>
+        <Animated.View style={[styles.swipeActionContainer, { opacity }]}>
           <SwipeActionButton
             backgroundColor="#C62828"
             icon="trash.fill"
@@ -174,6 +187,29 @@ export default function MyListsScreen() {
       );
     },
     [isIos]
+  );
+
+  const renderPinAction = useCallback(
+    (progress: Animated.AnimatedInterpolation<number>, onPin: () => void) => {
+      const opacity = progress.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0, 1],
+        extrapolate: 'clamp',
+      });
+
+      return (
+        <Animated.View style={[styles.swipeActionContainer, { opacity }]}>
+          <SwipeActionButton
+            backgroundColor={colors.tint}
+            icon="pin.fill"
+            iconColor="#fff"
+            isIos={isIos}
+            onPress={onPin}
+          />
+        </Animated.View>
+      );
+    },
+    [colors.tint, isIos]
   );
 
   const selectedSortLabel = sortMode === 'updated-desc' ? 'Recent' : 'A-Z';
@@ -253,20 +289,24 @@ export default function MyListsScreen() {
           <Stack.Toolbar placement="right">
             <Stack.Toolbar.Button icon="plus" onPress={openNewListRoute} />
             <Stack.Toolbar.Menu hidden={isEditMode} icon="ellipsis">
-              <Stack.Toolbar.MenuAction
-                key="rows-view"
-                isOn={viewMode === 'rows'}
-                onPress={() => setViewMode('rows')}
-              >
-                Row view
-              </Stack.Toolbar.MenuAction>
-              <Stack.Toolbar.MenuAction
-                key="grid-view"
-                isOn={viewMode === 'grid'}
-                onPress={() => setViewMode('grid')}
-              >
-                Grid view
-              </Stack.Toolbar.MenuAction>
+              <Stack.Toolbar.Menu title="View">
+                <Stack.Toolbar.Menu inline>
+                  <Stack.Toolbar.MenuAction
+                    key="rows-view"
+                    isOn={viewMode === 'rows'}
+                    onPress={() => setViewMode('rows')}
+                  >
+                    Row view
+                  </Stack.Toolbar.MenuAction>
+                  <Stack.Toolbar.MenuAction
+                    key="grid-view"
+                    isOn={viewMode === 'grid'}
+                    onPress={() => setViewMode('grid')}
+                  >
+                    Grid view
+                  </Stack.Toolbar.MenuAction>
+                </Stack.Toolbar.Menu>
+              </Stack.Toolbar.Menu>
               <Stack.Toolbar.MenuAction key="edit-lists" onPress={enterEditMode}>
                 Edit lists
               </Stack.Toolbar.MenuAction>
@@ -364,8 +404,11 @@ export default function MyListsScreen() {
             <Swipeable
               containerStyle={styles.swipeableContainer}
               childrenContainerStyle={styles.swipeableChildren}
+              leftThreshold={40}
               overshootRight={false}
+              overshootLeft={false}
               rightThreshold={40}
+              renderLeftActions={(progress) => renderPinAction(progress, () => openPinDialog(item))}
               renderRightActions={(progress) =>
                 renderDeleteAction(progress, () => confirmDeleteList(item))
               }
@@ -486,6 +529,7 @@ export default function MyListsScreen() {
               setMenuVisible(null);
             }}
           />
+
         </>
       ) : null}
     </TabRootBackground>
@@ -561,7 +605,7 @@ function SwipeActionButton({
   onPress,
 }: {
   backgroundColor: string;
-  icon: 'trash.fill';
+  icon: 'pin.fill' | 'trash.fill';
   iconColor: string;
   isIos: boolean;
   onPress: () => void;
@@ -797,7 +841,7 @@ const styles = StyleSheet.create({
   swipeableChildren: {
     overflow: 'visible',
   },
-  rightActionContainer: {
+  swipeActionContainer: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: 10,

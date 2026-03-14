@@ -55,6 +55,7 @@ async function insertListWithEntries(ctx: any, list: any) {
     createdAt: list.createdAt,
     updatedAt: list.updatedAt,
     templateId: list.templateId,
+    showInMyLists: list.showInMyLists,
     parentListId: list.parentListId,
     archivedAt: list.archivedAt,
     deletedAt: list.deletedAt,
@@ -63,6 +64,68 @@ async function insertListWithEntries(ctx: any, list: any) {
   for (const [index, entry] of list.entries.entries()) {
     await ctx.db.insert("listEntries", buildEntryInsert(entry, list.id, (index + 1) * 1_000));
   }
+}
+
+function getLinkedListId(value: { linkedListId?: string; detailPath?: string }) {
+  if (value.linkedListId) {
+    return value.linkedListId;
+  }
+
+  if (value.detailPath?.startsWith("list/")) {
+    return value.detailPath.slice("list/".length) || undefined;
+  }
+
+  return undefined;
+}
+
+async function attachLinkedListToParent(
+  ctx: any,
+  linkedListId: string | undefined,
+  parentListId: string
+) {
+  if (!linkedListId || linkedListId === parentListId) {
+    return;
+  }
+
+  const linkedList = await getListRecordByClientId(ctx, linkedListId);
+  if (!linkedList) {
+    return;
+  }
+
+  if (linkedList.parentListId === parentListId) {
+    return;
+  }
+
+  await replaceListRecord(ctx, linkedList, {
+    parentListId: parentListId,
+    updatedAt: Date.now(),
+  });
+}
+
+async function detachLinkedListFromParentIfUnlinked(
+  ctx: any,
+  linkedListId: string | undefined,
+  parentListId: string
+) {
+  if (!linkedListId) {
+    return;
+  }
+
+  const parentEntries = await getEntriesForList(ctx, parentListId);
+  const stillLinked = parentEntries.some((entry) => getLinkedListId(entry) === linkedListId);
+  if (stillLinked) {
+    return;
+  }
+
+  const linkedList = await getListRecordByClientId(ctx, linkedListId);
+  if (!linkedList || linkedList.parentListId !== parentListId) {
+    return;
+  }
+
+  await replaceListRecord(ctx, linkedList, {
+    parentListId: undefined,
+    updatedAt: Date.now(),
+  });
 }
 
 export const createList = mutation({
@@ -80,6 +143,7 @@ export const createList = mutation({
       pinned: args.options?.pinned,
       templateId: args.options?.templateId,
       tags: args.options?.tags,
+      showInMyLists: args.options?.showInMyLists,
       parentListId: args.options?.parentListId,
     });
 
@@ -198,6 +262,10 @@ export const updateList = mutation({
       templateId:
         "templateId" in (args.updates ?? {}) ? args.updates.templateId || undefined : list.templateId,
       tags: "tags" in (args.updates ?? {}) ? normalizeTags(args.updates.tags) : list.tags,
+      showInMyLists:
+        "showInMyLists" in (args.updates ?? {})
+          ? !!args.updates.showInMyLists
+          : (list.showInMyLists ?? !list.parentListId),
       parentListId:
         "parentListId" in (args.updates ?? {})
           ? args.updates.parentListId || undefined
@@ -371,6 +439,7 @@ export const convertTagToSublist = mutation({
       createdAt: timestamp,
       updatedAt: timestamp,
       templateId: undefined,
+      showInMyLists: false,
       parentListId: args.listId,
     }));
 
@@ -570,6 +639,7 @@ export const addEntry = mutation({
         coverImageUrl,
       })
     );
+    await attachLinkedListToParent(ctx, getLinkedListId(entry), args.listId);
 
     const workspace = await ensureWorkspaceRecord(ctx);
     await updateWorkspaceListsMetadata(ctx, {
@@ -671,8 +741,10 @@ export const deleteEntry = mutation({
       return;
     }
 
+    const linkedListId = getLinkedListId(entry);
     const previousAssetId = entry.coverAssetId;
     await ctx.db.delete(entry._id);
+    await detachLinkedListFromParentIfUnlinked(ctx, linkedListId, entry.listClientId);
     await maybeDeleteAssetIfUnreferenced(ctx, previousAssetId);
   },
 });
@@ -714,6 +786,14 @@ export const moveEntries = mutation({
       ...movingEntries.map((entry) => entry.clientId),
       ...targetEntries.map((entry) => entry.clientId),
     ]);
+
+    const movedLinkedListIds = Array.from(
+      new Set(movingEntries.map((entry) => getLinkedListId(entry)).filter(Boolean))
+    ) as string[];
+    for (const linkedListId of movedLinkedListIds) {
+      await attachLinkedListToParent(ctx, linkedListId, args.targetListId);
+      await detachLinkedListFromParentIfUnlinked(ctx, linkedListId, args.sourceListId);
+    }
 
     const workspace = await ensureWorkspaceRecord(ctx);
     await updateWorkspaceListsMetadata(ctx, {

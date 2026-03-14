@@ -13,7 +13,15 @@ import {
 } from '@/data/mock-community-feed';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
-export function CommunityFeedList() {
+export function CommunityFeedList({
+  badgeLabel = 'Placeholder feed preview',
+  description,
+  items = MOCK_COMMUNITY_FEED,
+}: {
+  badgeLabel?: string;
+  description?: string;
+  items?: CommunityFeedItem[];
+}) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const isDark = colorScheme === 'dark';
@@ -33,10 +41,15 @@ export function CommunityFeedList() {
         ]}
       >
         <ThemedText style={[styles.headerBadgeText, { color: colors.icon }]}>
-          Placeholder feed preview
+          {badgeLabel}
         </ThemedText>
       </View>
-      {MOCK_COMMUNITY_FEED.map((item) => (
+      {description ? (
+        <ThemedText selectable style={[styles.descriptionText, { color: colors.icon }]}>
+          {description}
+        </ThemedText>
+      ) : null}
+      {items.map((item) => (
         <CommunityFeedCard
           key={item.id}
           colors={colors}
@@ -322,6 +335,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.3,
     textTransform: 'uppercase',
+  },
+  descriptionText: {
+    fontSize: 14,
+    lineHeight: 20,
+    maxWidth: 720,
+    paddingHorizontal: 8,
+    textAlign: 'center',
   },
   card: {
     borderRadius: 30,
