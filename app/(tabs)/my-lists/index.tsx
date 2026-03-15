@@ -49,6 +49,9 @@ const DROP_INDICATOR_COLOR = '#2563EB';
 const DROP_INDICATOR_HEIGHT = 3;
 const DRAG_THUMBNAIL_ANCHOR_X = 34;
 const LIST_CONTENT_TOP_PADDING = 16;
+const AUTO_SCROLL_EDGE_THRESHOLD = 96;
+const AUTO_SCROLL_INTERVAL_MS = 16;
+const AUTO_SCROLL_MAX_STEP = 18;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -166,20 +169,30 @@ export default function MyListsScreen() {
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [optimisticListOrderIds, setOptimisticListOrderIds] = useState<string[] | null>(null);
   const [scrollOffset, setScrollOffset] = useState(0);
+  const flatListRef = useRef<FlatList<TrackerList> | null>(null);
   const listViewportRef = useRef<View | null>(null);
   const listViewportWidthRef = useRef(0);
+  const listViewportHeightRef = useRef(0);
+  const listContentHeightRef = useRef(0);
+  const scrollOffsetRef = useRef(0);
   const rowLayoutsRef = useRef<Record<string, RowLayout>>({});
   const dragMetaRef = useRef<{
     initialLeft: number;
     initialTop: number;
+    touchOffsetY: number;
     rowHeight: number;
     rowWidth: number;
     maxLeft: number;
   } | null>(null);
+  const dragPositionRef = useRef({ left: 0, top: 0 });
   const dragLeft = useSharedValue(0);
   const dragTop = useSharedValue(0);
   const dragScale = useSharedValue(1);
   const canDragRows = viewMode === 'rows' && !isEditMode && filterMode === 'all';
+
+  useEffect(() => {
+    scrollOffsetRef.current = scrollOffset;
+  }, [scrollOffset]);
 
   const persistedOrderedLists = useMemo(() => {
     const fallbackIndexById = new Map(
@@ -259,6 +272,7 @@ export default function MyListsScreen() {
 
     setDragState(null);
     dragMetaRef.current = null;
+    dragPositionRef.current = { left: 0, top: 0 };
     dragLeft.value = withTiming(0, { duration: 120 });
     dragScale.value = withTiming(1, { duration: 120 });
   }, [canDragRows, dragLeft, dragScale]);
@@ -403,12 +417,17 @@ export default function MyListsScreen() {
         const initialLeft = clamp(fingerXInViewport - thumbnailOffset, 0, maxLeft);
         const initialTop = fingerYInViewport - touchOffsetY;
 
+        dragPositionRef.current = {
+          left: initialLeft,
+          top: initialTop,
+        };
         dragLeft.value = initialLeft;
         dragTop.value = initialTop;
         dragScale.value = withTiming(0.97, { duration: 140 });
         dragMetaRef.current = {
           initialLeft,
           initialTop,
+          touchOffsetY,
           rowHeight: activeLayout.height,
           rowWidth: activeLayout.width,
           maxLeft,
@@ -440,6 +459,10 @@ export default function MyListsScreen() {
       const hoverMiddleY =
         nextTop + scrollOffset - LIST_CONTENT_TOP_PADDING + dragMeta.rowHeight / 2;
       const nextTargetIndex = getHoverTargetIndex(items, listId, hoverMiddleY, rowLayoutsRef.current);
+      dragPositionRef.current = {
+        left: nextLeft,
+        top: nextTop,
+      };
       dragLeft.value = nextLeft;
       dragTop.value = nextTop;
 
@@ -463,6 +486,7 @@ export default function MyListsScreen() {
       dragScale.value = withTiming(1, { duration: 120 });
       setDragState(null);
       dragMetaRef.current = null;
+      dragPositionRef.current = { left: 0, top: 0 };
       return;
     }
 
@@ -476,12 +500,106 @@ export default function MyListsScreen() {
     setSortMode('custom-order');
     setDragState(null);
     dragMetaRef.current = null;
+    dragPositionRef.current = { left: 0, top: 0 };
 
     void reorderLists(reorderedIds).catch(() => {
       setOptimisticListOrderIds(previousOrderedIds);
       setSortMode(previousSortMode);
     });
   }, [dragScale, dragState, items, persistedOrderedLists, reorderLists, sortMode]);
+
+  useEffect(() => {
+    if (!dragState) {
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      const dragMeta = dragMetaRef.current;
+      if (!dragMeta) {
+        return;
+      }
+
+      const viewportHeight = listViewportHeightRef.current;
+      const measuredContentHeight = listContentHeightRef.current;
+      const estimatedRowHeight =
+        dragMeta.rowHeight ||
+        rowLayoutsRef.current[dragState.listId]?.height ||
+        104;
+      const estimatedContentHeight =
+        LIST_CONTENT_TOP_PADDING +
+        insets.bottom +
+        24 +
+        items.reduce(
+          (total, item) => total + (rowLayoutsRef.current[item.id]?.height ?? estimatedRowHeight),
+          0
+        );
+      const contentHeight = Math.max(measuredContentHeight, estimatedContentHeight);
+      const maxScrollOffset = Math.max(0, contentHeight - viewportHeight);
+      if (viewportHeight <= 0 || maxScrollOffset <= 0) {
+        return;
+      }
+
+      const fingerYInViewport = dragPositionRef.current.top + dragMeta.touchOffsetY;
+      let nextDelta = 0;
+
+      if (
+        fingerYInViewport < AUTO_SCROLL_EDGE_THRESHOLD &&
+        scrollOffsetRef.current > 0
+      ) {
+        const intensity = 1 - fingerYInViewport / AUTO_SCROLL_EDGE_THRESHOLD;
+        nextDelta = -Math.max(4, AUTO_SCROLL_MAX_STEP * intensity);
+      } else if (
+        fingerYInViewport > viewportHeight - AUTO_SCROLL_EDGE_THRESHOLD &&
+        scrollOffsetRef.current < maxScrollOffset
+      ) {
+        const distanceFromBottom = viewportHeight - fingerYInViewport;
+        const intensity = 1 - distanceFromBottom / AUTO_SCROLL_EDGE_THRESHOLD;
+        nextDelta = Math.max(4, AUTO_SCROLL_MAX_STEP * intensity);
+      }
+
+      if (!nextDelta) {
+        return;
+      }
+
+      const nextScrollOffset = clamp(
+        scrollOffsetRef.current + nextDelta,
+        0,
+        maxScrollOffset
+      );
+      if (nextScrollOffset === scrollOffsetRef.current) {
+        return;
+      }
+
+      scrollOffsetRef.current = nextScrollOffset;
+      setScrollOffset(nextScrollOffset);
+      flatListRef.current?.scrollToOffset({
+        animated: false,
+        offset: nextScrollOffset,
+      });
+
+      const hoverMiddleY =
+        dragPositionRef.current.top +
+        nextScrollOffset -
+        LIST_CONTENT_TOP_PADDING +
+        dragMeta.rowHeight / 2;
+      const nextTargetIndex = getHoverTargetIndex(
+        items,
+        dragState.listId,
+        hoverMiddleY,
+        rowLayoutsRef.current
+      );
+
+      setDragState((current) =>
+        current && current.listId === dragState.listId && current.targetIndex !== nextTargetIndex
+          ? { ...current, targetIndex: nextTargetIndex }
+          : current
+      );
+    }, AUTO_SCROLL_INTERVAL_MS);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [dragState, insets.bottom, items]);
 
   const renderDeleteAction = useCallback(
     (progress: RNAnimated.AnimatedInterpolation<number>, onDelete: () => void) => {
@@ -673,10 +791,12 @@ export default function MyListsScreen() {
           ref={listViewportRef}
           onLayout={(event) => {
             listViewportWidthRef.current = event.nativeEvent.layout.width;
+            listViewportHeightRef.current = event.nativeEvent.layout.height;
           }}
           style={styles.listViewport}
         >
           <FlatList
+            ref={flatListRef}
             key={viewMode}
             contentInsetAdjustmentBehavior="never"
             style={styles.container}
@@ -685,9 +805,14 @@ export default function MyListsScreen() {
             numColumns={isGridView ? 2 : 1}
             columnWrapperStyle={isGridView ? styles.gridColumn : undefined}
             onScroll={(event) => {
-              setScrollOffset(event.nativeEvent.contentOffset.y);
+              const nextScrollOffset = event.nativeEvent.contentOffset.y;
+              scrollOffsetRef.current = nextScrollOffset;
+              setScrollOffset(nextScrollOffset);
             }}
-            scrollEnabled={!dragState}
+            onContentSizeChange={(_width, height) => {
+              listContentHeightRef.current = height;
+            }}
+            scrollEnabled
             scrollEventThrottle={16}
             renderItem={({ item }) => {
               const isSelected = selectedListIdSet.has(item.id);
