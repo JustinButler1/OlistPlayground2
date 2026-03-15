@@ -63,7 +63,12 @@ export function EntryRow({
           ) : null}
         </View>
       ) : null}
-      <ThumbnailImage imageUrl={entry.coverAssetUri ?? entry.imageUrl} style={styles.cover} />
+      <ThumbnailImage
+        imageUrl={entry.coverAssetUri ?? entry.imageUrl}
+        sourceRef={entry.sourceRef}
+        detailPath={entry.detailPath}
+        style={styles.cover}
+      />
       <View style={styles.content}>
         <ThemedText type="defaultSemiBold" numberOfLines={2}>
           {entry.title}

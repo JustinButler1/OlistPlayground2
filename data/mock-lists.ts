@@ -146,6 +146,7 @@ export interface TrackerList {
   pinned: boolean;
   createdAt: number;
   updatedAt: number;
+  sortOrder?: number;
   templateId?: string;
   showInMyLists: boolean;
   parentListId?: string;
@@ -462,6 +463,7 @@ function createSeedList(
     pinned: options.pinned ?? false,
     createdAt: options.createdAt ?? NOW,
     updatedAt: options.updatedAt ?? NOW,
+    sortOrder: typeof options.sortOrder === 'number' ? options.sortOrder : undefined,
     templateId: options.templateId,
     showInMyLists: options.showInMyLists ?? !options.parentListId,
     parentListId: options.parentListId,

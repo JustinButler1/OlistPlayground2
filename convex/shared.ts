@@ -20,6 +20,16 @@ import { normalizeProgress, normalizeRating } from "../lib/tracker-metadata";
 import { MAIN_WORKSPACE_SLUG } from "./model";
 
 const ENTRY_SORT_STEP = 1_000;
+export const LIST_SORT_STEP = 1_000;
+
+export function getListSortOrder(
+  list: Pick<TrackerList, "createdAt" | "sortOrder">,
+  fallbackIndex = 0
+): number {
+  return typeof list.sortOrder === "number"
+    ? list.sortOrder
+    : list.createdAt + fallbackIndex * LIST_SORT_STEP;
+}
 
 export interface EntryDraftLike
   extends Partial<
@@ -264,6 +274,7 @@ export function isCurrentListRecord(value: any): value is {
   pinned: boolean;
   createdAt: number;
   updatedAt: number;
+  sortOrder?: number;
   imageAssetId?: any;
   imageUrl?: string;
   description?: string;
@@ -284,7 +295,8 @@ export function isCurrentListRecord(value: any): value is {
     typeof value.preferences === "object" &&
     typeof value.pinned === "boolean" &&
     typeof value.createdAt === "number" &&
-    typeof value.updatedAt === "number"
+    typeof value.updatedAt === "number" &&
+    (value.sortOrder === undefined || typeof value.sortOrder === "number")
   );
 }
 
@@ -653,7 +665,7 @@ export async function importListStateIntoWorkspace(
   }
 
   const allLists = [...state.lists, ...state.deletedLists];
-  for (const list of allLists) {
+  for (const [listIndex, list] of allLists.entries()) {
     await ctx.db.insert(
       "lists",
       compact({
@@ -671,6 +683,7 @@ export async function importListStateIntoWorkspace(
         pinned: list.pinned,
         createdAt: list.createdAt,
         updatedAt: list.updatedAt,
+        sortOrder: typeof list.sortOrder === "number" ? list.sortOrder : (listIndex + 1) * LIST_SORT_STEP,
         templateId: list.templateId,
         showInMyLists: list.showInMyLists,
         parentListId: list.parentListId,
@@ -852,6 +865,7 @@ export async function collectSnapshot(ctx: any): Promise<SnapshotPayload> {
         pinned: listDoc.pinned,
         createdAt: listDoc.createdAt,
         updatedAt: listDoc.updatedAt,
+        sortOrder: listDoc.sortOrder,
         templateId: listDoc.templateId,
         showInMyLists: listDoc.showInMyLists ?? !listDoc.parentListId,
         parentListId: listDoc.parentListId,
@@ -862,7 +876,11 @@ export async function collectSnapshot(ctx: any): Promise<SnapshotPayload> {
     })
   );
 
-  const activeLists = hydrateListHierarchy(normalizedLists.filter((list) => !list.deletedAt));
+  const activeLists = hydrateListHierarchy(
+    normalizedLists
+      .filter((list) => !list.deletedAt)
+      .sort((left, right) => getListSortOrder(left) - getListSortOrder(right))
+  );
   const deletedLists = hydrateListHierarchy(
     normalizedLists
       .filter((list) => !!list.deletedAt)
@@ -1085,6 +1103,7 @@ export function buildListRecordFromTemplate(
       pinned: overrides?.pinned ?? false,
       createdAt: timestamp,
       updatedAt: timestamp,
+      sortOrder: timestamp,
       templateId: template.id,
       showInMyLists: overrides?.showInMyLists ?? !overrides?.parentListId,
       parentListId: overrides?.parentListId,
@@ -1133,6 +1152,7 @@ export function createBlankListRecord(args: {
     pinned: args.pinned ?? false,
     createdAt: timestamp,
     updatedAt: timestamp,
+    sortOrder: timestamp,
     templateId: args.templateId,
     showInMyLists: args.showInMyLists ?? !args.parentListId,
     parentListId: args.parentListId,

@@ -140,6 +140,7 @@ interface ListActionsValue {
   restoreArchivedList: (listId: string) => Promise<void>;
   deleteList: (listId: string) => Promise<void>;
   restoreList: (listId: string) => Promise<void>;
+  reorderLists: (orderedListIds: string[]) => Promise<void>;
   setListPreferences: (listId: string, updates: Partial<ListPreferences>) => Promise<void>;
   markListOpened: (listId: string) => Promise<void>;
   recordRecentSearch: (query: string) => Promise<void>;
@@ -192,6 +193,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
   const restoreArchivedListMutation = useMutation(api.lists.restoreArchivedList);
   const deleteListMutation = useMutation(api.lists.deleteList);
   const restoreListMutation = useMutation(api.lists.restoreList);
+  const reorderListsMutation = useMutation(api.lists.reorderLists);
   const setListPreferencesMutation = useMutation(api.lists.setListPreferences);
   const markListOpenedMutation = useMutation(api.lists.markListOpened);
   const recordRecentSearchMutation = useMutation(api.lists.recordRecentSearch);
@@ -365,6 +367,12 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
       restoreList: async (listId) => {
         await runMutation(() => restoreListMutation({ listId }));
       },
+      reorderLists: async (orderedListIds) => {
+        if (!orderedListIds.length) {
+          return;
+        }
+        await runMutation(() => reorderListsMutation({ orderedListIds }));
+      },
       setListPreferences: async (listId, updates) => {
         await runMutation(() => setListPreferencesMutation({ listId, updates }));
       },
@@ -422,6 +430,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
       loadMockDataMutation,
       markListOpenedMutation,
       recordRecentSearchMutation,
+      reorderListsMutation,
       resetWorkspaceMutation,
       restoreArchivedListMutation,
       restoreListMutation,

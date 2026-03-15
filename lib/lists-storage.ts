@@ -525,6 +525,7 @@ function normalizeList(value: unknown): TrackerList | null {
     pinned: typeof value.pinned === 'boolean' ? value.pinned : false,
     createdAt: typeof value.createdAt === 'number' ? value.createdAt : Date.now(),
     updatedAt: typeof value.updatedAt === 'number' ? value.updatedAt : Date.now(),
+    sortOrder: typeof value.sortOrder === 'number' ? value.sortOrder : undefined,
     templateId: typeof value.templateId === 'string' ? value.templateId : undefined,
     showInMyLists:
       typeof value.showInMyLists === 'boolean'

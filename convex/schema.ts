@@ -60,6 +60,7 @@ export default defineSchema(
     pinned: v.boolean(),
     createdAt: v.number(),
     updatedAt: v.number(),
+    sortOrder: v.optional(v.number()),
     templateId: v.optional(v.string()),
     showInMyLists: v.optional(v.boolean()),
     parentListId: v.optional(v.string()),

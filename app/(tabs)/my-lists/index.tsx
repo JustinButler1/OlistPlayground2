@@ -1,9 +1,19 @@
 import { BlurView } from 'expo-blur';
 import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
 import { Stack, useRouter } from 'expo-router';
-import { type ReactNode, useCallback, useMemo, useState } from 'react';
-import { Alert, Animated, FlatList, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
-import { Swipeable } from 'react-native-gesture-handler';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Animated as RNAnimated, FlatList, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Gesture, GestureDetector, Swipeable } from 'react-native-gesture-handler';
+import Animated, {
+  FadeIn,
+  FadeOut,
+  LinearTransition,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { TabRootBackground } from '@/components/tab-root-background';
@@ -16,9 +26,116 @@ import { useListActions, useListsQuery } from '@/contexts/lists-context';
 import type { TrackerList } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
-type SortMode = 'updated-desc' | 'title-asc';
+type SortMode = 'custom-order' | 'updated-desc' | 'title-asc';
 type FilterMode = 'all' | 'progress' | 'sublists';
 type ViewMode = 'rows' | 'grid';
+type ThemeColors = (typeof Colors)['light'] | (typeof Colors)['dark'];
+
+type RowLayout = {
+  height: number;
+};
+
+type DragState = {
+  item: TrackerList;
+  listId: string;
+  originalIndex: number;
+  targetIndex: number;
+};
+
+const DROP_INDICATOR_COLOR = '#2563EB';
+
+function getListSortOrder(list: TrackerList, fallbackIndex: number): number {
+  return typeof list.sortOrder === 'number' ? list.sortOrder : (fallbackIndex + 1) * 1_000;
+}
+
+function applyOrderedIds(items: TrackerList[], orderedIds: string[] | null): TrackerList[] {
+  if (!orderedIds?.length) {
+    return items;
+  }
+
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const orderedItems = orderedIds
+    .map((id) => byId.get(id))
+    .filter((item): item is TrackerList => item !== undefined);
+
+  if (orderedItems.length === items.length) {
+    return orderedItems;
+  }
+
+  return [
+    ...orderedItems,
+    ...items.filter((item) => !orderedIds.includes(item.id)),
+  ];
+}
+
+function moveListIdToIndex(ids: string[], draggedId: string, targetIndex: number): string[] {
+  const nextIds = ids.filter((id) => id !== draggedId);
+  const boundedIndex = Math.max(0, Math.min(targetIndex, nextIds.length));
+  nextIds.splice(boundedIndex, 0, draggedId);
+  return nextIds;
+}
+
+function getHoverTargetIndex(
+  items: TrackerList[],
+  draggedId: string,
+  hoverMiddleY: number,
+  rowLayouts: Record<string, RowLayout>
+): number {
+  const otherItems = items.filter((item) => item.id !== draggedId);
+  let cursor = 0;
+
+  for (const [index, item] of otherItems.entries()) {
+    const layout = rowLayouts[item.id];
+    if (!layout) {
+      continue;
+    }
+
+    if (hoverMiddleY < cursor + layout.height / 2) {
+      return index;
+    }
+
+    cursor += layout.height;
+  }
+
+  return otherItems.length;
+}
+
+function getDropIndicatorTop(
+  items: TrackerList[],
+  draggedId: string,
+  targetIndex: number,
+  rowLayouts: Record<string, RowLayout>
+): number | null {
+  const otherItems = items.filter((item) => item.id !== draggedId);
+  if (!otherItems.length) {
+    return null;
+  }
+
+  if (targetIndex <= 0) {
+    return 0;
+  }
+
+  let cursor = 0;
+
+  for (const [index, item] of otherItems.entries()) {
+    const layout = rowLayouts[item.id];
+    if (!layout) {
+      continue;
+    }
+
+    if (index === targetIndex) {
+      return cursor;
+    }
+
+    cursor += layout.height;
+  }
+
+  if (targetIndex >= otherItems.length) {
+    return cursor;
+  }
+
+  return cursor;
+}
 
 export default function MyListsScreen() {
   const router = useRouter();
@@ -28,16 +145,48 @@ export default function MyListsScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { activeLists } = useListsQuery();
-  const { deleteList } = useListActions();
+  const { deleteList, reorderLists } = useListActions();
   const [sortMode, setSortMode] = useState<SortMode>('updated-desc');
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [viewMode, setViewMode] = useState<ViewMode>('rows');
   const [menuVisible, setMenuVisible] = useState<null | 'header' | 'sort' | 'filter'>(null);
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedListIds, setSelectedListIds] = useState<string[]>([]);
+  const [dragState, setDragState] = useState<DragState | null>(null);
+  const [optimisticListOrderIds, setOptimisticListOrderIds] = useState<string[] | null>(null);
+  const [scrollOffset, setScrollOffset] = useState(0);
+  const listViewportRef = useRef<View | null>(null);
+  const listHeaderHeightRef = useRef(0);
+  const rowLayoutsRef = useRef<Record<string, RowLayout>>({});
+  const dragMetaRef = useRef<{ initialTop: number; rowHeight: number } | null>(null);
+  const dragTop = useSharedValue(0);
+  const dragScale = useSharedValue(1);
+  const canDragRows = viewMode === 'rows' && !isEditMode && filterMode === 'all';
+
+  const persistedOrderedLists = useMemo(() => {
+    const fallbackIndexById = new Map(
+      activeLists
+        .filter((list) => !list.archivedAt && list.showInMyLists)
+        .map((list, index) => [list.id, index])
+    );
+    const nextLists = activeLists
+      .filter((list) => !list.archivedAt && list.showInMyLists)
+      .slice()
+      .sort(
+        (left, right) =>
+          getListSortOrder(left, fallbackIndexById.get(left.id) ?? 0) -
+          getListSortOrder(right, fallbackIndexById.get(right.id) ?? 0)
+      );
+    return nextLists;
+  }, [activeLists]);
+
+  const orderedLists = useMemo(
+    () => applyOrderedIds(persistedOrderedLists, optimisticListOrderIds),
+    [optimisticListOrderIds, persistedOrderedLists]
+  );
 
   const items = useMemo(() => {
-    const filtered = activeLists.filter((list) => {
+    const filtered = orderedLists.filter((list) => {
       if (list.archivedAt || !list.showInMyLists) {
         return false;
       }
@@ -53,11 +202,47 @@ export default function MyListsScreen() {
     const nextItems = [...filtered];
     if (sortMode === 'title-asc') {
       nextItems.sort((a, b) => a.title.localeCompare(b.title));
-    } else {
+    } else if (sortMode === 'updated-desc') {
       nextItems.sort((a, b) => b.updatedAt - a.updatedAt);
     }
     return nextItems;
-  }, [activeLists, filterMode, sortMode]);
+  }, [filterMode, orderedLists, sortMode]);
+
+  useEffect(() => {
+    const orderedIds = persistedOrderedLists.map((list) => list.id);
+    setOptimisticListOrderIds((current) => {
+      if (!current?.length) {
+        return current;
+      }
+
+      if (current.length === orderedIds.length && current.every((id, index) => id === orderedIds[index])) {
+        return null;
+      }
+
+      const nextIds = current.filter((id) => orderedIds.includes(id));
+      if (!nextIds.length) {
+        return null;
+      }
+
+      for (const id of orderedIds) {
+        if (!nextIds.includes(id)) {
+          nextIds.push(id);
+        }
+      }
+
+      return nextIds;
+    });
+  }, [persistedOrderedLists]);
+
+  useEffect(() => {
+    if (canDragRows) {
+      return;
+    }
+
+    setDragState(null);
+    dragMetaRef.current = null;
+    dragScale.value = withTiming(1, { duration: 120 });
+  }, [canDragRows, dragScale]);
 
   const openNewListRoute = useCallback(() => {
     router.push({
@@ -166,8 +351,102 @@ export default function MyListsScreen() {
     ]);
   }, []);
 
+  const registerRowLayout = useCallback((listId: string, layout: RowLayout) => {
+    rowLayoutsRef.current[listId] = layout;
+  }, []);
+
+  const startRowDrag = useCallback(
+    (listId: string, touchOffsetY: number, absoluteY: number) => {
+      if (!canDragRows) {
+        return;
+      }
+
+      const item = items.find((candidate) => candidate.id === listId);
+      const viewport = listViewportRef.current;
+      const activeLayout = rowLayoutsRef.current[listId];
+      if (!item || !viewport || !activeLayout) {
+        return;
+      }
+
+      viewport.measureInWindow((_viewportX, viewportY) => {
+        const fingerYInViewport = absoluteY - viewportY;
+        const initialTop = fingerYInViewport - touchOffsetY;
+
+        dragTop.value = initialTop;
+        dragScale.value = withTiming(0.97, { duration: 140 });
+        dragMetaRef.current = {
+          initialTop,
+          rowHeight: activeLayout.height,
+        };
+        setMenuVisible(null);
+        const originalIndex = items.findIndex((candidate) => candidate.id === listId);
+        setDragState({
+          item,
+          listId,
+          originalIndex,
+          targetIndex: originalIndex,
+        });
+      });
+    },
+    [canDragRows, dragScale, dragTop, items]
+  );
+
+  const updateRowDrag = useCallback(
+    (listId: string, translationY: number) => {
+      const activeDrag = dragState?.listId === listId ? dragState : null;
+      const dragMeta = dragMetaRef.current;
+      if (!activeDrag || !dragMeta) {
+        return;
+      }
+
+      const nextTop = dragMeta.initialTop + translationY;
+      const hoverMiddleY =
+        nextTop + scrollOffset - listHeaderHeightRef.current + dragMeta.rowHeight / 2;
+      const nextTargetIndex = getHoverTargetIndex(items, listId, hoverMiddleY, rowLayoutsRef.current);
+      dragTop.value = nextTop;
+
+      if (nextTargetIndex !== activeDrag.targetIndex) {
+        setDragState((current) =>
+          current && current.listId === listId ? { ...current, targetIndex: nextTargetIndex } : current
+        );
+      }
+    },
+    [dragState, dragTop, items, scrollOffset]
+  );
+
+  const finishRowDrag = useCallback(() => {
+    const activeDrag = dragState;
+    if (!activeDrag) {
+      dragScale.value = withTiming(1, { duration: 120 });
+      return;
+    }
+
+    if (activeDrag.targetIndex === activeDrag.originalIndex) {
+      dragScale.value = withTiming(1, { duration: 120 });
+      setDragState(null);
+      dragMetaRef.current = null;
+      return;
+    }
+
+    const currentIds = items.map((item) => item.id);
+    const reorderedIds = moveListIdToIndex(currentIds, activeDrag.listId, activeDrag.targetIndex);
+    const previousOrderedIds = persistedOrderedLists.map((item) => item.id);
+    const previousSortMode = sortMode;
+
+    dragScale.value = withSpring(1, { damping: 16, stiffness: 220 });
+    setOptimisticListOrderIds(reorderedIds);
+    setSortMode('custom-order');
+    setDragState(null);
+    dragMetaRef.current = null;
+
+    void reorderLists(reorderedIds).catch(() => {
+      setOptimisticListOrderIds(previousOrderedIds);
+      setSortMode(previousSortMode);
+    });
+  }, [dragScale, dragState, items, persistedOrderedLists, reorderLists, sortMode]);
+
   const renderDeleteAction = useCallback(
-    (progress: Animated.AnimatedInterpolation<number>, onDelete: () => void) => {
+    (progress: RNAnimated.AnimatedInterpolation<number>, onDelete: () => void) => {
       const opacity = progress.interpolate({
         inputRange: [0, 1],
         outputRange: [0, 1],
@@ -175,7 +454,7 @@ export default function MyListsScreen() {
       });
 
       return (
-        <Animated.View style={[styles.swipeActionContainer, { opacity }]}>
+        <RNAnimated.View style={[styles.swipeActionContainer, { opacity }]}>
           <SwipeActionButton
             backgroundColor="#C62828"
             icon="trash.fill"
@@ -183,14 +462,14 @@ export default function MyListsScreen() {
             isIos={isIos}
             onPress={onDelete}
           />
-        </Animated.View>
+        </RNAnimated.View>
       );
     },
     [isIos]
   );
 
   const renderPinAction = useCallback(
-    (progress: Animated.AnimatedInterpolation<number>, onPin: () => void) => {
+    (progress: RNAnimated.AnimatedInterpolation<number>, onPin: () => void) => {
       const opacity = progress.interpolate({
         inputRange: [0, 1],
         outputRange: [0, 1],
@@ -198,7 +477,7 @@ export default function MyListsScreen() {
       });
 
       return (
-        <Animated.View style={[styles.swipeActionContainer, { opacity }]}>
+        <RNAnimated.View style={[styles.swipeActionContainer, { opacity }]}>
           <SwipeActionButton
             backgroundColor={colors.tint}
             icon="pin.fill"
@@ -206,18 +485,28 @@ export default function MyListsScreen() {
             isIos={isIos}
             onPress={onPin}
           />
-        </Animated.View>
+        </RNAnimated.View>
       );
     },
     [colors.tint, isIos]
   );
 
-  const selectedSortLabel = sortMode === 'updated-desc' ? 'Recent' : 'A-Z';
+  const selectedSortLabel =
+    sortMode === 'custom-order' ? 'Custom Order' : sortMode === 'updated-desc' ? 'Recent' : 'A-Z';
   const selectedFilterLabel =
     filterMode === 'all' ? 'All Lists' : filterMode === 'progress' ? 'Progress' : 'Sublists';
   const isGridView = viewMode === 'grid';
   const selectedListIdSet = useMemo(() => new Set(selectedListIds), [selectedListIds]);
   const hasSelectedLists = selectedListIds.length > 0;
+  const dragIndicatorTop = dragState
+    ? getDropIndicatorTop(items, dragState.listId, dragState.targetIndex, rowLayoutsRef.current)
+    : null;
+  const dragOverlayStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: dragTop.value },
+      { scale: dragScale.value },
+    ],
+  }));
 
   return (
     <TabRootBackground>
@@ -315,167 +604,215 @@ export default function MyListsScreen() {
           </Stack.Toolbar>
         </>
       ) : null}
-      <FlatList
-        key={viewMode}
-        contentInsetAdjustmentBehavior="automatic"
-        style={styles.container}
-        data={items}
-        keyExtractor={(item) => item.id}
-        numColumns={isGridView ? 2 : 1}
-        columnWrapperStyle={isGridView ? styles.gridColumn : undefined}
-        renderItem={({ item }) => {
-          const isSelected = selectedListIdSet.has(item.id);
+      <View ref={listViewportRef} style={styles.listViewport}>
+        <FlatList
+          key={viewMode}
+          contentInsetAdjustmentBehavior="automatic"
+          style={styles.container}
+          data={items}
+          keyExtractor={(item) => item.id}
+          numColumns={isGridView ? 2 : 1}
+          columnWrapperStyle={isGridView ? styles.gridColumn : undefined}
+          onScroll={(event) => {
+            setScrollOffset(event.nativeEvent.contentOffset.y);
+          }}
+          scrollEnabled={!dragState}
+          scrollEventThrottle={16}
+          renderItem={({ item }) => {
+            const isSelected = selectedListIdSet.has(item.id);
 
-          if (isGridView) {
-            return (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={isEditMode ? { selected: isSelected } : undefined}
-                onLongPress={isEditMode ? undefined : () => confirmDeleteList(item)}
-                onPress={() => (isEditMode ? toggleListSelection(item.id) : openListDetail(item))}
-                style={({ pressed }) => [
-                  styles.gridCard,
-                  isEditMode ? styles.gridCardEditMode : null,
-                  {
-                    opacity: pressed ? 0.84 : 1,
-                    borderColor: isEditMode && isSelected ? colors.tint : 'transparent',
-                  },
-                ]}
-              >
-                <GridCardSurface colors={colors} supportsLiquidGlass={supportsLiquidGlass}>
-                  {isEditMode ? (
-                    <View style={styles.selectionIndicatorFloating}>
-                      <SelectionIndicator color={colors.tint} selected={isSelected} />
+            if (isGridView) {
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={isEditMode ? { selected: isSelected } : undefined}
+                  onLongPress={isEditMode ? undefined : () => confirmDeleteList(item)}
+                  onPress={() => (isEditMode ? toggleListSelection(item.id) : openListDetail(item))}
+                  style={({ pressed }) => [
+                    styles.gridCard,
+                    isEditMode ? styles.gridCardEditMode : null,
+                    {
+                      opacity: pressed ? 0.84 : 1,
+                      borderColor: isEditMode && isSelected ? colors.tint : 'transparent',
+                    },
+                  ]}
+                >
+                  <GridCardSurface colors={colors} supportsLiquidGlass={supportsLiquidGlass}>
+                    {isEditMode ? (
+                      <View style={styles.selectionIndicatorFloating}>
+                        <SelectionIndicator color={colors.tint} selected={isSelected} />
+                      </View>
+                    ) : null}
+                    <ThumbnailImage imageUrl={item.imageUrl} style={styles.gridPoster} />
+                    <View style={styles.gridFooter}>
+                      <ThemedText style={styles.gridTitle} numberOfLines={2}>
+                        {item.title}
+                      </ThemedText>
+                      <View style={styles.countChevronGroup}>
+                        <ThemedText
+                          style={[styles.itemCount, { color: colors.icon }]}
+                          numberOfLines={1}
+                        >
+                          {item.entries.length}
+                        </ThemedText>
+                        {!isEditMode ? (
+                          <IconSymbol name="chevron.right" size={20} color={colors.icon} />
+                        ) : null}
+                      </View>
                     </View>
-                  ) : null}
-                  <ThumbnailImage imageUrl={item.imageUrl} style={styles.gridPoster} />
-                  <View style={styles.gridFooter}>
-                    <ThemedText style={styles.gridTitle} numberOfLines={2}>
+                  </GridCardSurface>
+                </Pressable>
+              );
+            }
+
+            if (isEditMode) {
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isSelected }}
+                  onPress={() => toggleListSelection(item.id)}
+                  style={({ pressed }) => [
+                    styles.resultRow,
+                    styles.resultRowEditMode,
+                    {
+                      opacity: pressed ? 0.8 : 1,
+                      borderColor: isSelected ? colors.tint : colors.icon + '20',
+                      backgroundColor: isSelected ? colors.tint + '12' : colors.background + '72',
+                    },
+                  ]}
+                >
+                  <SelectionIndicator color={colors.tint} selected={isSelected} />
+                  <ThumbnailImage imageUrl={item.imageUrl} style={styles.resultPoster} />
+                  <View style={styles.resultInfo}>
+                    <ThemedText style={styles.resultTitle} numberOfLines={2}>
                       {item.title}
                     </ThemedText>
-                    <View style={styles.countChevronGroup}>
-                      <ThemedText
-                        style={[styles.itemCount, { color: colors.icon }]}
-                        numberOfLines={1}
-                      >
-                        {item.entries.length}
-                      </ThemedText>
-                      {!isEditMode ? (
-                        <IconSymbol name="chevron.right" size={20} color={colors.icon} />
-                      ) : null}
-                    </View>
                   </View>
-                </GridCardSurface>
-              </Pressable>
-            );
-          }
-
-          if (isEditMode) {
-            return (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ selected: isSelected }}
-                onPress={() => toggleListSelection(item.id)}
-                style={({ pressed }) => [
-                  styles.resultRow,
-                  styles.resultRowEditMode,
-                  {
-                    opacity: pressed ? 0.8 : 1,
-                    borderColor: isSelected ? colors.tint : colors.icon + '20',
-                    backgroundColor: isSelected ? colors.tint + '12' : colors.background + '72',
-                  },
-                ]}
-              >
-                <SelectionIndicator color={colors.tint} selected={isSelected} />
-                <ThumbnailImage imageUrl={item.imageUrl} style={styles.resultPoster} />
-                <View style={styles.resultInfo}>
-                  <ThemedText style={styles.resultTitle} numberOfLines={2}>
-                    {item.title}
-                  </ThemedText>
-                </View>
-                <ThemedText style={[styles.itemCount, { color: colors.icon }]} numberOfLines={1}>
-                  {item.entries.length}
-                </ThemedText>
-              </Pressable>
-            );
-          }
-
-          return (
-            <Swipeable
-              containerStyle={styles.swipeableContainer}
-              childrenContainerStyle={styles.swipeableChildren}
-              leftThreshold={40}
-              overshootRight={false}
-              overshootLeft={false}
-              rightThreshold={40}
-              renderLeftActions={(progress) => renderPinAction(progress, () => openPinDialog(item))}
-              renderRightActions={(progress) =>
-                renderDeleteAction(progress, () => confirmDeleteList(item))
-              }
-            >
-              <Pressable
-                onPress={() => openListDetail(item)}
-                style={({ pressed }) => [styles.resultRow, { opacity: pressed ? 0.8 : 1 }]}
-              >
-                <ThumbnailImage imageUrl={item.imageUrl} style={styles.resultPoster} />
-                <View style={styles.resultInfo}>
-                  <ThemedText style={styles.resultTitle} numberOfLines={2}>
-                    {item.title}
-                  </ThemedText>
-                </View>
-                <View style={styles.countChevronGroup}>
                   <ThemedText style={[styles.itemCount, { color: colors.icon }]} numberOfLines={1}>
                     {item.entries.length}
                   </ThemedText>
-                  <IconSymbol
-                    name="chevron.right"
-                    size={24}
-                    color={colors.icon}
-                    style={styles.resultChevron}
-                  />
-                </View>
-              </Pressable>
-            </Swipeable>
-          );
-        }}
-        ListHeaderComponent={
-          <View style={styles.listHeader}>
-            <FilterSortControlRow
-              alignRight
-              colors={colors}
-              filterLabel={selectedFilterLabel}
-              filterOptions={[
-                { value: 'all', label: 'All lists' },
-                { value: 'progress', label: 'Lists with progress' },
-                { value: 'sublists', label: 'Lists with sublists' },
+                </Pressable>
+              );
+            }
+
+            if (canDragRows) {
+              return (
+                <DraggableListRow
+                  colors={colors}
+                  isDragging={dragState?.listId === item.id}
+                  item={item}
+                  onDragEnd={finishRowDrag}
+                  onDragMove={updateRowDrag}
+                  onDragStart={startRowDrag}
+                  onLayout={registerRowLayout}
+                  onPress={() => openListDetail(item)}
+                />
+              );
+            }
+
+            return (
+              <Swipeable
+                containerStyle={styles.swipeableContainer}
+                childrenContainerStyle={styles.swipeableChildren}
+                leftThreshold={40}
+                overshootRight={false}
+                overshootLeft={false}
+                rightThreshold={40}
+                renderLeftActions={(progress) => renderPinAction(progress, () => openPinDialog(item))}
+                renderRightActions={(progress) =>
+                  renderDeleteAction(progress, () => confirmDeleteList(item))
+                }
+              >
+                <Pressable
+                  onPress={() => openListDetail(item)}
+                  style={({ pressed }) => [styles.resultRow, { opacity: pressed ? 0.8 : 1 }]}
+                >
+                  <ListRowContent colors={colors} item={item} />
+                </Pressable>
+              </Swipeable>
+            );
+          }}
+          ListHeaderComponent={
+            <View
+              onLayout={(event) => {
+                listHeaderHeightRef.current = event.nativeEvent.layout.height;
+              }}
+              style={styles.listHeader}
+            >
+              <FilterSortControlRow
+                alignRight
+                colors={colors}
+                filterLabel={selectedFilterLabel}
+                filterOptions={[
+                  { value: 'all', label: 'All lists' },
+                  { value: 'progress', label: 'Lists with progress' },
+                  { value: 'sublists', label: 'Lists with sublists' },
+                ]}
+                filterValue={filterMode}
+                onFilterChange={(value) => setFilterMode(value as FilterMode)}
+                onOpenFilter={() => setMenuVisible('filter')}
+                onOpenSort={() => setMenuVisible('sort')}
+                sortLabel={selectedSortLabel}
+                sortOptions={[
+                  { value: 'custom-order', label: 'Custom Order' },
+                  { value: 'updated-desc', label: 'Recently updated' },
+                  { value: 'title-asc', label: 'Title A-Z' },
+                ]}
+                sortValue={sortMode}
+                onSortChange={(value) => setSortMode(value as SortMode)}
+              />
+            </View>
+          }
+          ListEmptyComponent={
+            <ThemedText style={styles.placeholder}>Tap + in the header to create a new list.</ThemedText>
+          }
+          contentContainerStyle={[
+            styles.listContent,
+            {
+              paddingTop: 16,
+              paddingBottom: insets.bottom + 24,
+              flexGrow: 1,
+            },
+          ]}
+          showsVerticalScrollIndicator={false}
+        />
+        {dragState && dragIndicatorTop !== null ? (
+          <Animated.View
+            entering={FadeIn.duration(120)}
+            exiting={FadeOut.duration(120)}
+            pointerEvents="none"
+            style={[
+              styles.dropIndicator,
+              {
+                backgroundColor: DROP_INDICATOR_COLOR,
+                transform: [
+                  {
+                    translateY:
+                      dragIndicatorTop + listHeaderHeightRef.current - scrollOffset,
+                  },
+                ],
+              },
+            ]}
+          />
+        ) : null}
+        {dragState ? (
+          <Animated.View pointerEvents="none" style={[styles.dragOverlay, dragOverlayStyle]}>
+            <View
+              style={[
+                styles.dragOverlayCard,
+                {
+                  backgroundColor: colors.background + 'EE',
+                  borderColor: colors.icon + '22',
+                },
               ]}
-              filterValue={filterMode}
-              onFilterChange={(value) => setFilterMode(value as FilterMode)}
-              onOpenFilter={() => setMenuVisible('filter')}
-              onOpenSort={() => setMenuVisible('sort')}
-              sortLabel={selectedSortLabel}
-              sortOptions={[
-                { value: 'updated-desc', label: 'Recently updated' },
-                { value: 'title-asc', label: 'Title A-Z' },
-              ]}
-              sortValue={sortMode}
-              onSortChange={(value) => setSortMode(value as SortMode)}
-            />
-          </View>
-        }
-        ListEmptyComponent={
-          <ThemedText style={styles.placeholder}>Tap + in the header to create a new list.</ThemedText>
-        }
-        contentContainerStyle={[
-          styles.listContent,
-          {
-            paddingTop: 16,
-            paddingBottom: insets.bottom + 24,
-            flexGrow: 1,
-          },
-        ]}
-        showsVerticalScrollIndicator={false}
-      />
+            >
+              <View style={styles.resultRow}>
+                <ListRowContent colors={colors} item={dragState.item} />
+              </View>
+            </View>
+          </Animated.View>
+        ) : null}
+      </View>
 
       {!isIos ? (
         <>
@@ -503,6 +840,7 @@ export default function MyListsScreen() {
             visible={menuVisible === 'sort'}
             title="Sort lists"
             options={[
+              { value: 'custom-order', label: 'Custom Order' },
               { value: 'updated-desc', label: 'Recently updated' },
               { value: 'title-asc', label: 'Title A-Z' },
             ]}
@@ -536,13 +874,101 @@ export default function MyListsScreen() {
   );
 }
 
+function ListRowContent({
+  colors,
+  item,
+  showChevron = true,
+}: {
+  colors: ThemeColors;
+  item: TrackerList;
+  showChevron?: boolean;
+}) {
+  return (
+    <>
+      <ThumbnailImage imageUrl={item.imageUrl} style={styles.resultPoster} />
+      <View style={styles.resultInfo}>
+        <ThemedText style={styles.resultTitle} numberOfLines={2}>
+          {item.title}
+        </ThemedText>
+      </View>
+      <View style={styles.countChevronGroup}>
+        <ThemedText style={[styles.itemCount, { color: colors.icon }]} numberOfLines={1}>
+          {item.entries.length}
+        </ThemedText>
+        {showChevron ? (
+          <IconSymbol
+            name="chevron.right"
+            size={24}
+            color={colors.icon}
+            style={styles.resultChevron}
+          />
+        ) : null}
+      </View>
+    </>
+  );
+}
+
+function DraggableListRow({
+  colors,
+  isDragging,
+  item,
+  onDragEnd,
+  onDragMove,
+  onDragStart,
+  onLayout,
+  onPress,
+}: {
+  colors: ThemeColors;
+  isDragging: boolean;
+  item: TrackerList;
+  onDragEnd: () => void;
+  onDragMove: (listId: string, translationY: number) => void;
+  onDragStart: (listId: string, touchOffsetY: number, absoluteY: number) => void;
+  onLayout: (listId: string, layout: RowLayout) => void;
+  onPress: () => void;
+}) {
+  const gesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activateAfterLongPress(220)
+        .onStart((event) => {
+          runOnJS(onDragStart)(item.id, event.y, event.absoluteY);
+        })
+        .onUpdate((event) => {
+          runOnJS(onDragMove)(item.id, event.translationY);
+        })
+        .onFinalize(() => {
+          runOnJS(onDragEnd)();
+        }),
+    [item.id, onDragEnd, onDragMove, onDragStart]
+  );
+
+  return (
+    <GestureDetector gesture={gesture}>
+      <Animated.View
+        layout={LinearTransition.springify().damping(20).stiffness(220)}
+        onLayout={(event) =>
+          onLayout(item.id, {
+            height: event.nativeEvent.layout.height,
+          })
+        }
+        style={isDragging ? styles.hiddenRow : undefined}
+      >
+        <Pressable onPress={onPress} style={({ pressed }) => [styles.resultRow, { opacity: pressed ? 0.82 : 1 }]}>
+          <ListRowContent colors={colors} item={item} />
+        </Pressable>
+      </Animated.View>
+    </GestureDetector>
+  );
+}
+
 function GridCardSurface({
   children,
   colors,
   supportsLiquidGlass,
 }: {
   children: ReactNode;
-  colors: (typeof Colors)['light'] | (typeof Colors)['dark'];
+  colors: ThemeColors;
   supportsLiquidGlass: boolean;
 }) {
   return (
@@ -705,6 +1131,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'transparent',
   },
+  listViewport: {
+    flex: 1,
+  },
   headerButton: {
     justifyContent: 'center',
     alignItems: 'center',
@@ -737,6 +1166,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     paddingVertical: 4,
+  },
+  hiddenRow: {
+    opacity: 0.04,
   },
   resultPoster: {
     borderRadius: 6,
@@ -873,6 +1305,28 @@ const styles = StyleSheet.create({
     height: 44,
     justifyContent: 'center',
     width: 44,
+  },
+  dropIndicator: {
+    borderRadius: 999,
+    height: 3,
+    left: 24,
+    position: 'absolute',
+    right: 24,
+    zIndex: 10,
+  },
+  dragOverlay: {
+    left: 20,
+    position: 'absolute',
+    right: 20,
+    top: 0,
+    zIndex: 20,
+  },
+  dragOverlayCard: {
+    borderCurve: 'continuous',
+    borderRadius: 20,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    boxShadow: '0 14px 30px rgba(15, 23, 42, 0.18)',
   },
   menuOverlay: {
     backgroundColor: 'rgba(0,0,0,0.28)',

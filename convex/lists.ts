@@ -27,6 +27,7 @@ import {
   getEntriesForList,
   getEntryRecordByClientId,
   getListRecordByClientId,
+  LIST_SORT_STEP,
   getTemplateRecordByClientId,
   maybeDeleteAssetIfUnreferenced,
   mergeListPreferences,
@@ -54,6 +55,7 @@ async function insertListWithEntries(ctx: any, list: any) {
     pinned: list.pinned,
     createdAt: list.createdAt,
     updatedAt: list.updatedAt,
+    sortOrder: list.sortOrder,
     templateId: list.templateId,
     showInMyLists: list.showInMyLists,
     parentListId: list.parentListId,
@@ -363,6 +365,28 @@ export const setListPreferences = mutation({
   },
 });
 
+export const reorderLists = mutation({
+  args: {
+    orderedListIds: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    if (!args.orderedListIds.length) {
+      return;
+    }
+
+    for (const [index, listId] of args.orderedListIds.entries()) {
+      const list = await getListRecordByClientId(ctx, listId);
+      if (!list || list.deletedAt) {
+        continue;
+      }
+
+      await replaceListRecord(ctx, list, {
+        sortOrder: (index + 1) * LIST_SORT_STEP,
+      });
+    }
+  },
+});
+
 export const markListOpened = mutation({
   args: { listId: v.string() },
   handler: async (ctx, args) => {
@@ -438,6 +462,7 @@ export const convertTagToSublist = mutation({
       pinned: false,
       createdAt: timestamp,
       updatedAt: timestamp,
+      sortOrder: timestamp,
       templateId: undefined,
       showInMyLists: false,
       parentListId: args.listId,

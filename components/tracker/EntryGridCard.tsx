@@ -41,6 +41,8 @@ export function EntryGridCard({
     >
       <ThumbnailImage
         imageUrl={entry.coverAssetUri ?? entry.imageUrl}
+        sourceRef={entry.sourceRef}
+        detailPath={entry.detailPath}
         style={styles.cover}
       />
       <View style={styles.content}>

@@ -806,7 +806,7 @@ export default function ListDetailScreen() {
               onOpenSort={() => setMenuVisible('sort')}
               sortLabel={labelForSort(preferences.sortMode)}
               sortOptions={[
-                { value: 'manual', label: 'Manual order' },
+                { value: 'manual', label: 'Custom Order' },
                 { value: 'updated-desc', label: 'Recently updated' },
                 { value: 'title-asc', label: 'Title A-Z' },
                 { value: 'rating-desc', label: 'Rating' },
@@ -850,7 +850,14 @@ export default function ListDetailScreen() {
                       onPress={() => openEntry(entry)}
                       style={styles.gridCard}
                     >
-                      {entryImageUrl ? <ThumbnailImage imageUrl={entryImageUrl} style={styles.gridImage} /> : null}
+                      {entryImageUrl || entry.sourceRef.source === 'anime' || entry.sourceRef.source === 'manga' ? (
+                        <ThumbnailImage
+                          imageUrl={entryImageUrl}
+                          sourceRef={entry.sourceRef}
+                          detailPath={entry.detailPath}
+                          style={styles.gridImage}
+                        />
+                      ) : null}
                       <ThemedText style={styles.gridTitle} numberOfLines={2}>
                         {entry.title}
                       </ThemedText>
@@ -905,7 +912,14 @@ export default function ListDetailScreen() {
                         </Pressable>
                       ) : null}
                       <Pressable onPress={() => openEntry(item)} style={styles.rowMain}>
-                        {itemImageUrl ? <ThumbnailImage imageUrl={itemImageUrl} style={styles.rowImage} /> : null}
+                        {itemImageUrl || item.sourceRef.source === 'anime' || item.sourceRef.source === 'manga' ? (
+                          <ThumbnailImage
+                            imageUrl={itemImageUrl}
+                            sourceRef={item.sourceRef}
+                            detailPath={item.detailPath}
+                            style={styles.rowImage}
+                          />
+                        ) : null}
                         <View style={styles.rowInfo}>
                           <ThemedText style={styles.rowTitle} numberOfLines={2}>
                             {item.title}
@@ -1178,7 +1192,7 @@ export default function ListDetailScreen() {
           visible={menuVisible === 'sort'}
           title="Sort items"
           options={[
-            { value: 'manual', label: 'Manual order' },
+            { value: 'manual', label: 'Custom Order' },
             { value: 'updated-desc', label: 'Recently updated' },
             { value: 'title-asc', label: 'Title A-Z' },
             { value: 'rating-desc', label: 'Rating' },
@@ -1834,7 +1848,12 @@ function TierView({
           >
             {(tier.list?.entries ?? []).map((entry) => (
               <Pressable key={entry.id} onPress={() => onOpenEntry(entry)} style={styles.tierItem}>
-                <ThumbnailImage imageUrl={entry.imageUrl} style={styles.tierImage} />
+                <ThumbnailImage
+                  imageUrl={entry.imageUrl}
+                  sourceRef={entry.sourceRef}
+                  detailPath={entry.detailPath}
+                  style={styles.tierImage}
+                />
                 <ThemedText numberOfLines={2} style={styles.tierItemTitle}>
                   {entry.title}
                 </ThemedText>
@@ -1977,7 +1996,7 @@ function ListRowSurface({
 
 function labelForSort(value: ListSortMode) {
   return value === 'manual'
-    ? 'Manual'
+    ? 'Custom Order'
     : value === 'updated-desc'
       ? 'Recent'
       : value === 'title-asc'
