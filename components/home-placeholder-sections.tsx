@@ -1,4 +1,4 @@
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -9,7 +9,16 @@ const HOME_SECTIONS = [
   {
     title: 'Quick Access',
     slug: 'quick-access',
-    items: ['Watchlist', 'Reading queue', 'Wishlist', 'Import links'],
+    items: [
+      'Watchlist',
+      'Reading queue',
+      'Wishlist',
+      'Import links',
+      'Favorites',
+      'Completed',
+      'Top picks',
+      'For later',
+    ],
   },
   {
     title: 'Recent activity',
@@ -40,9 +49,31 @@ const HOME_SECTIONS = [
   },
 ] as const;
 
+const SECTION_HORIZONTAL_PADDING = 20;
+const CARD_GAP = 14;
+const QUICK_ACCESS_PEEK = 48;
+
+function chunkItems<T>(items: readonly T[], size: number) {
+  const chunks: T[][] = [];
+
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push([...items.slice(index, index + size)]);
+  }
+
+  return chunks;
+}
+
 export function HomePlaceholderSections() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
+  const { width: windowWidth } = useWindowDimensions();
+  const quickAccessCardSize = Math.max(
+    72,
+    Math.floor(
+      (windowWidth - SECTION_HORIZONTAL_PADDING - CARD_GAP * 3 - QUICK_ACCESS_PEEK) / 3
+    )
+  );
+  const quickAccessColumns = chunkItems(HOME_SECTIONS[0].items, 2);
 
   return (
     <View style={styles.sectionStack}>
@@ -55,29 +86,64 @@ export function HomePlaceholderSections() {
               </ThemedText>
             </View>
           </View>
-          <ScrollView
-            horizontal
-            style={styles.rowViewport}
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.rowContent}
-          >
-            {section.items.slice(0, 6).map((item) => (
-              <View key={item} style={styles.cardShell}>
-                <ThemedView
-                  style={[
-                    styles.card,
-                    {
-                      backgroundColor: isDark
-                        ? 'rgba(7, 22, 44, 0.72)'
-                        : 'rgba(255, 255, 255, 0.72)',
-                    },
-                  ]}
+          {section.slug === 'quick-access' ? (
+            <ScrollView
+              horizontal
+              style={styles.rowViewport}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.quickAccessContent}
+            >
+              {quickAccessColumns.map((columnItems, columnIndex) => (
+                <View
+                  key={`quick-access-column-${columnIndex}`}
+                  style={[styles.quickAccessColumn, { width: quickAccessCardSize }]}
                 >
-                  <ThumbnailImage style={styles.thumbnail} />
-                </ThemedView>
-              </View>
-            ))}
-          </ScrollView>
+                  {columnItems.map((item) => (
+                    <View key={item} style={styles.quickAccessCardShell}>
+                      <ThemedView
+                        style={[
+                          styles.quickAccessCard,
+                          {
+                            backgroundColor: isDark
+                              ? 'rgba(7, 22, 44, 0.78)'
+                              : 'rgba(255, 255, 255, 0.78)',
+                          },
+                        ]}
+                      >
+                        <ThumbnailImage
+                          style={[styles.quickAccessThumbnail, { width: quickAccessCardSize }]}
+                        />
+                      </ThemedView>
+                    </View>
+                  ))}
+                </View>
+              ))}
+            </ScrollView>
+          ) : (
+            <ScrollView
+              horizontal
+              style={styles.rowViewport}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.rowContent}
+            >
+              {section.items.slice(0, 6).map((item) => (
+                <View key={item} style={styles.cardShell}>
+                  <ThemedView
+                    style={[
+                      styles.card,
+                      {
+                        backgroundColor: isDark
+                          ? 'rgba(7, 22, 44, 0.72)'
+                          : 'rgba(255, 255, 255, 0.72)',
+                      },
+                    ]}
+                  >
+                    <ThumbnailImage style={styles.thumbnail} />
+                  </ThemedView>
+                </View>
+              ))}
+            </ScrollView>
+          )}
         </View>
       ))}
     </View>
@@ -111,6 +177,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 4,
     overflow: 'visible',
+  },
+  quickAccessContent: {
+    alignItems: 'flex-start',
+    gap: CARD_GAP,
+    paddingHorizontal: SECTION_HORIZONTAL_PADDING,
+    paddingVertical: 4,
+  },
+  quickAccessColumn: {
+    gap: CARD_GAP,
+  },
+  quickAccessCardShell: {
+    borderRadius: 22,
+    boxShadow: '0 12px 28px rgba(7, 22, 44, 0.12)',
+  },
+  quickAccessCard: {
+    borderCurve: 'continuous',
+    borderRadius: 22,
+    overflow: 'hidden',
+  },
+  quickAccessThumbnail: {
+    aspectRatio: 1,
   },
   cardShell: {
     borderRadius: 22,

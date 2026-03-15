@@ -1,6 +1,7 @@
 import { BlurView } from 'expo-blur';
 import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
 import { Stack, useRouter } from 'expo-router';
+import { useHeaderHeight } from '@react-navigation/elements';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Animated as RNAnimated, FlatList, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector, Swipeable } from 'react-native-gesture-handler';
@@ -33,6 +34,7 @@ type ThemeColors = (typeof Colors)['light'] | (typeof Colors)['dark'];
 
 type RowLayout = {
   height: number;
+  width: number;
 };
 
 type DragState = {
@@ -40,9 +42,16 @@ type DragState = {
   listId: string;
   originalIndex: number;
   targetIndex: number;
+  rowWidth: number;
 };
 
 const DROP_INDICATOR_COLOR = '#2563EB';
+const DROP_INDICATOR_HEIGHT = 3;
+const DRAG_THUMBNAIL_ANCHOR_X = 34;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
 
 function getListSortOrder(list: TrackerList, fallbackIndex: number): number {
   return typeof list.sortOrder === 'number' ? list.sortOrder : (fallbackIndex + 1) * 1_000;
@@ -142,6 +151,7 @@ export default function MyListsScreen() {
   const isIos = process.env.EXPO_OS === 'ios';
   const supportsLiquidGlass = isIos && isGlassEffectAPIAvailable();
   const insets = useSafeAreaInsets();
+  const headerHeight = useHeaderHeight();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { activeLists } = useListsQuery();
@@ -156,9 +166,16 @@ export default function MyListsScreen() {
   const [optimisticListOrderIds, setOptimisticListOrderIds] = useState<string[] | null>(null);
   const [scrollOffset, setScrollOffset] = useState(0);
   const listViewportRef = useRef<View | null>(null);
-  const listHeaderHeightRef = useRef(0);
+  const listViewportWidthRef = useRef(0);
   const rowLayoutsRef = useRef<Record<string, RowLayout>>({});
-  const dragMetaRef = useRef<{ initialTop: number; rowHeight: number } | null>(null);
+  const dragMetaRef = useRef<{
+    initialLeft: number;
+    initialTop: number;
+    rowHeight: number;
+    rowWidth: number;
+    maxLeft: number;
+  } | null>(null);
+  const dragLeft = useSharedValue(0);
   const dragTop = useSharedValue(0);
   const dragScale = useSharedValue(1);
   const canDragRows = viewMode === 'rows' && !isEditMode && filterMode === 'all';
@@ -241,8 +258,9 @@ export default function MyListsScreen() {
 
     setDragState(null);
     dragMetaRef.current = null;
+    dragLeft.value = withTiming(0, { duration: 120 });
     dragScale.value = withTiming(1, { duration: 120 });
-  }, [canDragRows, dragScale]);
+  }, [canDragRows, dragLeft, dragScale]);
 
   const openNewListRoute = useCallback(() => {
     router.push({
@@ -356,7 +374,13 @@ export default function MyListsScreen() {
   }, []);
 
   const startRowDrag = useCallback(
-    (listId: string, touchOffsetY: number, absoluteY: number) => {
+    (
+      listId: string,
+      touchOffsetX: number,
+      touchOffsetY: number,
+      absoluteX: number,
+      absoluteY: number
+    ) => {
       if (!canDragRows) {
         return;
       }
@@ -368,15 +392,25 @@ export default function MyListsScreen() {
         return;
       }
 
-      viewport.measureInWindow((_viewportX, viewportY) => {
+      viewport.measureInWindow((viewportX, viewportY) => {
+        const viewportWidth = listViewportWidthRef.current || activeLayout.width;
+        const fingerXInViewport = absoluteX - viewportX;
         const fingerYInViewport = absoluteY - viewportY;
+        const maxLeft = Math.max(0, viewportWidth - activeLayout.width);
+        const thumbnailOffset =
+          touchOffsetX <= activeLayout.width ? DRAG_THUMBNAIL_ANCHOR_X : touchOffsetX;
+        const initialLeft = clamp(fingerXInViewport - thumbnailOffset, 0, maxLeft);
         const initialTop = fingerYInViewport - touchOffsetY;
 
+        dragLeft.value = initialLeft;
         dragTop.value = initialTop;
         dragScale.value = withTiming(0.97, { duration: 140 });
         dragMetaRef.current = {
+          initialLeft,
           initialTop,
           rowHeight: activeLayout.height,
+          rowWidth: activeLayout.width,
+          maxLeft,
         };
         setMenuVisible(null);
         const originalIndex = items.findIndex((candidate) => candidate.id === listId);
@@ -385,24 +419,26 @@ export default function MyListsScreen() {
           listId,
           originalIndex,
           targetIndex: originalIndex,
+          rowWidth: activeLayout.width,
         });
       });
     },
-    [canDragRows, dragScale, dragTop, items]
+    [canDragRows, dragLeft, dragScale, dragTop, items]
   );
 
   const updateRowDrag = useCallback(
-    (listId: string, translationY: number) => {
+    (listId: string, translationX: number, translationY: number) => {
       const activeDrag = dragState?.listId === listId ? dragState : null;
       const dragMeta = dragMetaRef.current;
       if (!activeDrag || !dragMeta) {
         return;
       }
 
+      const nextLeft = clamp(dragMeta.initialLeft + translationX, 0, dragMeta.maxLeft);
       const nextTop = dragMeta.initialTop + translationY;
-      const hoverMiddleY =
-        nextTop + scrollOffset - listHeaderHeightRef.current + dragMeta.rowHeight / 2;
+      const hoverMiddleY = nextTop + scrollOffset + dragMeta.rowHeight / 2;
       const nextTargetIndex = getHoverTargetIndex(items, listId, hoverMiddleY, rowLayoutsRef.current);
+      dragLeft.value = nextLeft;
       dragTop.value = nextTop;
 
       if (nextTargetIndex !== activeDrag.targetIndex) {
@@ -411,7 +447,7 @@ export default function MyListsScreen() {
         );
       }
     },
-    [dragState, dragTop, items, scrollOffset]
+    [dragLeft, dragState, dragTop, items, scrollOffset]
   );
 
   const finishRowDrag = useCallback(() => {
@@ -503,6 +539,7 @@ export default function MyListsScreen() {
     : null;
   const dragOverlayStyle = useAnimatedStyle(() => ({
     transform: [
+      { translateX: dragLeft.value },
       { translateY: dragTop.value },
       { scale: dragScale.value },
     ],
@@ -604,214 +641,216 @@ export default function MyListsScreen() {
           </Stack.Toolbar>
         </>
       ) : null}
-      <View ref={listViewportRef} style={styles.listViewport}>
-        <FlatList
-          key={viewMode}
-          contentInsetAdjustmentBehavior="automatic"
-          style={styles.container}
-          data={items}
-          keyExtractor={(item) => item.id}
-          numColumns={isGridView ? 2 : 1}
-          columnWrapperStyle={isGridView ? styles.gridColumn : undefined}
-          onScroll={(event) => {
-            setScrollOffset(event.nativeEvent.contentOffset.y);
-          }}
-          scrollEnabled={!dragState}
-          scrollEventThrottle={16}
-          renderItem={({ item }) => {
-            const isSelected = selectedListIdSet.has(item.id);
+      <View style={[styles.contentLayer, { paddingTop: headerHeight }]}>
+        <View style={styles.toolbar}>
+          <FilterSortControlRow
+            alignRight
+            colors={colors}
+            filterLabel={selectedFilterLabel}
+            filterOptions={[
+              { value: 'all', label: 'All lists' },
+              { value: 'progress', label: 'Lists with progress' },
+              { value: 'sublists', label: 'Lists with sublists' },
+            ]}
+            filterValue={filterMode}
+            onFilterChange={(value) => setFilterMode(value as FilterMode)}
+            onOpenFilter={() => setMenuVisible('filter')}
+            onOpenSort={() => setMenuVisible('sort')}
+            sortLabel={selectedSortLabel}
+            sortOptions={[
+              { value: 'custom-order', label: 'Custom Order' },
+              { value: 'updated-desc', label: 'Recently updated' },
+              { value: 'title-asc', label: 'Title A-Z' },
+            ]}
+            sortValue={sortMode}
+            onSortChange={(value) => setSortMode(value as SortMode)}
+          />
+        </View>
 
-            if (isGridView) {
-              return (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={isEditMode ? { selected: isSelected } : undefined}
-                  onLongPress={isEditMode ? undefined : () => confirmDeleteList(item)}
-                  onPress={() => (isEditMode ? toggleListSelection(item.id) : openListDetail(item))}
-                  style={({ pressed }) => [
-                    styles.gridCard,
-                    isEditMode ? styles.gridCardEditMode : null,
-                    {
-                      opacity: pressed ? 0.84 : 1,
-                      borderColor: isEditMode && isSelected ? colors.tint : 'transparent',
-                    },
-                  ]}
-                >
-                  <GridCardSurface colors={colors} supportsLiquidGlass={supportsLiquidGlass}>
-                    {isEditMode ? (
-                      <View style={styles.selectionIndicatorFloating}>
-                        <SelectionIndicator color={colors.tint} selected={isSelected} />
+        <View
+          ref={listViewportRef}
+          onLayout={(event) => {
+            listViewportWidthRef.current = event.nativeEvent.layout.width;
+          }}
+          style={styles.listViewport}
+        >
+          <FlatList
+            key={viewMode}
+            contentInsetAdjustmentBehavior="never"
+            style={styles.container}
+            data={items}
+            keyExtractor={(item) => item.id}
+            numColumns={isGridView ? 2 : 1}
+            columnWrapperStyle={isGridView ? styles.gridColumn : undefined}
+            onScroll={(event) => {
+              setScrollOffset(event.nativeEvent.contentOffset.y);
+            }}
+            scrollEnabled={!dragState}
+            scrollEventThrottle={16}
+            renderItem={({ item }) => {
+              const isSelected = selectedListIdSet.has(item.id);
+
+              if (isGridView) {
+                return (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={isEditMode ? { selected: isSelected } : undefined}
+                    onLongPress={isEditMode ? undefined : () => confirmDeleteList(item)}
+                    onPress={() => (isEditMode ? toggleListSelection(item.id) : openListDetail(item))}
+                    style={({ pressed }) => [
+                      styles.gridCard,
+                      isEditMode ? styles.gridCardEditMode : null,
+                      {
+                        opacity: pressed ? 0.84 : 1,
+                        borderColor: isEditMode && isSelected ? colors.tint : 'transparent',
+                      },
+                    ]}
+                  >
+                    <GridCardSurface colors={colors} supportsLiquidGlass={supportsLiquidGlass}>
+                      {isEditMode ? (
+                        <View style={styles.selectionIndicatorFloating}>
+                          <SelectionIndicator color={colors.tint} selected={isSelected} />
+                        </View>
+                      ) : null}
+                      <ThumbnailImage imageUrl={item.imageUrl} style={styles.gridPoster} />
+                      <View style={styles.gridFooter}>
+                        <ThemedText style={styles.gridTitle} numberOfLines={2}>
+                          {item.title}
+                        </ThemedText>
+                        <View style={styles.countChevronGroup}>
+                          <ThemedText
+                            style={[styles.itemCount, { color: colors.icon }]}
+                            numberOfLines={1}
+                          >
+                            {item.entries.length}
+                          </ThemedText>
+                          {!isEditMode ? (
+                            <IconSymbol name="chevron.right" size={20} color={colors.icon} />
+                          ) : null}
+                        </View>
                       </View>
-                    ) : null}
-                    <ThumbnailImage imageUrl={item.imageUrl} style={styles.gridPoster} />
-                    <View style={styles.gridFooter}>
-                      <ThemedText style={styles.gridTitle} numberOfLines={2}>
+                    </GridCardSurface>
+                  </Pressable>
+                );
+              }
+
+              if (isEditMode) {
+                return (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isSelected }}
+                    onPress={() => toggleListSelection(item.id)}
+                    style={({ pressed }) => [
+                      styles.resultRow,
+                      styles.resultRowEditMode,
+                      {
+                        opacity: pressed ? 0.8 : 1,
+                        borderColor: isSelected ? colors.tint : colors.icon + '20',
+                        backgroundColor: isSelected ? colors.tint + '12' : colors.background + '72',
+                      },
+                    ]}
+                  >
+                    <SelectionIndicator color={colors.tint} selected={isSelected} />
+                    <ThumbnailImage imageUrl={item.imageUrl} style={styles.resultPoster} />
+                    <View style={styles.resultInfo}>
+                      <ThemedText style={styles.resultTitle} numberOfLines={2}>
                         {item.title}
                       </ThemedText>
-                      <View style={styles.countChevronGroup}>
-                        <ThemedText
-                          style={[styles.itemCount, { color: colors.icon }]}
-                          numberOfLines={1}
-                        >
-                          {item.entries.length}
-                        </ThemedText>
-                        {!isEditMode ? (
-                          <IconSymbol name="chevron.right" size={20} color={colors.icon} />
-                        ) : null}
-                      </View>
                     </View>
-                  </GridCardSurface>
-                </Pressable>
-              );
-            }
-
-            if (isEditMode) {
-              return (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: isSelected }}
-                  onPress={() => toggleListSelection(item.id)}
-                  style={({ pressed }) => [
-                    styles.resultRow,
-                    styles.resultRowEditMode,
-                    {
-                      opacity: pressed ? 0.8 : 1,
-                      borderColor: isSelected ? colors.tint : colors.icon + '20',
-                      backgroundColor: isSelected ? colors.tint + '12' : colors.background + '72',
-                    },
-                  ]}
-                >
-                  <SelectionIndicator color={colors.tint} selected={isSelected} />
-                  <ThumbnailImage imageUrl={item.imageUrl} style={styles.resultPoster} />
-                  <View style={styles.resultInfo}>
-                    <ThemedText style={styles.resultTitle} numberOfLines={2}>
-                      {item.title}
+                    <ThemedText style={[styles.itemCount, { color: colors.icon }]} numberOfLines={1}>
+                      {item.entries.length}
                     </ThemedText>
-                  </View>
-                  <ThemedText style={[styles.itemCount, { color: colors.icon }]} numberOfLines={1}>
-                    {item.entries.length}
-                  </ThemedText>
-                </Pressable>
-              );
-            }
+                  </Pressable>
+                );
+              }
 
-            if (canDragRows) {
+              if (canDragRows) {
+                return (
+                  <DraggableListRow
+                    colors={colors}
+                    isDragging={dragState?.listId === item.id}
+                    item={item}
+                    onDragEnd={finishRowDrag}
+                    onDragMove={updateRowDrag}
+                    onDragStart={startRowDrag}
+                    onLayout={registerRowLayout}
+                    onPress={() => openListDetail(item)}
+                  />
+                );
+              }
+
               return (
-                <DraggableListRow
-                  colors={colors}
-                  isDragging={dragState?.listId === item.id}
-                  item={item}
-                  onDragEnd={finishRowDrag}
-                  onDragMove={updateRowDrag}
-                  onDragStart={startRowDrag}
-                  onLayout={registerRowLayout}
-                  onPress={() => openListDetail(item)}
-                />
-              );
-            }
-
-            return (
-              <Swipeable
-                containerStyle={styles.swipeableContainer}
-                childrenContainerStyle={styles.swipeableChildren}
-                leftThreshold={40}
-                overshootRight={false}
-                overshootLeft={false}
-                rightThreshold={40}
-                renderLeftActions={(progress) => renderPinAction(progress, () => openPinDialog(item))}
-                renderRightActions={(progress) =>
-                  renderDeleteAction(progress, () => confirmDeleteList(item))
-                }
-              >
-                <Pressable
-                  onPress={() => openListDetail(item)}
-                  style={({ pressed }) => [styles.resultRow, { opacity: pressed ? 0.8 : 1 }]}
+                <Swipeable
+                  containerStyle={styles.swipeableContainer}
+                  childrenContainerStyle={styles.swipeableChildren}
+                  leftThreshold={40}
+                  overshootRight={false}
+                  overshootLeft={false}
+                  rightThreshold={40}
+                  renderLeftActions={(progress) => renderPinAction(progress, () => openPinDialog(item))}
+                  renderRightActions={(progress) =>
+                    renderDeleteAction(progress, () => confirmDeleteList(item))
+                  }
                 >
-                  <ListRowContent colors={colors} item={item} />
-                </Pressable>
-              </Swipeable>
-            );
-          }}
-          ListHeaderComponent={
-            <View
-              onLayout={(event) => {
-                listHeaderHeightRef.current = event.nativeEvent.layout.height;
-              }}
-              style={styles.listHeader}
-            >
-              <FilterSortControlRow
-                alignRight
-                colors={colors}
-                filterLabel={selectedFilterLabel}
-                filterOptions={[
-                  { value: 'all', label: 'All lists' },
-                  { value: 'progress', label: 'Lists with progress' },
-                  { value: 'sublists', label: 'Lists with sublists' },
-                ]}
-                filterValue={filterMode}
-                onFilterChange={(value) => setFilterMode(value as FilterMode)}
-                onOpenFilter={() => setMenuVisible('filter')}
-                onOpenSort={() => setMenuVisible('sort')}
-                sortLabel={selectedSortLabel}
-                sortOptions={[
-                  { value: 'custom-order', label: 'Custom Order' },
-                  { value: 'updated-desc', label: 'Recently updated' },
-                  { value: 'title-asc', label: 'Title A-Z' },
-                ]}
-                sortValue={sortMode}
-                onSortChange={(value) => setSortMode(value as SortMode)}
-              />
-            </View>
-          }
-          ListEmptyComponent={
-            <ThemedText style={styles.placeholder}>Tap + in the header to create a new list.</ThemedText>
-          }
-          contentContainerStyle={[
-            styles.listContent,
-            {
-              paddingTop: 16,
-              paddingBottom: insets.bottom + 24,
-              flexGrow: 1,
-            },
-          ]}
-          showsVerticalScrollIndicator={false}
-        />
-        {dragState && dragIndicatorTop !== null ? (
-          <Animated.View
-            entering={FadeIn.duration(120)}
-            exiting={FadeOut.duration(120)}
-            pointerEvents="none"
-            style={[
-              styles.dropIndicator,
+                  <Pressable
+                    onPress={() => openListDetail(item)}
+                    style={({ pressed }) => [styles.resultRow, { opacity: pressed ? 0.8 : 1 }]}
+                  >
+                    <ListRowContent colors={colors} item={item} />
+                  </Pressable>
+                </Swipeable>
+              );
+            }}
+            ListEmptyComponent={
+              <ThemedText style={styles.placeholder}>Tap + in the header to create a new list.</ThemedText>
+            }
+            contentContainerStyle={[
+              styles.listContent,
               {
-                backgroundColor: DROP_INDICATOR_COLOR,
-                transform: [
-                  {
-                    translateY:
-                      dragIndicatorTop + listHeaderHeightRef.current - scrollOffset,
-                  },
-                ],
+                paddingTop: 16,
+                paddingBottom: insets.bottom + 24,
+                flexGrow: 1,
               },
             ]}
+            showsVerticalScrollIndicator={false}
           />
-        ) : null}
-        {dragState ? (
-          <Animated.View pointerEvents="none" style={[styles.dragOverlay, dragOverlayStyle]}>
-            <View
+          {dragState && dragIndicatorTop !== null ? (
+            <Animated.View
+              entering={FadeIn.duration(120)}
+              exiting={FadeOut.duration(120)}
+              pointerEvents="none"
               style={[
-                styles.dragOverlayCard,
+                styles.dropIndicator,
                 {
-                  backgroundColor: colors.background + 'EE',
-                  borderColor: colors.icon + '22',
+                  backgroundColor: DROP_INDICATOR_COLOR,
+                  transform: [
+                    {
+                      translateY: dragIndicatorTop - scrollOffset - DROP_INDICATOR_HEIGHT / 2,
+                    },
+                  ],
                 },
               ]}
-            >
-              <View style={styles.resultRow}>
-                <ListRowContent colors={colors} item={dragState.item} />
+            />
+          ) : null}
+          {dragState ? (
+            <Animated.View pointerEvents="none" style={[styles.dragOverlay, dragOverlayStyle]}>
+              <View
+                style={[
+                  styles.dragOverlayCard,
+                  {
+                    backgroundColor: colors.background + 'EE',
+                    borderColor: colors.icon + '22',
+                    width: dragState.rowWidth,
+                  },
+                ]}
+              >
+                <View style={styles.resultRow}>
+                  <ListRowContent colors={colors} item={dragState.item} />
+                </View>
               </View>
-            </View>
-          </Animated.View>
-        ) : null}
+            </Animated.View>
+          ) : null}
+        </View>
       </View>
 
       {!isIos ? (
@@ -922,8 +961,14 @@ function DraggableListRow({
   isDragging: boolean;
   item: TrackerList;
   onDragEnd: () => void;
-  onDragMove: (listId: string, translationY: number) => void;
-  onDragStart: (listId: string, touchOffsetY: number, absoluteY: number) => void;
+  onDragMove: (listId: string, translationX: number, translationY: number) => void;
+  onDragStart: (
+    listId: string,
+    touchOffsetX: number,
+    touchOffsetY: number,
+    absoluteX: number,
+    absoluteY: number
+  ) => void;
   onLayout: (listId: string, layout: RowLayout) => void;
   onPress: () => void;
 }) {
@@ -932,10 +977,10 @@ function DraggableListRow({
       Gesture.Pan()
         .activateAfterLongPress(220)
         .onStart((event) => {
-          runOnJS(onDragStart)(item.id, event.y, event.absoluteY);
+          runOnJS(onDragStart)(item.id, event.x, event.y, event.absoluteX, event.absoluteY);
         })
         .onUpdate((event) => {
-          runOnJS(onDragMove)(item.id, event.translationY);
+          runOnJS(onDragMove)(item.id, event.translationX, event.translationY);
         })
         .onFinalize(() => {
           runOnJS(onDragEnd)();
@@ -950,8 +995,10 @@ function DraggableListRow({
         onLayout={(event) =>
           onLayout(item.id, {
             height: event.nativeEvent.layout.height,
+            width: event.nativeEvent.layout.width,
           })
         }
+        pointerEvents={isDragging ? 'none' : 'auto'}
         style={isDragging ? styles.hiddenRow : undefined}
       >
         <Pressable onPress={onPress} style={({ pressed }) => [styles.resultRow, { opacity: pressed ? 0.82 : 1 }]}>
@@ -1134,6 +1181,9 @@ const styles = StyleSheet.create({
   listViewport: {
     flex: 1,
   },
+  contentLayer: {
+    flex: 1,
+  },
   headerButton: {
     justifyContent: 'center',
     alignItems: 'center',
@@ -1150,7 +1200,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  listHeader: {
+  toolbar: {
+    paddingHorizontal: 20,
     paddingBottom: 14,
   },
   placeholder: {
@@ -1168,7 +1219,9 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   hiddenRow: {
-    opacity: 0.04,
+    height: 0,
+    opacity: 0,
+    overflow: 'hidden',
   },
   resultPoster: {
     borderRadius: 6,
@@ -1308,16 +1361,15 @@ const styles = StyleSheet.create({
   },
   dropIndicator: {
     borderRadius: 999,
-    height: 3,
+    height: DROP_INDICATOR_HEIGHT,
     left: 24,
     position: 'absolute',
     right: 24,
     zIndex: 10,
   },
   dragOverlay: {
-    left: 20,
     position: 'absolute',
-    right: 20,
+    left: 0,
     top: 0,
     zIndex: 20,
   },

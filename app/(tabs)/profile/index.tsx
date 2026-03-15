@@ -255,7 +255,7 @@ export default function ProfileScreen() {
             },
           ]}
         >
-          <AvatarIcon profileId={workspaceId} size={88} iconSize={42} />
+          <AvatarIcon profileId={workspaceId} displayName={displayName} size={88} />
           <View style={styles.identity}>
             <ThemedText selectable style={styles.name}>
               {displayName}

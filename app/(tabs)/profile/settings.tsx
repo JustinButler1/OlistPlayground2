@@ -129,11 +129,14 @@ export default function SettingsScreen() {
         >
           <ThemedText type="subtitle">Onboarding</ThemedText>
           <View style={styles.avatarRow}>
-            <AvatarIcon profileId="shared-workspace-profile" />
+            <AvatarIcon
+              profileId="shared-workspace-profile"
+              displayName={state.profile.displayName.trim() || 'Shared Workspace'}
+            />
             <View style={styles.avatarCopy}>
               <ThemedText style={styles.avatarTitle}>Shared profile avatar</ThemedText>
               <ThemedText style={[styles.caption, { color: colors.icon }]}>
-                Profile photos are not implemented yet, so this currently shows the generic avatar.
+                The avatar now uses a linear gradient with initials generated from the display name.
               </ThemedText>
             </View>
           </View>
