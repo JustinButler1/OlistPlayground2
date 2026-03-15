@@ -48,6 +48,7 @@ type DragState = {
 const DROP_INDICATOR_COLOR = '#2563EB';
 const DROP_INDICATOR_HEIGHT = 3;
 const DRAG_THUMBNAIL_ANCHOR_X = 34;
+const LIST_CONTENT_TOP_PADDING = 16;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -436,7 +437,8 @@ export default function MyListsScreen() {
 
       const nextLeft = clamp(dragMeta.initialLeft + translationX, 0, dragMeta.maxLeft);
       const nextTop = dragMeta.initialTop + translationY;
-      const hoverMiddleY = nextTop + scrollOffset + dragMeta.rowHeight / 2;
+      const hoverMiddleY =
+        nextTop + scrollOffset - LIST_CONTENT_TOP_PADDING + dragMeta.rowHeight / 2;
       const nextTargetIndex = getHoverTargetIndex(items, listId, hoverMiddleY, rowLayoutsRef.current);
       dragLeft.value = nextLeft;
       dragTop.value = nextTop;
@@ -807,7 +809,7 @@ export default function MyListsScreen() {
             contentContainerStyle={[
               styles.listContent,
               {
-                paddingTop: 16,
+                paddingTop: LIST_CONTENT_TOP_PADDING,
                 paddingBottom: insets.bottom + 24,
                 flexGrow: 1,
               },
@@ -825,7 +827,11 @@ export default function MyListsScreen() {
                   backgroundColor: DROP_INDICATOR_COLOR,
                   transform: [
                     {
-                      translateY: dragIndicatorTop - scrollOffset - DROP_INDICATOR_HEIGHT / 2,
+                      translateY:
+                        dragIndicatorTop -
+                        scrollOffset +
+                        LIST_CONTENT_TOP_PADDING -
+                        DROP_INDICATOR_HEIGHT / 2,
                     },
                   ],
                 },
