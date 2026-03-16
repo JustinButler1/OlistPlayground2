@@ -1,10 +1,10 @@
+import { useHeaderHeight } from '@react-navigation/elements';
 import { BlurView } from 'expo-blur';
 import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
 import * as Haptics from 'expo-haptics';
 import { Stack, useRouter } from 'expo-router';
-import { useHeaderHeight } from '@react-navigation/elements';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Animated as RNAnimated, FlatList, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, FlatList, Modal, Platform, Pressable, Animated as RNAnimated, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector, Swipeable } from 'react-native-gesture-handler';
 import Animated, {
   FadeIn,
@@ -13,8 +13,7 @@ import Animated, {
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
-  withSpring,
-  withTiming,
+  withTiming
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -52,6 +51,8 @@ const DRAG_THUMBNAIL_ANCHOR_X = 34;
 const LIST_CONTENT_TOP_PADDING = 16;
 const AUTO_SCROLL_EDGE_THRESHOLD = 96;
 const AUTO_SCROLL_MAX_STEP = 18;
+const DRAG_LIFT_DURATION_MS = 5;
+const DRAG_RELEASE_DURATION_MS = 5;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -293,7 +294,7 @@ export default function MyListsScreen() {
     dragPositionRef.current = { left: 0, top: 0 };
     lastDragTargetIndexRef.current = null;
     dragLeft.value = withTiming(0, { duration: 120 });
-    dragScale.value = withTiming(1, { duration: 120 });
+    dragScale.value = withTiming(1, { duration: DRAG_RELEASE_DURATION_MS });
   }, [canDragRows, dragLeft, dragScale]);
 
   const stopAutoScroll = useCallback(() => {
@@ -590,7 +591,7 @@ export default function MyListsScreen() {
         };
         dragLeft.value = initialLeft;
         dragTop.value = initialTop;
-        dragScale.value = withTiming(0.97, { duration: 140 });
+        dragScale.value = withTiming(0.97, { duration: DRAG_LIFT_DURATION_MS });
         dragMetaRef.current = {
           initialLeft,
           initialTop,
@@ -649,13 +650,13 @@ export default function MyListsScreen() {
     const activeDrag = dragState;
     if (!activeDrag) {
       stopAutoScroll();
-      dragScale.value = withTiming(1, { duration: 120 });
+      dragScale.value = withTiming(1, { duration: DRAG_RELEASE_DURATION_MS });
       return;
     }
 
     if (activeDrag.targetIndex === activeDrag.originalIndex) {
       stopAutoScroll();
-      dragScale.value = withTiming(1, { duration: 120 });
+      dragScale.value = withTiming(1, { duration: DRAG_RELEASE_DURATION_MS });
       setDragState(null);
       dragMetaRef.current = null;
       dragPositionRef.current = { left: 0, top: 0 };
@@ -670,7 +671,7 @@ export default function MyListsScreen() {
     const previousSortMode = sortMode;
 
     stopAutoScroll();
-    dragScale.value = withSpring(1, { damping: 16, stiffness: 220 });
+    dragScale.value = withTiming(1, { duration: DRAG_RELEASE_DURATION_MS });
     setOptimisticListOrderIds(reorderedIds);
     setSortMode('custom-order');
     setDragState(null);
@@ -788,29 +789,29 @@ export default function MyListsScreen() {
           headerRight: isIos
             ? undefined
             : () => (
-                <View style={styles.headerRightActions}>
-                  <Pressable
-                    onPress={openNewListRoute}
-                    style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.7 : 1 }]}
-                    accessibilityRole="button"
-                    accessibilityLabel="Add list"
-                  >
-                    <IconSymbol name="plus" size={26} color={colors.tint} />
-                  </Pressable>
-                  <Pressable
-                    onPress={isEditMode ? exitEditMode : () => setMenuVisible('header')}
-                    style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.7 : 1 }]}
-                    accessibilityRole="button"
-                    accessibilityLabel={isEditMode ? 'Done editing lists' : 'Open lists menu'}
-                  >
-                    <IconSymbol
-                      name={isEditMode ? 'checkmark' : 'ellipsis'}
-                      size={24}
-                      color={colors.tint}
-                    />
-                  </Pressable>
-                </View>
-              ),
+              <View style={styles.headerRightActions}>
+                <Pressable
+                  onPress={openNewListRoute}
+                  style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.7 : 1 }]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add list"
+                >
+                  <IconSymbol name="plus" size={26} color={colors.tint} />
+                </Pressable>
+                <Pressable
+                  onPress={isEditMode ? exitEditMode : () => setMenuVisible('header')}
+                  style={({ pressed }) => [styles.headerButton, { opacity: pressed ? 0.7 : 1 }]}
+                  accessibilityRole="button"
+                  accessibilityLabel={isEditMode ? 'Done editing lists' : 'Open lists menu'}
+                >
+                  <IconSymbol
+                    name={isEditMode ? 'checkmark' : 'ellipsis'}
+                    size={24}
+                    color={colors.tint}
+                  />
+                </Pressable>
+              </View>
+            ),
         }}
       />
       {isIos ? (
@@ -1215,7 +1216,7 @@ function DraggableListRow({
   return (
     <GestureDetector gesture={gesture}>
       <Animated.View
-        layout={LinearTransition.springify().damping(20).stiffness(220)}
+        layout={LinearTransition.springify().damping(14).stiffness(240).mass(0.55)}
         onLayout={(event) =>
           onLayout(item.id, {
             height: event.nativeEvent.layout.height,
