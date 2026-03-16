@@ -169,7 +169,6 @@ export default function MyListsScreen() {
   const [selectedListIds, setSelectedListIds] = useState<string[]>([]);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [optimisticListOrderIds, setOptimisticListOrderIds] = useState<string[] | null>(null);
-  const [scrollOffset, setScrollOffset] = useState(0);
   const flatListRef = useRef<FlatList<TrackerList> | null>(null);
   const listViewportRef = useRef<View | null>(null);
   const listViewportWidthRef = useRef(0);
@@ -194,11 +193,8 @@ export default function MyListsScreen() {
   const dragLeft = useSharedValue(0);
   const dragTop = useSharedValue(0);
   const dragScale = useSharedValue(1);
+  const scrollOffsetValue = useSharedValue(0);
   const canDragRows = viewMode === 'rows' && !isEditMode && filterMode === 'all';
-
-  useEffect(() => {
-    scrollOffsetRef.current = scrollOffset;
-  }, [scrollOffset]);
 
   useEffect(() => {
     dragStateRef.current = dragState;
@@ -388,7 +384,7 @@ export default function MyListsScreen() {
         }
 
         scrollOffsetRef.current = nextScrollOffset;
-        setScrollOffset(nextScrollOffset);
+        scrollOffsetValue.value = nextScrollOffset;
         flatListRef.current?.scrollToOffset({
           animated: false,
           offset: nextScrollOffset,
@@ -412,7 +408,7 @@ export default function MyListsScreen() {
     };
 
     tick();
-  }, [insets.bottom, stopAutoScroll, updateDragTarget]);
+  }, [insets.bottom, scrollOffsetValue, stopAutoScroll, updateDragTarget]);
 
   const updateAutoScroll = useCallback(
     (fingerYInViewport: number) => {
@@ -629,7 +625,7 @@ export default function MyListsScreen() {
       const nextTop = dragMeta.initialTop + translationY;
       const fingerYInViewport = nextTop + dragMeta.touchOffsetY;
       const hoverMiddleY =
-        nextTop + scrollOffset - LIST_CONTENT_TOP_PADDING + dragMeta.rowHeight / 2;
+        nextTop + scrollOffsetRef.current - LIST_CONTENT_TOP_PADDING + dragMeta.rowHeight / 2;
       const nextTargetIndex = getHoverTargetIndex(items, listId, hoverMiddleY, rowLayoutsRef.current);
       dragPositionRef.current = {
         left: nextLeft,
@@ -643,7 +639,7 @@ export default function MyListsScreen() {
         updateDragTarget(listId, nextTargetIndex);
       }
     },
-    [dragLeft, dragState, dragTop, items, scrollOffset, updateAutoScroll, updateDragTarget]
+    [dragLeft, dragState, dragTop, items, updateAutoScroll, updateDragTarget]
   );
 
   const finishRowDrag = useCallback(() => {
@@ -757,6 +753,18 @@ export default function MyListsScreen() {
       { translateY: dragTop.value },
       { scale: dragScale.value },
     ],
+  }));
+  const dragIndicatorStyle = useAnimatedStyle(() => ({
+    transform: [
+      {
+        translateY:
+          (dragIndicatorTop ?? 0) -
+          scrollOffsetValue.value +
+          LIST_CONTENT_TOP_PADDING -
+          DROP_INDICATOR_HEIGHT / 2,
+      },
+    ],
+    opacity: dragIndicatorTop === null ? 0 : 1,
   }));
 
   return (
@@ -901,7 +909,7 @@ export default function MyListsScreen() {
             onScroll={(event) => {
               const nextScrollOffset = event.nativeEvent.contentOffset.y;
               scrollOffsetRef.current = nextScrollOffset;
-              setScrollOffset(nextScrollOffset);
+              scrollOffsetValue.value = nextScrollOffset;
             }}
             onContentSizeChange={(_width, height) => {
               listContentHeightRef.current = height;
@@ -1042,18 +1050,8 @@ export default function MyListsScreen() {
               pointerEvents="none"
               style={[
                 styles.dropIndicator,
-                {
-                  backgroundColor: DROP_INDICATOR_COLOR,
-                  transform: [
-                    {
-                      translateY:
-                        dragIndicatorTop -
-                        scrollOffset +
-                        LIST_CONTENT_TOP_PADDING -
-                        DROP_INDICATOR_HEIGHT / 2,
-                    },
-                  ],
-                },
+                { backgroundColor: DROP_INDICATOR_COLOR },
+                dragIndicatorStyle,
               ]}
             />
           ) : null}
