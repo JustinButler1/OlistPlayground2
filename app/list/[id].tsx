@@ -1,6 +1,7 @@
 import { useHeaderHeight } from '@react-navigation/elements';
 import { BlurView } from 'expo-blur';
 import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
+import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { openBrowserAsync, WebBrowserPresentationStyle } from 'expo-web-browser';
@@ -8,7 +9,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import {
   ActionSheetIOS,
   Alert,
-  Animated,
+  Animated as RNAnimated,
   Dimensions,
   FlatList,
   Keyboard,
@@ -21,7 +22,16 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { Swipeable } from 'react-native-gesture-handler';
+import { Gesture, GestureDetector, Swipeable } from 'react-native-gesture-handler';
+import Animated, {
+  FadeIn,
+  FadeOut,
+  LinearTransition,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
@@ -46,6 +56,116 @@ const COMPOSER_TOOLBAR_OFFSET = 20;
 const BOTTOM_TOOLBAR_HEIGHT = 56;
 const BOTTOM_TOOLBAR_MARGIN = 16;
 const MAX_VISIBLE_ENTRY_TAGS = 3;
+const ENTRY_LIST_TOP_PADDING = 6;
+const ENTRY_ROW_GAP = 6;
+const DROP_INDICATOR_COLOR = '#2563EB';
+const DROP_INDICATOR_HEIGHT = 3;
+const AUTO_SCROLL_EDGE_THRESHOLD = 96;
+const AUTO_SCROLL_MAX_STEP = 18;
+const DRAG_LIFT_DURATION_MS = 5;
+const DRAG_RELEASE_DURATION_MS = 5;
+
+type RowLayout = {
+  height: number;
+  width: number;
+};
+
+type EntryDragState = {
+  entry: ListEntry;
+  entryId: string;
+  originalIndex: number;
+  targetIndex: number;
+  rowWidth: number;
+};
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function applyOrderedIds<T extends { id: string }>(items: T[], orderedIds: string[] | null): T[] {
+  if (!orderedIds?.length) {
+    return items;
+  }
+
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const orderedItems = orderedIds.map((id) => byId.get(id)).filter((item): item is T => item !== undefined);
+
+  if (orderedItems.length === items.length) {
+    return orderedItems;
+  }
+
+  return [...orderedItems, ...items.filter((item) => !orderedIds.includes(item.id))];
+}
+
+function moveItemIdToIndex(ids: string[], draggedId: string, targetIndex: number): string[] {
+  const nextIds = ids.filter((id) => id !== draggedId);
+  const boundedIndex = Math.max(0, Math.min(targetIndex, nextIds.length));
+  nextIds.splice(boundedIndex, 0, draggedId);
+  return nextIds;
+}
+
+function getHoverTargetIndex(
+  items: ListEntry[],
+  draggedId: string,
+  hoverMiddleY: number,
+  rowLayouts: Record<string, RowLayout>
+): number {
+  const otherItems = items.filter((item) => item.id !== draggedId);
+  let cursor = 0;
+
+  for (const [index, item] of otherItems.entries()) {
+    const layout = rowLayouts[item.id];
+    if (!layout) {
+      continue;
+    }
+
+    if (hoverMiddleY < cursor + layout.height / 2) {
+      return index;
+    }
+
+    cursor += layout.height + ENTRY_ROW_GAP;
+  }
+
+  return otherItems.length;
+}
+
+function getDropIndicatorTop(
+  items: ListEntry[],
+  draggedId: string,
+  targetIndex: number,
+  rowLayouts: Record<string, RowLayout>
+): number | null {
+  const otherItems = items.filter((item) => item.id !== draggedId);
+  if (!otherItems.length) {
+    return null;
+  }
+
+  if (targetIndex <= 0) {
+    return 0;
+  }
+
+  let cursor = 0;
+
+  for (const [index, item] of otherItems.entries()) {
+    const layout = rowLayouts[item.id];
+    if (!layout) {
+      continue;
+    }
+
+    const rowBottom = cursor + layout.height;
+    if (targetIndex === index + 1) {
+      return rowBottom + (index < otherItems.length - 1 ? ENTRY_ROW_GAP / 2 : 0);
+    }
+
+    cursor = rowBottom + (index < otherItems.length - 1 ? ENTRY_ROW_GAP : 0);
+  }
+
+  if (targetIndex >= otherItems.length) {
+    return cursor;
+  }
+
+  return cursor;
+}
 
 export default function ListDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -58,8 +178,32 @@ export default function ListDetailScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const listRef = useRef<FlatList<ListEntry>>(null);
+  const listViewportRef = useRef<View | null>(null);
+  const listViewportWidthRef = useRef(0);
+  const listViewportHeightRef = useRef(0);
+  const listContentHeightRef = useRef(0);
+  const scrollOffsetRef = useRef(0);
+  const visibleEntriesRef = useRef<ListEntry[]>([]);
+  const dragStateRef = useRef<EntryDragState | null>(null);
+  const autoScrollFrameRef = useRef<number | null>(null);
+  const autoScrollVelocityRef = useRef(0);
+  const lastDragTargetIndexRef = useRef<number | null>(null);
+  const rowLayoutsRef = useRef<Record<string, RowLayout>>({});
+  const dragMetaRef = useRef<{
+    initialLeft: number;
+    initialTop: number;
+    touchOffsetY: number;
+    rowHeight: number;
+    rowWidth: number;
+    maxLeft: number;
+  } | null>(null);
+  const dragPositionRef = useRef({ left: 0, top: 0 });
   const composerInputRef = useRef<TextInput>(null);
   const listSearchInputRef = useRef<TextInput>(null);
+  const dragLeft = useSharedValue(0);
+  const dragTop = useSharedValue(0);
+  const dragScale = useSharedValue(1);
+  const scrollOffsetValue = useSharedValue(0);
   const composerAccessoryId = useMemo(
     () => `list-entry-composer-action-bar-${String(id ?? 'unknown').replace(/[^A-Za-z0-9_-]/g, '-')}`,
     [id]
@@ -73,7 +217,7 @@ export default function ListDetailScreen() {
     saveListAsTemplate,
     updateList,
   } = useListActions();
-  const { addEntryToList, deleteEntryFromList, setEntryChecked } = useEntryActions();
+  const { addEntryToList, deleteEntryFromList, reorderEntries, setEntryChecked } = useEntryActions();
   const latestMarkListOpenedRef = useRef(markListOpened);
   const lastOpenedListIdRef = useRef<string | null>(null);
   const list = activeLists.find((item) => item.id === id) ?? null;
@@ -100,6 +244,8 @@ export default function ListDetailScreen() {
   const [composerAccessoryVisible, setComposerAccessoryVisible] = useState(false);
   const [composerInputMounted, setComposerInputMounted] = useState(false);
   const [composerFocusPending, setComposerFocusPending] = useState(false);
+  const [dragState, setDragState] = useState<EntryDragState | null>(null);
+  const [optimisticEntryOrderIds, setOptimisticEntryOrderIds] = useState<string[] | null>(null);
 
   const scrollComposerIntoView = useCallback((animated = true) => {
     if (preferences.viewMode !== 'list') {
@@ -210,19 +356,89 @@ export default function ListDetailScreen() {
     router.replace('/');
   }, [router]);
 
+  const orderedEntries = useMemo(
+    () => applyOrderedIds(list?.entries ?? [], optimisticEntryOrderIds),
+    [list?.entries, optimisticEntryOrderIds]
+  );
+
   const visibleEntries = useMemo(() => {
     if (!list) {
       return [];
     }
     return filterEntriesByQuery(
-      sortEntries(list.entries, preferences, itemUserDataByKey),
+      sortEntries(orderedEntries, preferences, itemUserDataByKey),
       listSearchQuery
     );
-  }, [itemUserDataByKey, list, listSearchQuery, preferences]);
+  }, [itemUserDataByKey, list, listSearchQuery, orderedEntries, preferences]);
+
+  const canDragEntries =
+    preferences.viewMode === 'list' &&
+    preferences.sortMode === 'manual' &&
+    preferences.filterMode === 'all' &&
+    !listSearchQuery.trim();
+  const bottomToolbarInset = insets.bottom + BOTTOM_TOOLBAR_HEIGHT + BOTTOM_TOOLBAR_MARGIN * 2;
+  const nativeSearchWidth = Math.max(180, windowWidth - 156);
+  const footerSpacerHeight = composerVisible
+    ? bottomToolbarInset + keyboardHeight + (isIos ? 24 : COMPOSER_TOOLBAR_HEIGHT + COMPOSER_TOOLBAR_OFFSET)
+    : bottomToolbarInset;
+  const actionBarBottom = keyboardHeight > 0 ? keyboardHeight + 12 : insets.bottom + 16;
 
   useEffect(() => {
     setDraftConfig(list?.config);
   }, [list?.config]);
+
+  useEffect(() => {
+    dragStateRef.current = dragState;
+  }, [dragState]);
+
+  useEffect(() => {
+    visibleEntriesRef.current = visibleEntries;
+  }, [visibleEntries]);
+
+  useEffect(() => {
+    const persistedIds = (list?.entries ?? []).map((entry) => entry.id);
+    setOptimisticEntryOrderIds((current) => {
+      if (!current?.length) {
+        return current;
+      }
+
+      if (current.length === persistedIds.length && current.every((id, index) => id === persistedIds[index])) {
+        return null;
+      }
+
+      const nextIds = current.filter((entryId) => persistedIds.includes(entryId));
+      if (!nextIds.length) {
+        return null;
+      }
+
+      for (const entryId of persistedIds) {
+        if (!nextIds.includes(entryId)) {
+          nextIds.push(entryId);
+        }
+      }
+
+      return nextIds;
+    });
+  }, [list?.entries]);
+
+  useEffect(() => {
+    if (canDragEntries) {
+      return;
+    }
+
+    autoScrollVelocityRef.current = 0;
+    if (autoScrollFrameRef.current !== null) {
+      cancelAnimationFrame(autoScrollFrameRef.current);
+      autoScrollFrameRef.current = null;
+    }
+    setDragState(null);
+    dragMetaRef.current = null;
+    dragPositionRef.current = { left: 0, top: 0 };
+    lastDragTargetIndexRef.current = null;
+    dragLeft.value = withTiming(0, { duration: 120 });
+    dragTop.value = withTiming(0, { duration: 120 });
+    dragScale.value = withTiming(1, { duration: DRAG_RELEASE_DURATION_MS });
+  }, [canDragEntries, dragLeft, dragScale, dragTop]);
 
   useEffect(() => {
     if (!composerVisible || preferences.viewMode !== 'list') {
@@ -492,6 +708,291 @@ export default function ListDetailScreen() {
     });
   }, []);
 
+  const stopAutoScroll = useCallback(() => {
+    autoScrollVelocityRef.current = 0;
+    if (autoScrollFrameRef.current !== null) {
+      cancelAnimationFrame(autoScrollFrameRef.current);
+      autoScrollFrameRef.current = null;
+    }
+  }, []);
+
+  const triggerDragStartHaptic = useCallback(() => {
+    if (!isIos) {
+      return;
+    }
+
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, [isIos]);
+
+  const triggerDragEndHaptic = useCallback(() => {
+    if (!isIos) {
+      return;
+    }
+
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, [isIos]);
+
+  const triggerDragMoveHaptic = useCallback(() => {
+    if (!isIos) {
+      return;
+    }
+
+    void Haptics.selectionAsync();
+  }, [isIos]);
+
+  const updateDragTarget = useCallback(
+    (entryId: string, nextTargetIndex: number) => {
+      setDragState((current) => {
+        if (!current || current.entryId !== entryId || current.targetIndex === nextTargetIndex) {
+          return current;
+        }
+
+        if (lastDragTargetIndexRef.current !== nextTargetIndex) {
+          lastDragTargetIndexRef.current = nextTargetIndex;
+          triggerDragMoveHaptic();
+        }
+
+        return { ...current, targetIndex: nextTargetIndex };
+      });
+    },
+    [triggerDragMoveHaptic]
+  );
+
+  const startAutoScrollLoop = useCallback(() => {
+    if (autoScrollFrameRef.current !== null) {
+      return;
+    }
+
+    const tick = () => {
+      autoScrollFrameRef.current = requestAnimationFrame(() => {
+        const activeDrag = dragStateRef.current;
+        const dragMeta = dragMetaRef.current;
+        if (!activeDrag || !dragMeta || !autoScrollVelocityRef.current) {
+          autoScrollFrameRef.current = null;
+          return;
+        }
+
+        const viewportHeight = listViewportHeightRef.current;
+        const estimatedRowHeight =
+          dragMeta.rowHeight || rowLayoutsRef.current[activeDrag.entryId]?.height || 94;
+        const estimatedContentHeight =
+          ENTRY_LIST_TOP_PADDING +
+          footerSpacerHeight +
+          visibleEntriesRef.current.reduce(
+            (total, entry) => total + (rowLayoutsRef.current[entry.id]?.height ?? estimatedRowHeight),
+            0
+          );
+        const contentHeight = Math.max(listContentHeightRef.current, estimatedContentHeight);
+        const maxScrollOffset = Math.max(0, contentHeight - viewportHeight);
+        if (viewportHeight <= 0 || maxScrollOffset <= 0) {
+          stopAutoScroll();
+          return;
+        }
+
+        const nextScrollOffset = clamp(
+          scrollOffsetRef.current + autoScrollVelocityRef.current,
+          0,
+          maxScrollOffset
+        );
+        if (nextScrollOffset === scrollOffsetRef.current) {
+          stopAutoScroll();
+          return;
+        }
+
+        scrollOffsetRef.current = nextScrollOffset;
+        scrollOffsetValue.value = nextScrollOffset;
+        listRef.current?.scrollToOffset({
+          animated: false,
+          offset: nextScrollOffset,
+        });
+
+        const hoverMiddleY =
+          dragPositionRef.current.top +
+          nextScrollOffset -
+          ENTRY_LIST_TOP_PADDING +
+          dragMeta.rowHeight / 2;
+        const nextTargetIndex = getHoverTargetIndex(
+          visibleEntriesRef.current,
+          activeDrag.entryId,
+          hoverMiddleY,
+          rowLayoutsRef.current
+        );
+        updateDragTarget(activeDrag.entryId, nextTargetIndex);
+
+        tick();
+      });
+    };
+
+    tick();
+  }, [footerSpacerHeight, scrollOffsetValue, stopAutoScroll, updateDragTarget]);
+
+  const updateAutoScroll = useCallback(
+    (fingerYInViewport: number) => {
+      const viewportHeight = listViewportHeightRef.current;
+      if (viewportHeight <= 0) {
+        stopAutoScroll();
+        return;
+      }
+
+      let nextVelocity = 0;
+      if (fingerYInViewport < AUTO_SCROLL_EDGE_THRESHOLD) {
+        const intensity = 1 - fingerYInViewport / AUTO_SCROLL_EDGE_THRESHOLD;
+        nextVelocity = -Math.max(4, AUTO_SCROLL_MAX_STEP * intensity);
+      } else if (fingerYInViewport > viewportHeight - AUTO_SCROLL_EDGE_THRESHOLD) {
+        const distanceFromBottom = viewportHeight - fingerYInViewport;
+        const intensity = 1 - distanceFromBottom / AUTO_SCROLL_EDGE_THRESHOLD;
+        nextVelocity = Math.max(4, AUTO_SCROLL_MAX_STEP * intensity);
+      }
+
+      autoScrollVelocityRef.current = nextVelocity;
+      if (!nextVelocity) {
+        stopAutoScroll();
+        return;
+      }
+
+      startAutoScrollLoop();
+    },
+    [startAutoScrollLoop, stopAutoScroll]
+  );
+
+  const registerRowLayout = useCallback((entryId: string, layout: RowLayout) => {
+    rowLayoutsRef.current[entryId] = layout;
+  }, []);
+
+  const startEntryDrag = useCallback(
+    (
+      entryId: string,
+      touchOffsetX: number,
+      touchOffsetY: number,
+      absoluteX: number,
+      absoluteY: number
+    ) => {
+      if (!canDragEntries) {
+        return;
+      }
+
+      const entry = visibleEntriesRef.current.find((candidate) => candidate.id === entryId);
+      const viewport = listViewportRef.current;
+      const activeLayout = rowLayoutsRef.current[entryId];
+      if (!entry || !viewport || !activeLayout) {
+        return;
+      }
+
+      viewport.measureInWindow((viewportX, viewportY) => {
+        const viewportWidth = listViewportWidthRef.current || activeLayout.width;
+        const fingerXInViewport = absoluteX - viewportX;
+        const fingerYInViewport = absoluteY - viewportY;
+        const maxLeft = Math.max(0, viewportWidth - activeLayout.width);
+        const initialLeft = clamp(fingerXInViewport - touchOffsetX, 0, maxLeft);
+        const initialTop = fingerYInViewport - touchOffsetY;
+
+        dragPositionRef.current = {
+          left: initialLeft,
+          top: initialTop,
+        };
+        dragLeft.value = initialLeft;
+        dragTop.value = initialTop;
+        dragScale.value = withTiming(0.97, { duration: DRAG_LIFT_DURATION_MS });
+        dragMetaRef.current = {
+          initialLeft,
+          initialTop,
+          touchOffsetY,
+          rowHeight: activeLayout.height,
+          rowWidth: activeLayout.width,
+          maxLeft,
+        };
+        const originalIndex = visibleEntriesRef.current.findIndex((candidate) => candidate.id === entryId);
+        lastDragTargetIndexRef.current = originalIndex;
+        setDragState({
+          entry,
+          entryId,
+          originalIndex,
+          targetIndex: originalIndex,
+          rowWidth: activeLayout.width,
+        });
+        updateAutoScroll(fingerYInViewport);
+        triggerDragStartHaptic();
+      });
+    },
+    [canDragEntries, dragLeft, dragScale, dragTop, triggerDragStartHaptic, updateAutoScroll]
+  );
+
+  const updateEntryDrag = useCallback(
+    (entryId: string, translationX: number, translationY: number) => {
+      const activeDrag = dragState?.entryId === entryId ? dragState : null;
+      const dragMeta = dragMetaRef.current;
+      if (!activeDrag || !dragMeta) {
+        return;
+      }
+
+      const nextLeft = clamp(dragMeta.initialLeft + translationX, 0, dragMeta.maxLeft);
+      const nextTop = dragMeta.initialTop + translationY;
+      const fingerYInViewport = nextTop + dragMeta.touchOffsetY;
+      const hoverMiddleY =
+        nextTop + scrollOffsetRef.current - ENTRY_LIST_TOP_PADDING + dragMeta.rowHeight / 2;
+      const nextTargetIndex = getHoverTargetIndex(
+        visibleEntriesRef.current,
+        entryId,
+        hoverMiddleY,
+        rowLayoutsRef.current
+      );
+
+      dragPositionRef.current = {
+        left: nextLeft,
+        top: nextTop,
+      };
+      dragLeft.value = nextLeft;
+      dragTop.value = nextTop;
+      updateAutoScroll(fingerYInViewport);
+
+      if (nextTargetIndex !== activeDrag.targetIndex) {
+        updateDragTarget(entryId, nextTargetIndex);
+      }
+    },
+    [dragLeft, dragState, dragTop, updateAutoScroll, updateDragTarget]
+  );
+
+  const finishEntryDrag = useCallback(() => {
+    const activeDrag = dragState;
+    if (!activeDrag || !list) {
+      stopAutoScroll();
+      dragScale.value = withTiming(1, { duration: DRAG_RELEASE_DURATION_MS });
+      return;
+    }
+
+    const resetDrag = () => {
+      setDragState(null);
+      dragMetaRef.current = null;
+      dragPositionRef.current = { left: 0, top: 0 };
+      lastDragTargetIndexRef.current = null;
+    };
+
+    if (activeDrag.targetIndex === activeDrag.originalIndex) {
+      stopAutoScroll();
+      dragScale.value = withTiming(1, { duration: DRAG_RELEASE_DURATION_MS });
+      resetDrag();
+      triggerDragEndHaptic();
+      return;
+    }
+
+    const currentIds = orderedEntries.map((entry) => entry.id);
+    const visibleIds = visibleEntriesRef.current.map((entry) => entry.id);
+    const hiddenIds = currentIds.filter((entryId) => !visibleIds.includes(entryId));
+    const reorderedVisibleIds = moveItemIdToIndex(visibleIds, activeDrag.entryId, activeDrag.targetIndex);
+    const reorderedIds = [...reorderedVisibleIds, ...hiddenIds];
+    const previousOrderedIds = currentIds;
+
+    stopAutoScroll();
+    dragScale.value = withTiming(1, { duration: DRAG_RELEASE_DURATION_MS });
+    setOptimisticEntryOrderIds(reorderedIds);
+    resetDrag();
+    triggerDragEndHaptic();
+
+    void reorderEntries(list.id, reorderedIds).catch(() => {
+      setOptimisticEntryOrderIds(previousOrderedIds);
+    });
+  }, [dragScale, dragState, list, orderedEntries, reorderEntries, stopAutoScroll, triggerDragEndHaptic]);
+
   const openNewSublist = useCallback(() => {
     setMenuVisible(null);
     setSublistTitle('');
@@ -571,7 +1072,7 @@ export default function ListDetailScreen() {
   };
 
   const renderRightActions = (
-    progress: Animated.AnimatedInterpolation<number>,
+    progress: RNAnimated.AnimatedInterpolation<number>,
     entry: ListEntry
   ) => {
     const opacity = progress.interpolate({
@@ -580,7 +1081,7 @@ export default function ListDetailScreen() {
       extrapolate: 'clamp',
     });
     return (
-      <Animated.View style={[styles.rightActionContainer, { opacity }]}>
+      <RNAnimated.View style={[styles.rightActionContainer, { opacity }]}>
         <SwipeActionButton
           backgroundColor={colors.tint}
           icon="info.circle.fill"
@@ -595,9 +1096,32 @@ export default function ListDetailScreen() {
           isIos={isIos}
           onPress={() => confirmDeleteEntry(entry)}
         />
-      </Animated.View>
+      </RNAnimated.View>
     );
   };
+
+  const dragIndicatorTop = dragState
+    ? getDropIndicatorTop(visibleEntries, dragState.entryId, dragState.targetIndex, rowLayoutsRef.current)
+    : null;
+  const dragOverlayStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: dragLeft.value },
+      { translateY: dragTop.value },
+      { scale: dragScale.value },
+    ],
+  }));
+  const dragIndicatorStyle = useAnimatedStyle(() => ({
+    transform: [
+      {
+        translateY:
+          (dragIndicatorTop ?? 0) -
+          scrollOffsetValue.value +
+          ENTRY_LIST_TOP_PADDING -
+          DROP_INDICATOR_HEIGHT / 2,
+      },
+    ],
+    opacity: dragIndicatorTop === null ? 0 : 1,
+  }));
 
   if (!list) {
     return (
@@ -614,12 +1138,6 @@ export default function ListDetailScreen() {
 
   const hasToggle = list.config.addons.includes('toggle');
   const hasStatus = list.config.addons.includes('status');
-  const bottomToolbarInset = insets.bottom + BOTTOM_TOOLBAR_HEIGHT + BOTTOM_TOOLBAR_MARGIN * 2;
-  const nativeSearchWidth = Math.max(180, windowWidth - 156);
-  const footerSpacerHeight = composerVisible
-    ? bottomToolbarInset + keyboardHeight + (isIos ? 24 : COMPOSER_TOOLBAR_HEIGHT + COMPOSER_TOOLBAR_OFFSET)
-    : bottomToolbarInset;
-  const actionBarBottom = keyboardHeight > 0 ? keyboardHeight + 12 : insets.bottom + 16;
 
   function renderEntryTags(tags: string[]) {
     const normalizedTags = tags
@@ -873,129 +1391,152 @@ export default function ListDetailScreen() {
               ) : null}
             </ScrollView>
           ) : (
-            <FlatList
-              ref={listRef}
-              contentInsetAdjustmentBehavior="automatic"
-              data={visibleEntries}
-              keyExtractor={(item) => item.id}
-              keyboardShouldPersistTaps="handled"
-              renderItem={({ item }) => {
-                const itemImageUrl = getEntryImageUrl(item);
-
-                return (
-                  <Swipeable
-                    containerStyle={styles.swipeableContainer}
-                    childrenContainerStyle={styles.swipeableChildren}
-                    overshootRight={false}
-                    rightThreshold={56}
-                    renderRightActions={(progress) => renderRightActions(progress, item)}
-                  >
-                    <ListRowSurface
-                      colors={colors}
-                      enabled={isIos}
-                      supportsLiquidGlass={supportsLiquidGlass}
-                    >
-                      {hasToggle ? (
-                        <Pressable
-                          onPress={() => setEntryChecked(list.id, item.id, !item.checked)}
-                          style={[
-                            styles.checkbox,
-                            {
-                              borderColor: item.checked ? colors.tint : colors.icon + '45',
-                              backgroundColor: item.checked ? colors.tint : 'transparent',
-                            },
-                          ]}
-                        >
-                          {item.checked ? (
-                            <IconSymbol name="checkmark" size={14} color={colors.background} />
-                          ) : null}
-                        </Pressable>
-                      ) : null}
-                      <Pressable onPress={() => openEntry(item)} style={styles.rowMain}>
-                        {itemImageUrl || item.sourceRef.source === 'anime' || item.sourceRef.source === 'manga' ? (
-                          <ThumbnailImage
-                            imageUrl={itemImageUrl}
-                            sourceRef={item.sourceRef}
-                            detailPath={item.detailPath}
-                            style={styles.rowImage}
-                          />
-                        ) : null}
-                        <View style={styles.rowInfo}>
-                          <ThemedText style={styles.rowTitle} numberOfLines={2}>
-                            {item.title}
-                          </ThemedText>
-                          {renderEntryTags(item.tags)}
-                        </View>
-                      </Pressable>
-                      {item.productUrl?.trim() ? (
-                        <Pressable
-                          accessibilityLabel={`Open ${item.title} link`}
-                          accessibilityRole="button"
-                          hitSlop={12}
-                          onPress={() => void openEntryUrl(item)}
-                          style={({ pressed }) => [
-                            styles.rowLinkButton,
-                            { opacity: pressed ? 0.68 : 1 },
-                          ]}
-                        >
-                          <IconSymbol name="link" size={18} color={colors.tint} />
-                        </Pressable>
-                      ) : null}
-                    </ListRowSurface>
-                  </Swipeable>
-                );
+            <View
+              ref={listViewportRef}
+              onLayout={(event) => {
+                listViewportWidthRef.current = event.nativeEvent.layout.width;
+                listViewportHeightRef.current = event.nativeEvent.layout.height;
               }}
-              ItemSeparatorComponent={() => <View style={styles.rowSeparator} />}
-              contentContainerStyle={[
-                styles.listContent,
-                { paddingBottom: footerSpacerHeight },
-              ]}
-              ListEmptyComponent={
-                <ThemedText style={[styles.placeholder, { color: colors.icon }]}>
-                  This list is empty.
-                </ThemedText>
-              }
-              ListFooterComponent={
-                composerVisible ? (
-                  <View onLayout={handleComposerFooterLayout} style={styles.composerFooter}>
-                    {pendingTagsText.trim() ? (
-                      <View style={styles.pendingMetaRow}>
-                        <View style={[styles.pendingChip, { backgroundColor: colors.tint + '16' }]}>
-                          <IconSymbol name="tag.fill" size={14} color={colors.tint} />
-                          <ThemedText style={{ color: colors.tint }} numberOfLines={1}>
-                            {pendingTagsText}
-                          </ThemedText>
+              style={styles.listViewport}
+            >
+              <FlatList
+                ref={listRef}
+                contentInsetAdjustmentBehavior="never"
+                data={visibleEntries}
+                keyExtractor={(item) => item.id}
+                keyboardShouldPersistTaps="handled"
+                onContentSizeChange={(_width, height) => {
+                  listContentHeightRef.current = height;
+                }}
+                onScroll={(event) => {
+                  const nextScrollOffset = event.nativeEvent.contentOffset.y;
+                  scrollOffsetRef.current = nextScrollOffset;
+                  scrollOffsetValue.value = nextScrollOffset;
+                }}
+                renderItem={({ item, index }) =>
+                  canDragEntries ? (
+                    <DraggableEntryRow
+                      colors={colors}
+                      entry={item}
+                      hasToggle={hasToggle}
+                      isDragging={dragState?.entryId === item.id}
+                      isIos={isIos}
+                      showBottomSpacing={index < visibleEntries.length - 1}
+                      supportsLiquidGlass={supportsLiquidGlass}
+                      onDragEnd={finishEntryDrag}
+                      onDragMove={updateEntryDrag}
+                      onDragStart={startEntryDrag}
+                      onLayout={registerRowLayout}
+                      onOpenEntry={openEntry}
+                      onOpenEntryUrl={openEntryUrl}
+                      onToggleChecked={(entry) => setEntryChecked(list.id, entry.id, !entry.checked)}
+                      renderEntryTags={renderEntryTags}
+                    />
+                  ) : (
+                    <View style={index < visibleEntries.length - 1 ? styles.rowWithSpacing : undefined}>
+                      <Swipeable
+                        containerStyle={styles.swipeableContainer}
+                        childrenContainerStyle={styles.swipeableChildren}
+                        overshootRight={false}
+                        rightThreshold={56}
+                        renderRightActions={(progress) => renderRightActions(progress, item)}
+                      >
+                        <EntryRow
+                          colors={colors}
+                          entry={item}
+                          hasToggle={hasToggle}
+                          isIos={isIos}
+                          supportsLiquidGlass={supportsLiquidGlass}
+                          onOpenEntry={openEntry}
+                          onOpenEntryUrl={openEntryUrl}
+                          onToggleChecked={(entry) => setEntryChecked(list.id, entry.id, !entry.checked)}
+                          renderEntryTags={renderEntryTags}
+                        />
+                      </Swipeable>
+                    </View>
+                  )
+                }
+                contentContainerStyle={[
+                  styles.listContent,
+                  { paddingTop: ENTRY_LIST_TOP_PADDING, paddingBottom: footerSpacerHeight },
+                ]}
+                ListEmptyComponent={
+                  <ThemedText style={[styles.placeholder, { color: colors.icon }]}>
+                    This list is empty.
+                  </ThemedText>
+                }
+                ListFooterComponent={
+                  composerVisible ? (
+                    <View onLayout={handleComposerFooterLayout} style={styles.composerFooter}>
+                      {pendingTagsText.trim() ? (
+                        <View style={styles.pendingMetaRow}>
+                          <View style={[styles.pendingChip, { backgroundColor: colors.tint + '16' }]}>
+                            <IconSymbol name="tag.fill" size={14} color={colors.tint} />
+                            <ThemedText style={{ color: colors.tint }} numberOfLines={1}>
+                              {pendingTagsText}
+                            </ThemedText>
+                          </View>
                         </View>
-                      </View>
-                    ) : null}
-                    <Pressable
-                      onPress={() => composerInputRef.current?.focus()}
-                      style={[
-                        styles.composerCard,
-                        {
-                          borderColor: colors.tint + '35',
-                          backgroundColor: colors.background,
-                        },
-                      ]}
-                    >
-                      <TextInput
-                        ref={setComposerInputNode}
-                        style={[styles.composerInput, { color: colors.text }]}
-                        placeholder="Add an item"
-                        placeholderTextColor={colors.icon}
-                        inputAccessoryViewID={isIos ? composerAccessoryId : undefined}
-                        value={composerText}
-                        onChangeText={setComposerText}
-                        onFocus={handleComposerInputFocus}
-                        onSubmitEditing={submitComposer}
-                        blurOnSubmit={false}
-                        returnKeyType="done"
-                      />
-                    </Pressable>
+                      ) : null}
+                      <Pressable
+                        onPress={() => composerInputRef.current?.focus()}
+                        style={[
+                          styles.composerCard,
+                          {
+                            borderColor: colors.tint + '35',
+                            backgroundColor: colors.background,
+                          },
+                        ]}
+                      >
+                        <TextInput
+                          ref={setComposerInputNode}
+                          style={[styles.composerInput, { color: colors.text }]}
+                          placeholder="Add an item"
+                          placeholderTextColor={colors.icon}
+                          inputAccessoryViewID={isIos ? composerAccessoryId : undefined}
+                          value={composerText}
+                          onChangeText={setComposerText}
+                          onFocus={handleComposerInputFocus}
+                          onSubmitEditing={submitComposer}
+                          blurOnSubmit={false}
+                          returnKeyType="done"
+                        />
+                      </Pressable>
+                    </View>
+                  ) : null
+                }
+                scrollEventThrottle={16}
+              />
+              {dragState && dragIndicatorTop !== null ? (
+                <Animated.View
+                  entering={FadeIn.duration(120)}
+                  exiting={FadeOut.duration(120)}
+                  pointerEvents="none"
+                  style={[
+                    styles.dropIndicator,
+                    { backgroundColor: DROP_INDICATOR_COLOR },
+                    dragIndicatorStyle,
+                  ]}
+                />
+              ) : null}
+              {dragState ? (
+                <Animated.View pointerEvents="none" style={[styles.dragOverlay, dragOverlayStyle]}>
+                  <View style={{ width: dragState.rowWidth }}>
+                    <EntryRow
+                      colors={colors}
+                      entry={dragState.entry}
+                      hasToggle={hasToggle}
+                      isIos={isIos}
+                      supportsLiquidGlass={supportsLiquidGlass}
+                      onOpenEntry={openEntry}
+                      onOpenEntryUrl={openEntryUrl}
+                      onToggleChecked={() => {}}
+                      renderEntryTags={renderEntryTags}
+                    />
                   </View>
-                ) : null
-              }
-            />
+                </Animated.View>
+              ) : null}
+            </View>
           )}
         </View>
 
@@ -1703,6 +2244,171 @@ function filterEntriesByQuery(entries: ListEntry[], query: string) {
   });
 }
 
+function EntryRow({
+  colors,
+  entry,
+  hasToggle,
+  isIos,
+  supportsLiquidGlass,
+  onOpenEntry,
+  onOpenEntryUrl,
+  onToggleChecked,
+  renderEntryTags,
+}: {
+  colors: (typeof Colors)['light'] | (typeof Colors)['dark'];
+  entry: ListEntry;
+  hasToggle: boolean;
+  isIos: boolean;
+  supportsLiquidGlass: boolean;
+  onOpenEntry: (entry: ListEntry) => void;
+  onOpenEntryUrl: (entry: ListEntry) => Promise<void>;
+  onToggleChecked: (entry: ListEntry) => void;
+  renderEntryTags: (tags: string[]) => ReactNode;
+}) {
+  const itemImageUrl = getEntryImageUrl(entry);
+
+  return (
+    <ListRowSurface
+      colors={colors}
+      enabled={isIos}
+      supportsLiquidGlass={supportsLiquidGlass}
+    >
+      {hasToggle ? (
+        <Pressable
+          onPress={() => onToggleChecked(entry)}
+          style={[
+            styles.checkbox,
+            {
+              borderColor: entry.checked ? colors.tint : colors.icon + '45',
+              backgroundColor: entry.checked ? colors.tint : 'transparent',
+            },
+          ]}
+        >
+          {entry.checked ? (
+            <IconSymbol name="checkmark" size={14} color={colors.background} />
+          ) : null}
+        </Pressable>
+      ) : null}
+      <Pressable onPress={() => onOpenEntry(entry)} style={styles.rowMain}>
+        {itemImageUrl || entry.sourceRef.source === 'anime' || entry.sourceRef.source === 'manga' ? (
+          <ThumbnailImage
+            imageUrl={itemImageUrl}
+            sourceRef={entry.sourceRef}
+            detailPath={entry.detailPath}
+            style={styles.rowImage}
+          />
+        ) : null}
+        <View style={styles.rowInfo}>
+          <ThemedText style={styles.rowTitle} numberOfLines={2}>
+            {entry.title}
+          </ThemedText>
+          {renderEntryTags(entry.tags)}
+        </View>
+      </Pressable>
+      {entry.productUrl?.trim() ? (
+        <Pressable
+          accessibilityLabel={`Open ${entry.title} link`}
+          accessibilityRole="button"
+          hitSlop={12}
+          onPress={() => void onOpenEntryUrl(entry)}
+          style={({ pressed }) => [
+            styles.rowLinkButton,
+            { opacity: pressed ? 0.68 : 1 },
+          ]}
+        >
+          <IconSymbol name="link" size={18} color={colors.tint} />
+        </Pressable>
+      ) : null}
+    </ListRowSurface>
+  );
+}
+
+function DraggableEntryRow({
+  colors,
+  entry,
+  hasToggle,
+  isDragging,
+  isIos,
+  showBottomSpacing,
+  supportsLiquidGlass,
+  onDragEnd,
+  onDragMove,
+  onDragStart,
+  onLayout,
+  onOpenEntry,
+  onOpenEntryUrl,
+  onToggleChecked,
+  renderEntryTags,
+}: {
+  colors: (typeof Colors)['light'] | (typeof Colors)['dark'];
+  entry: ListEntry;
+  hasToggle: boolean;
+  isDragging: boolean;
+  isIos: boolean;
+  showBottomSpacing: boolean;
+  supportsLiquidGlass: boolean;
+  onDragEnd: () => void;
+  onDragMove: (entryId: string, translationX: number, translationY: number) => void;
+  onDragStart: (
+    entryId: string,
+    touchOffsetX: number,
+    touchOffsetY: number,
+    absoluteX: number,
+    absoluteY: number
+  ) => void;
+  onLayout: (entryId: string, layout: RowLayout) => void;
+  onOpenEntry: (entry: ListEntry) => void;
+  onOpenEntryUrl: (entry: ListEntry) => Promise<void>;
+  onToggleChecked: (entry: ListEntry) => void;
+  renderEntryTags: (tags: string[]) => ReactNode;
+}) {
+  const gesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activateAfterLongPress(220)
+        .onStart((event) => {
+          runOnJS(onDragStart)(entry.id, event.x, event.y, event.absoluteX, event.absoluteY);
+        })
+        .onUpdate((event) => {
+          runOnJS(onDragMove)(entry.id, event.translationX, event.translationY);
+        })
+        .onFinalize(() => {
+          runOnJS(onDragEnd)();
+        }),
+    [entry.id, onDragEnd, onDragMove, onDragStart]
+  );
+
+  return (
+    <GestureDetector gesture={gesture}>
+      <Animated.View
+        layout={LinearTransition.springify().damping(14).stiffness(240).mass(0.55)}
+        onLayout={(event) =>
+          onLayout(entry.id, {
+            height: event.nativeEvent.layout.height,
+            width: event.nativeEvent.layout.width,
+          })
+        }
+        pointerEvents={isDragging ? 'none' : 'auto'}
+        style={isDragging ? styles.hiddenRow : showBottomSpacing ? styles.rowWithSpacing : undefined}
+      >
+        {isDragging ? null : (
+          <EntryRow
+            colors={colors}
+            entry={entry}
+            hasToggle={hasToggle}
+            isIos={isIos}
+            supportsLiquidGlass={supportsLiquidGlass}
+            onOpenEntry={onOpenEntry}
+            onOpenEntryUrl={onOpenEntryUrl}
+            onToggleChecked={onToggleChecked}
+            renderEntryTags={renderEntryTags}
+          />
+        )}
+      </Animated.View>
+    </GestureDetector>
+  );
+}
+
 function SelectionMenu({
   visible,
   title,
@@ -2119,14 +2825,20 @@ const styles = StyleSheet.create({
   listTagLabel: { fontSize: 13 },
   listTagWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   listTagChip: { borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
-  listContent: { flex: 1, paddingHorizontal: 12, paddingTop: 6 },
+  listViewport: {
+    flex: 1,
+    position: 'relative',
+  },
+  listContent: { flexGrow: 1, paddingHorizontal: 12 },
   swipeableContainer: {
     overflow: 'visible',
   },
   swipeableChildren: {
     overflow: 'visible',
   },
-  rowSeparator: { height: 6 },
+  rowWithSpacing: {
+    marginBottom: ENTRY_ROW_GAP,
+  },
   row: {
     position: 'relative',
     width: '100%',
@@ -2173,6 +2885,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
   },
   rowTitle: { fontSize: 16, fontWeight: '600', lineHeight: 20 },
+  hiddenRow: {
+    height: 0,
+    marginBottom: 0,
+    opacity: 0,
+    overflow: 'hidden',
+  },
   entryTagRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2230,6 +2948,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  dropIndicator: {
+    borderRadius: 999,
+    height: DROP_INDICATOR_HEIGHT,
+    left: 24,
+    position: 'absolute',
+    right: 24,
+    zIndex: 10,
+  },
+  dragOverlay: {
+    left: 0,
+    position: 'absolute',
+    top: 0,
+    zIndex: 20,
+  },
   gridContent: { flexGrow: 1, paddingHorizontal: 14, paddingTop: 8 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   gridCard: { width: '48%' },
@@ -2256,14 +2988,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     paddingVertical: 12,
   },
-  compareContainer: { flex: 1, flexGrow: 1, paddingHorizontal: 20, paddingTop: 12 },
+  compareContainer: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 12 },
   compareTable: { borderWidth: 1, borderRadius: 10, overflow: 'hidden', marginBottom: 24 },
   compareRow: { flexDirection: 'row', borderBottomWidth: StyleSheet.hairlineWidth },
   compareHeaderRow: { borderBottomWidth: 1 },
   compareCell: { minWidth: 140, paddingHorizontal: 14, paddingVertical: 12 },
   compareTitleColumn: { minWidth: 180 },
   compareHeaderText: { fontSize: 14, fontWeight: '700' },
-  tierContent: { paddingTop: 8, paddingBottom: 24 },
+  tierContent: { flexGrow: 1, paddingTop: 8, paddingBottom: 24 },
   tierRow: { flexDirection: 'row', minHeight: 112, borderBottomWidth: StyleSheet.hairlineWidth },
   tierLabel: {
     width: 72,

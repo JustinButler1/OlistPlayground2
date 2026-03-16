@@ -142,3 +142,122 @@ Expected result:
 - Native nested menu implementation preserved
 - Custom non-native fallback not used for this fix
 - Targeted lint verification passed for the maintenance script and affected screen
+
+## My Lists drag-and-drop reorder implementation notes
+
+### Summary
+
+The `My Lists` screen now supports press-and-hold row reordering with:
+
+- a floating dragged card that follows the finger
+- slight shrink on lift
+- a blue insertion line between rows
+- haptics on lift, drop, and insertion-position changes
+- persistent custom ordering
+- edge auto-scroll while dragging
+
+This implementation required several corrections because the first passes mixed coordinate spaces, relied on unstable measurements, and pushed too much drag-time work through React state.
+
+### Affected area
+
+- [app/(tabs)/my-lists/index.tsx](/C:/Users/Justin/Development/Projects/OlistPlayground2/app/(tabs)/my-lists/index.tsx)
+- [contexts/lists-context.tsx](/C:/Users/Justin/Development/Projects/OlistPlayground2/contexts/lists-context.tsx)
+- [convex/lists.ts](/C:/Users/Justin/Development/Projects/OlistPlayground2/convex/lists.ts)
+- [convex/shared.ts](/C:/Users/Justin/Development/Projects/OlistPlayground2/convex/shared.ts)
+- [convex/schema.ts](/C:/Users/Justin/Development/Projects/OlistPlayground2/convex/schema.ts)
+- [data/mock-lists.ts](/C:/Users/Justin/Development/Projects/OlistPlayground2/data/mock-lists.ts)
+- [lib/lists-storage.ts](/C:/Users/Justin/Development/Projects/OlistPlayground2/lib/lists-storage.ts)
+
+### What was done overall
+
+- Added persistent list ordering via list `sortOrder`
+- Added `reorderLists` mutation and client action
+- Implemented long-press pan reordering for row view
+- Added a floating overlay row instead of moving the real row directly
+- Added a drop indicator line that tracks the insertion boundary
+- Added drag haptics
+- Added auto-scroll near top and bottom edges
+- Tuned lift/release timing and row settle animation
+
+### What went wrong during implementation
+
+- The first drag overlay used the wrong coordinate space, so the dragged row appeared near the top of the screen instead of under the finger.
+- A later ref/measurement-based attempt broke drag activation entirely.
+- The insertion line was initially aligned to raw row boundaries without accounting for content padding or line height, so it visually overlapped rows.
+- The dragged row was temporarily left in layout as a faded placeholder, which made the insertion line appear to sit in the wrong place.
+- The drag overlay was initially locked on the x-axis, which made the card feel detached from the finger.
+- Early settle animation tuning removed bounce entirely or made it far too bouncy because the wrong animation layer was being tuned.
+- The first auto-scroll implementation was choppy because it forced React state updates every frame during drag.
+- Auto-scroll also initially failed because the scroll path depended too much on incomplete measurement/state assumptions.
+
+### Root causes
+
+- Mixing `measureInWindow`, viewport coordinates, FlatList content coordinates, and scroll offsets without a single consistent model.
+- Treating visually correct placement and mathematically correct placement as the same thing. The insertion line needed visual centering in the gap, not just a boundary coordinate.
+- Using React state for high-frequency drag/scroll values that should stay in refs or shared values.
+- Tuning the dragged card scale animation when the visible bounce was actually coming from row layout transitions.
+- Relying on fragile host-view measurement/ref behavior inside a drag gesture path.
+
+### Correct methods used in the final version
+
+- Keep the real list item in the list and render a separate floating overlay card for the dragged item.
+- Use the gesture's touch offsets and absolute pointer position to anchor the floating row under the finger.
+- Track x and y independently so the overlay can follow the finger naturally.
+- Derive insertion targets from ordered row heights and current scroll offset rather than ad hoc window measurements during updates.
+- Collapse the dragged row's placeholder out of layout so the gap and insertion line reflect visible rows.
+- Account for content padding and indicator height when placing the insertion line.
+- Persist the reordered list IDs immediately through a dedicated `reorderLists` path and mirror the order optimistically in the UI.
+- Use haptics only for discrete drag state changes:
+  - pick up
+  - drop/cancel
+  - insertion target changed
+- Use refs/shared values for drag-time values:
+  - current scroll offset
+  - drag position
+  - auto-scroll velocity
+  - current drag target
+- Use programmatic `scrollToOffset` in an animation-frame loop for edge auto-scroll instead of trying to drive it through normal React updates.
+- Keep the row settle animation separate from the overlay lift/release scale animation and tune them independently.
+
+### What to avoid
+
+- Do not use `measureInWindow` repeatedly during drag updates unless there is no alternative. It is too easy to mix coordinate spaces and introduce lag.
+- Do not depend on host refs in the critical drag activation path if a layout-based approach is sufficient.
+- Do not use React state as the primary source of truth for per-frame auto-scroll or drag positioning.
+- Do not leave the dragged row visible or semi-visible in layout if the UI is supposed to show a true gap.
+- Do not assume the insertion line belongs at the raw row boundary without adjusting for visual centering.
+- Do not tune only `withTiming`/`withSpring` on the overlay scale and assume that fixes row bounce. Row bounce often comes from layout transitions instead.
+- Do not disable the list in ways that block programmatic edge scrolling while dragging.
+
+### Recommended procedure for future reorder surfaces
+
+1. Add persistent ordering in the data model first.
+2. Build the drag UI around a floating overlay card, not by directly translating the real row.
+3. Choose one coordinate system and convert into it explicitly.
+4. Keep drag-time values in refs/shared values.
+5. Add the insertion line only after gap math is correct.
+6. Add haptics only after insertion-target changes are stable.
+7. Add edge auto-scroll last, after drag positioning and insertion targeting are already correct.
+8. Tune three animation layers separately:
+   overlay lift
+   overlay release
+   row layout settle
+
+### Verification checklist
+
+- Long press activates drag reliably in row view.
+- The floating card appears directly under the finger, including over the thumbnail.
+- The floating card follows both x and y.
+- The insertion line sits visually between rows.
+- Haptics fire on lift, drop, and target change.
+- Releasing commits order and persists after reload.
+- Drag near the top or bottom edge scrolls smoothly when more content exists.
+- Auto-scroll remains visually smooth and does not cause obvious list jitter.
+
+### Current status
+
+- Persistent reorder path implemented
+- Gesture-based row drag implemented
+- Floating overlay, insertion line, haptics, and edge auto-scroll implemented
+- Performance improved by moving drag-time scroll values out of React state
+- This implementation should be reused as the reference pattern for future reorderable row lists
