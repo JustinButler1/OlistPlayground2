@@ -53,6 +53,7 @@ const AUTO_SCROLL_EDGE_THRESHOLD = 96;
 const AUTO_SCROLL_MAX_STEP = 18;
 const DRAG_LIFT_DURATION_MS = 5;
 const DRAG_RELEASE_DURATION_MS = 5;
+const DRAG_SWIPE_FAIL_OFFSET_X = 24;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -1004,6 +1005,10 @@ export default function MyListsScreen() {
                     onDragStart={startRowDrag}
                     onLayout={registerRowLayout}
                     onPress={() => openListDetail(item)}
+                    renderLeftActions={(progress) => renderPinAction(progress, () => openPinDialog(item))}
+                    renderRightActions={(progress) =>
+                      renderDeleteAction(progress, () => confirmDeleteList(item))
+                    }
                   />
                 );
               }
@@ -1179,6 +1184,8 @@ function DraggableListRow({
   onDragStart,
   onLayout,
   onPress,
+  renderLeftActions,
+  renderRightActions,
 }: {
   colors: ThemeColors;
   isDragging: boolean;
@@ -1194,11 +1201,14 @@ function DraggableListRow({
   ) => void;
   onLayout: (listId: string, layout: RowLayout) => void;
   onPress: () => void;
+  renderLeftActions: (progress: RNAnimated.AnimatedInterpolation<number>) => ReactNode;
+  renderRightActions: (progress: RNAnimated.AnimatedInterpolation<number>) => ReactNode;
 }) {
   const gesture = useMemo(
     () =>
       Gesture.Pan()
         .activateAfterLongPress(220)
+        .failOffsetX([-DRAG_SWIPE_FAIL_OFFSET_X, DRAG_SWIPE_FAIL_OFFSET_X])
         .onStart((event) => {
           runOnJS(onDragStart)(item.id, event.x, event.y, event.absoluteX, event.absoluteY);
         })
@@ -1224,9 +1234,23 @@ function DraggableListRow({
         pointerEvents={isDragging ? 'none' : 'auto'}
         style={isDragging ? styles.hiddenRow : undefined}
       >
-        <Pressable onPress={onPress} style={({ pressed }) => [styles.resultRow, { opacity: pressed ? 0.82 : 1 }]}>
-          <ListRowContent colors={colors} item={item} />
-        </Pressable>
+        <Swipeable
+          containerStyle={styles.swipeableContainer}
+          childrenContainerStyle={styles.swipeableChildren}
+          leftThreshold={40}
+          overshootRight={false}
+          overshootLeft={false}
+          rightThreshold={40}
+          renderLeftActions={renderLeftActions}
+          renderRightActions={renderRightActions}
+        >
+          <Pressable
+            onPress={onPress}
+            style={({ pressed }) => [styles.resultRow, { opacity: pressed ? 0.82 : 1 }]}
+          >
+            <ListRowContent colors={colors} item={item} />
+          </Pressable>
+        </Swipeable>
       </Animated.View>
     </GestureDetector>
   );

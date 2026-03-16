@@ -64,6 +64,7 @@ const AUTO_SCROLL_EDGE_THRESHOLD = 96;
 const AUTO_SCROLL_MAX_STEP = 18;
 const DRAG_LIFT_DURATION_MS = 5;
 const DRAG_RELEASE_DURATION_MS = 5;
+const DRAG_SWIPE_FAIL_OFFSET_X = 24;
 
 type RowLayout = {
   height: number;
@@ -1430,6 +1431,7 @@ export default function ListDetailScreen() {
                       onOpenEntry={openEntry}
                       onOpenEntryUrl={openEntryUrl}
                       onToggleChecked={(entry) => setEntryChecked(list.id, entry.id, !entry.checked)}
+                      renderRightActions={(progress) => renderRightActions(progress, item)}
                       renderEntryTags={renderEntryTags}
                     />
                   ) : (
@@ -2338,6 +2340,7 @@ function DraggableEntryRow({
   onOpenEntry,
   onOpenEntryUrl,
   onToggleChecked,
+  renderRightActions,
   renderEntryTags,
 }: {
   colors: (typeof Colors)['light'] | (typeof Colors)['dark'];
@@ -2360,12 +2363,14 @@ function DraggableEntryRow({
   onOpenEntry: (entry: ListEntry) => void;
   onOpenEntryUrl: (entry: ListEntry) => Promise<void>;
   onToggleChecked: (entry: ListEntry) => void;
+  renderRightActions: (progress: RNAnimated.AnimatedInterpolation<number>) => ReactNode;
   renderEntryTags: (tags: string[]) => ReactNode;
 }) {
   const gesture = useMemo(
     () =>
       Gesture.Pan()
         .activateAfterLongPress(220)
+        .failOffsetX([-DRAG_SWIPE_FAIL_OFFSET_X, DRAG_SWIPE_FAIL_OFFSET_X])
         .onStart((event) => {
           runOnJS(onDragStart)(entry.id, event.x, event.y, event.absoluteX, event.absoluteY);
         })
@@ -2392,17 +2397,25 @@ function DraggableEntryRow({
         style={isDragging ? styles.hiddenRow : showBottomSpacing ? styles.rowWithSpacing : undefined}
       >
         {isDragging ? null : (
-          <EntryRow
-            colors={colors}
-            entry={entry}
-            hasToggle={hasToggle}
-            isIos={isIos}
-            supportsLiquidGlass={supportsLiquidGlass}
-            onOpenEntry={onOpenEntry}
-            onOpenEntryUrl={onOpenEntryUrl}
-            onToggleChecked={onToggleChecked}
-            renderEntryTags={renderEntryTags}
-          />
+          <Swipeable
+            containerStyle={styles.swipeableContainer}
+            childrenContainerStyle={styles.swipeableChildren}
+            overshootRight={false}
+            rightThreshold={56}
+            renderRightActions={renderRightActions}
+          >
+            <EntryRow
+              colors={colors}
+              entry={entry}
+              hasToggle={hasToggle}
+              isIos={isIos}
+              supportsLiquidGlass={supportsLiquidGlass}
+              onOpenEntry={onOpenEntry}
+              onOpenEntryUrl={onOpenEntryUrl}
+              onToggleChecked={onToggleChecked}
+              renderEntryTags={renderEntryTags}
+            />
+          </Swipeable>
         )}
       </Animated.View>
     </GestureDetector>
