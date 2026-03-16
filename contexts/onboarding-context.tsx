@@ -3,6 +3,7 @@ import { useConvex, useMutation } from 'convex/react';
 
 import { api } from '@/convex/_generated/api';
 import { ONBOARDING_INTEREST_IDS, type OnboardingInterestId } from '@/constants/onboarding';
+import { useTestAccounts } from '@/contexts/test-accounts-context';
 import { useConvexWorkspaceBootstrap } from '@/lib/convex-bootstrap';
 import { uploadImageToConvex } from '@/lib/convex-upload';
 import {
@@ -17,7 +18,7 @@ interface OnboardingContextValue {
   isComplete: boolean;
   isSyncing: boolean;
   lastSyncError: string | null;
-  dataSource: 'convex';
+  dataSource: 'convex' | 'mock';
   setDisplayName: (value: string) => Promise<void>;
   setBirthDate: (value: string | null) => Promise<void>;
   setAvatarUri: (value: string | null) => Promise<void>;
@@ -30,6 +31,7 @@ const OnboardingContext = createContext<OnboardingContextValue | null>(null);
 
 export function OnboardingProvider({ children }: { children: ReactNode }) {
   const convex = useConvex();
+  const { activeAccount, activeMockAccountSeed, updateActiveMockOnboardingState } = useTestAccounts();
   const { snapshot, isBootstrapping, lastBootstrapError } = useConvexWorkspaceBootstrap();
   const updateProfile = useMutation(api.onboarding.updateProfile);
   const complete = useMutation(api.onboarding.complete);
@@ -51,7 +53,8 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       }
     : createInitialOnboardingState();
 
-  const state = typedState;
+  const isMockAccount = activeAccount.kind === 'mock' && !!activeMockAccountSeed;
+  const state = isMockAccount ? activeMockAccountSeed.onboardingState : typedState;
 
   const runMutation = async (task: () => Promise<unknown>) => {
     setPendingMutations((current) => current + 1);
@@ -69,18 +72,48 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   const value = useMemo<OnboardingContextValue>(
     () => ({
       state,
-      isHydrated: snapshot !== undefined,
+      isHydrated: isMockAccount ? true : snapshot !== undefined,
       isComplete: !!state.completedAt,
-      isSyncing: isBootstrapping || pendingMutations > 0,
-      lastSyncError: lastSyncError ?? lastBootstrapError,
-      dataSource: 'convex',
+      isSyncing: isMockAccount ? false : isBootstrapping || pendingMutations > 0,
+      lastSyncError: isMockAccount ? null : lastSyncError ?? lastBootstrapError,
+      dataSource: isMockAccount ? 'mock' : 'convex',
       setDisplayName: async (displayName) => {
+        if (isMockAccount) {
+          updateActiveMockOnboardingState((current) => ({
+            ...current,
+            profile: {
+              ...current.profile,
+              displayName,
+            },
+          }));
+          return;
+        }
         await runMutation(() => updateProfile({ displayName }));
       },
       setBirthDate: async (birthDate) => {
+        if (isMockAccount) {
+          updateActiveMockOnboardingState((current) => ({
+            ...current,
+            profile: {
+              ...current.profile,
+              birthDate,
+            },
+          }));
+          return;
+        }
         await runMutation(() => updateProfile({ birthDate }));
       },
       setAvatarUri: async (avatarUri) => {
+        if (isMockAccount) {
+          updateActiveMockOnboardingState((current) => ({
+            ...current,
+            profile: {
+              ...current.profile,
+              avatarUri,
+            },
+          }));
+          return;
+        }
         await runMutation(async () => {
           if (!avatarUri) {
             await updateProfile({ clearAvatar: true });
@@ -100,6 +133,22 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         });
       },
       toggleInterest: async (interestId) => {
+        if (isMockAccount) {
+          updateActiveMockOnboardingState((current) => {
+            const hasInterest = current.profile.interests.includes(interestId);
+
+            return {
+              ...current,
+              profile: {
+                ...current.profile,
+                interests: hasInterest
+                  ? current.profile.interests.filter((item) => item !== interestId)
+                  : [...current.profile.interests, interestId],
+              },
+            };
+          });
+          return;
+        }
         await runMutation(async () => {
           const hasInterest = state.profile.interests.includes(interestId);
           await updateProfile({
@@ -110,9 +159,20 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         });
       },
       completeOnboarding: async () => {
+        if (isMockAccount) {
+          updateActiveMockOnboardingState((current) => ({
+            ...current,
+            completedAt: Date.now(),
+          }));
+          return;
+        }
         await runMutation(() => complete({}));
       },
       resetOnboarding: async () => {
+        if (isMockAccount) {
+          updateActiveMockOnboardingState(() => createInitialOnboardingState());
+          return;
+        }
         await runMutation(() => reset({}));
       },
     }),
@@ -121,6 +181,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       complete,
       convex,
       generateUploadUrl,
+      isMockAccount,
       isBootstrapping,
       lastBootstrapError,
       lastSyncError,
@@ -128,6 +189,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       snapshot,
       state,
       updateProfile,
+      updateActiveMockOnboardingState,
       reset,
     ]
   );

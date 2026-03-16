@@ -1,8 +1,11 @@
-import { ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { useRouter } from 'expo-router';
+import { useMemo } from 'react';
+import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { ThumbnailImage } from '@/components/thumbnail-image';
+import { useListsQuery } from '@/contexts/lists-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 const HOME_SECTIONS = [
@@ -53,6 +56,20 @@ const SECTION_HORIZONTAL_PADDING = 20;
 const CARD_GAP = 14;
 const QUICK_ACCESS_PEEK = 48;
 
+type QuickAccessItem =
+  | {
+      key: string;
+      kind: 'placeholder';
+      title: string;
+    }
+  | {
+      key: string;
+      kind: 'list';
+      title: string;
+      imageUrl?: string;
+      listId: string;
+    };
+
 function chunkItems<T>(items: readonly T[], size: number) {
   const chunks: T[][] = [];
 
@@ -64,7 +81,9 @@ function chunkItems<T>(items: readonly T[], size: number) {
 }
 
 export function HomePlaceholderSections() {
+  const router = useRouter();
   const colorScheme = useColorScheme();
+  const { pinnedLists } = useListsQuery();
   const isDark = colorScheme === 'dark';
   const { width: windowWidth } = useWindowDimensions();
   const quickAccessCardSize = Math.max(
@@ -73,7 +92,24 @@ export function HomePlaceholderSections() {
       (windowWidth - SECTION_HORIZONTAL_PADDING - CARD_GAP * 3 - QUICK_ACCESS_PEEK) / 3
     )
   );
-  const quickAccessColumns = chunkItems(HOME_SECTIONS[0].items, 2);
+  const quickAccessItems = useMemo<QuickAccessItem[]>(
+    () => [
+      ...pinnedLists.map((list) => ({
+        key: `list-${list.id}`,
+        kind: 'list' as const,
+        title: list.title,
+        imageUrl: list.imageUrl,
+        listId: list.id,
+      })),
+      ...HOME_SECTIONS[0].items.map((item) => ({
+        key: `placeholder-${item}`,
+        kind: 'placeholder' as const,
+        title: item,
+      })),
+    ],
+    [pinnedLists]
+  );
+  const quickAccessColumns = chunkItems(quickAccessItems, 2);
 
   return (
     <View style={styles.sectionStack}>
@@ -98,8 +134,8 @@ export function HomePlaceholderSections() {
                   key={`quick-access-column-${columnIndex}`}
                   style={[styles.quickAccessColumn, { width: quickAccessCardSize }]}
                 >
-                  {columnItems.map((item) => (
-                    <View key={item} style={styles.quickAccessCardShell}>
+                  {columnItems.map((item) => {
+                    const content = (
                       <ThemedView
                         style={[
                           styles.quickAccessCard,
@@ -111,11 +147,40 @@ export function HomePlaceholderSections() {
                         ]}
                       >
                         <ThumbnailImage
+                          imageUrl={item.kind === 'list' ? item.imageUrl : undefined}
                           style={[styles.quickAccessThumbnail, { width: quickAccessCardSize }]}
                         />
                       </ThemedView>
-                    </View>
-                  ))}
+                    );
+
+                    if (item.kind === 'list') {
+                      return (
+                        <Pressable
+                          key={item.key}
+                          accessibilityLabel={`Open ${item.title} from Quick Access`}
+                          accessibilityRole="button"
+                          onPress={() =>
+                            router.push({
+                              pathname: '/list/[id]',
+                              params: { id: item.listId, title: item.title },
+                            })
+                          }
+                          style={({ pressed }) => [
+                            styles.quickAccessCardShell,
+                            { opacity: pressed ? 0.84 : 1 },
+                          ]}
+                        >
+                          {content}
+                        </Pressable>
+                      );
+                    }
+
+                    return (
+                      <View key={item.key} style={styles.quickAccessCardShell}>
+                        {content}
+                      </View>
+                    );
+                  })}
                 </View>
               ))}
             </ScrollView>

@@ -161,7 +161,7 @@ export default function MyListsScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { activeLists } = useListsQuery();
-  const { deleteList, reorderLists } = useListActions();
+  const { deleteList, reorderLists, updateList } = useListActions();
   const [sortMode, setSortMode] = useState<SortMode>('updated-desc');
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [viewMode, setViewMode] = useState<ViewMode>('rows');
@@ -537,17 +537,23 @@ export default function MyListsScreen() {
   }, [activeLists, deleteList, exitEditMode, selectedListIds]);
 
   const openPinDialog = useCallback((item: TrackerList) => {
+    const pinToQuickAccess = () => {
+      void updateList(item.id, { pinned: true });
+    };
+
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      window.alert(`Pin "${item.title}"\n\nPin to Quick Access\nPin to Profile`);
+      if (window.confirm(`Add "${item.title}" to Quick Access?`)) {
+        pinToQuickAccess();
+      }
       return;
     }
 
     Alert.alert('Pin list', `Choose where to pin "${item.title}".`, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Pin to Quick Access' },
+      { text: 'Pin to Quick Access', onPress: pinToQuickAccess },
       { text: 'Pin to Profile' },
     ]);
-  }, []);
+  }, [updateList]);
 
   const registerRowLayout = useCallback((listId: string, layout: RowLayout) => {
     rowLayoutsRef.current[listId] = layout;

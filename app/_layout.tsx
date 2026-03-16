@@ -10,6 +10,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { ThemePalette } from '@/constants/theme';
 import { OnboardingProvider } from '@/contexts/onboarding-context';
 import { ListsProvider } from '@/contexts/lists-context';
+import { TestAccountsProvider } from '@/contexts/test-accounts-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { convex } from '@/lib/convex-client';
 import { createQueryClient } from '@/lib/query-client';
@@ -65,34 +66,36 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <ConvexProvider client={convex}>
           <ThemeProvider value={colorScheme === 'dark' ? DarkThemeCustom : LightTheme}>
-            <OnboardingProvider>
-              <ListsProvider>
-                <Stack screenOptions={{ headerBackButtonDisplayMode: 'minimal' }}>
-                  <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                  <Stack.Screen name="anime/[id]" />
-                  <Stack.Screen name="manga/[id]" />
-                  <Stack.Screen name="books/[id]" />
-                  <Stack.Screen name="tv-movie/[type]/[id]" />
-                  <Stack.Screen name="list/[id]" />
-                  <Stack.Screen
-                    name="list-existing-sheet"
-                    options={{
-                      ...sheetOptions,
-                      title: 'Existing List',
-                      ...(isIos ? { sheetAllowedDetents: [0.55, 0.92] } : {}),
-                    }}
-                  />
-                  <Stack.Screen name="list-entry/[id]" />
-                  <Stack.Screen name="games/[id]" />
-                  <Stack.Screen name="product-import" options={{ title: 'Import Product' }} />
-                  <Stack.Screen
-                    name="modal"
-                    options={{ presentation: 'modal', title: 'Modal' }}
-                  />
-                </Stack>
-                <StatusBar style="auto" />
-              </ListsProvider>
-            </OnboardingProvider>
+            <TestAccountsProvider>
+              <OnboardingProvider>
+                <ListsProvider>
+                  <Stack screenOptions={{ headerBackButtonDisplayMode: 'minimal' }}>
+                    <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                    <Stack.Screen name="anime/[id]" />
+                    <Stack.Screen name="manga/[id]" />
+                    <Stack.Screen name="books/[id]" />
+                    <Stack.Screen name="tv-movie/[type]/[id]" />
+                    <Stack.Screen name="list/[id]" />
+                    <Stack.Screen
+                      name="list-existing-sheet"
+                      options={{
+                        ...sheetOptions,
+                        title: 'Existing List',
+                        ...(isIos ? { sheetAllowedDetents: [0.55, 0.92] } : {}),
+                      }}
+                    />
+                    <Stack.Screen name="list-entry/[id]" />
+                    <Stack.Screen name="games/[id]" />
+                    <Stack.Screen name="product-import" options={{ title: 'Import Product' }} />
+                    <Stack.Screen
+                      name="modal"
+                      options={{ presentation: 'modal', title: 'Modal' }}
+                    />
+                  </Stack>
+                  <StatusBar style="auto" />
+                </ListsProvider>
+              </OnboardingProvider>
+            </TestAccountsProvider>
           </ThemeProvider>
         </ConvexProvider>
       </QueryClientProvider>

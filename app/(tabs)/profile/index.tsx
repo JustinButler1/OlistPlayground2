@@ -1,14 +1,17 @@
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AvatarIcon } from '@/components/avatar-icon';
 import { TopTabs } from '@/components/reacticx/base/tabs';
 import { TabRootBackground } from '@/components/tab-root-background';
 import { ThemedText } from '@/components/themed-text';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ONBOARDING_INTEREST_OPTIONS } from '@/constants/onboarding';
 import { Colors } from '@/constants/theme';
 import { useListsQuery } from '@/contexts/lists-context';
 import { useOnboarding } from '@/contexts/onboarding-context';
+import { useTestAccounts } from '@/contexts/test-accounts-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { getListStats } from '@/lib/tracker-selectors';
 
@@ -17,10 +20,13 @@ export default function ProfileScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const isDark = colorScheme === 'dark';
+  const [accountMenuVisible, setAccountMenuVisible] = useState(false);
+  const { accounts, activeAccount, activeAccountId, switchAccount } = useTestAccounts();
   const { state, isComplete, isHydrated, isSyncing, lastSyncError } = useOnboarding();
   const { activeLists, deletedLists } = useListsQuery();
-  const displayName = state.profile.displayName.trim() || 'Shared Workspace';
-  const workspaceId = 'shared-workspace-profile';
+  const displayName = state.profile.displayName.trim() || activeAccount.defaultDisplayName;
+  const profileId = activeAccount.profileId;
+  const profileHandle = activeAccount.handle;
   const trackedItems = activeLists.reduce((sum, list) => sum + getListStats(list).total, 0);
   const completedItems = activeLists.reduce((sum, list) => sum + getListStats(list).completed, 0);
   const featuredLists = [...activeLists].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 3);
@@ -33,6 +39,10 @@ export default function ProfileScreen() {
     { label: 'Lists', value: activeLists.length },
     { label: 'Entries', value: trackedItems },
   ];
+  const accountOptions = accounts.map((account) => ({
+    ...account,
+    displayName: account.id === activeAccountId ? displayName : account.defaultDisplayName,
+  }));
   const surfaceColor = isDark ? 'rgba(5, 18, 35, 0.64)' : 'rgba(245, 248, 252, 0.78)';
   const borderColor = isDark ? 'rgba(255, 255, 255, 0.12)' : colors.icon + '20';
   const shadowColor = isDark
@@ -207,7 +217,7 @@ export default function ProfileScreen() {
                       selectable
                       style={[styles.rowSubtitle, { color: colors.icon }]}
                     >
-                      Removed from the shared workspace
+                      Removed from this account
                     </ThemedText>
                   </View>
                 </View>
@@ -216,7 +226,7 @@ export default function ProfileScreen() {
           ) : (
             <ProfileEmptyState
               accentColor={colors.icon}
-              message="Nothing has been deleted from this shared workspace."
+              message="Nothing has been deleted from this account."
             />
           )}
           <PlaceholderSection
@@ -255,14 +265,79 @@ export default function ProfileScreen() {
             },
           ]}
         >
-          <AvatarIcon profileId={workspaceId} displayName={displayName} size={88} />
+          <AvatarIcon profileId={profileId} displayName={displayName} size={88} />
           <View style={styles.identity}>
-            <ThemedText selectable style={styles.name}>
-              {displayName}
-            </ThemedText>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setAccountMenuVisible((current) => !current)}
+              style={({ pressed }) => [
+                styles.nameButton,
+                { opacity: pressed ? 0.78 : 1 },
+              ]}
+            >
+              <ThemedText selectable style={styles.name}>
+                {displayName}
+              </ThemedText>
+              <IconSymbol
+                name={accountMenuVisible ? 'chevron.up' : 'chevron.down'}
+                size={18}
+                color={colors.icon}
+              />
+            </Pressable>
             <ThemedText selectable style={[styles.uid, { color: colors.icon }]}>
-              @{workspaceId}
+              @{profileHandle}
             </ThemedText>
+            {accountMenuVisible ? (
+              <View
+                style={[
+                  styles.accountMenu,
+                  {
+                    backgroundColor: surfaceColor,
+                    borderColor,
+                  },
+                ]}
+              >
+                {accountOptions.map((account) => {
+                  const isSelected = account.id === activeAccountId;
+
+                  return (
+                    <Pressable
+                      key={account.id}
+                      onPress={() => {
+                        setAccountMenuVisible(false);
+                        void switchAccount(account.id);
+                      }}
+                      style={({ pressed }) => [
+                        styles.accountOption,
+                        {
+                          backgroundColor: isSelected
+                            ? colors.tint + '16'
+                            : pressed
+                              ? colors.icon + '10'
+                              : 'transparent',
+                          borderColor: isSelected ? colors.tint + '28' : 'transparent',
+                        },
+                      ]}
+                    >
+                      <View style={styles.accountOptionCopy}>
+                        <ThemedText selectable style={styles.accountOptionTitle}>
+                          {account.displayName}
+                        </ThemedText>
+                        <ThemedText
+                          selectable
+                          style={[styles.accountOptionSubtitle, { color: colors.icon }]}
+                        >
+                          {account.pickerDescription}
+                        </ThemedText>
+                      </View>
+                      {isSelected ? (
+                        <IconSymbol name="checkmark" size={16} color={colors.tint} />
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
           </View>
           <View style={styles.metricRow}>
             {profileStats.map((metric) => (
@@ -434,6 +509,12 @@ const styles = StyleSheet.create({
   identity: {
     alignItems: 'center',
     gap: 6,
+    width: '100%',
+  },
+  nameButton: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
   },
   name: {
     fontSize: 28,
@@ -443,6 +524,38 @@ const styles = StyleSheet.create({
   },
   uid: {
     fontSize: 14,
+    lineHeight: 18,
+  },
+  accountMenu: {
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderCurve: 'continuous',
+    gap: 8,
+    marginTop: 10,
+    padding: 10,
+    width: '100%',
+  },
+  accountOption: {
+    alignItems: 'center',
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderCurve: 'continuous',
+    flexDirection: 'row',
+    gap: 10,
+    minHeight: 54,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  accountOptionCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  accountOptionTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  accountOptionSubtitle: {
+    fontSize: 13,
     lineHeight: 18,
   },
   blurb: {

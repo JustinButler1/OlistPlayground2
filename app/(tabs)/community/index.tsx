@@ -5,6 +5,7 @@ import { CommunityFeedList } from '@/components/community/community-feed-list';
 import { TopTabs } from '@/components/reacticx/base/tabs';
 import { TabRootBackground } from '@/components/tab-root-background';
 import { Colors } from '@/constants/theme';
+import { useTestAccounts } from '@/contexts/test-accounts-context';
 import { MOCK_COMMUNITY_FEED } from '@/data/mock-community-feed';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
@@ -12,9 +13,11 @@ export default function CommunityScreen() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const forYouFeed = MOCK_COMMUNITY_FEED;
-  const followingFeed = MOCK_COMMUNITY_FEED.slice(0, 2);
-  const exploreFeed = [...MOCK_COMMUNITY_FEED].reverse();
+  const { activeMockAccountSeed } = useTestAccounts();
+  const accountFeed = activeMockAccountSeed?.communityFeed ?? MOCK_COMMUNITY_FEED;
+  const forYouFeed = accountFeed;
+  const followingFeed = accountFeed.slice(0, 2);
+  const exploreFeed = [...accountFeed].reverse();
   const tabs = [
     {
       id: 'for-you',

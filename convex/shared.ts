@@ -15,7 +15,12 @@ import {
   type ListTemplate,
   type TrackerList,
 } from "../data/mock-lists";
-import { createPowerUserMockSeedFromJson } from "../data/power-user-mock-seed";
+import {
+  createPowerUserMockSeedFromJson,
+  resolveMockEntryImageUrl,
+  resolveMockListImageUrl,
+  resolveMockTemplateEntryImageUrl,
+} from "../data/power-user-mock-seed";
 import { normalizeProgress, normalizeRating } from "../lib/tracker-metadata";
 import { MAIN_WORKSPACE_SLUG } from "./model";
 
@@ -812,7 +817,13 @@ export async function collectSnapshot(ctx: any): Promise<SnapshotPayload> {
       id: entryDoc.clientId,
       title: entryDoc.title,
       type: entryDoc.type,
-      imageUrl: entryDoc.imageUrl,
+      imageUrl: resolveMockEntryImageUrl({
+        id: entryDoc.clientId,
+        imageUrl: entryDoc.imageUrl,
+        coverAssetUri: resolvedCoverUrl ?? undefined,
+        detailPath: entryDoc.detailPath,
+        sourceRef: entryDoc.sourceRef,
+      }),
       detailPath: entryDoc.detailPath,
       notes: entryDoc.notes,
       customFields: entryDoc.customFields,
@@ -852,7 +863,7 @@ export async function collectSnapshot(ctx: any): Promise<SnapshotPayload> {
       return compact({
         id: listDoc.clientId,
         title: listDoc.title,
-        imageUrl: resolvedImageUrl ?? undefined,
+        imageUrl: resolveMockListImageUrl(listDoc.clientId, resolvedImageUrl ?? undefined),
         description: listDoc.description,
         tags: listDoc.tags,
         preset: listDoc.preset,
@@ -914,7 +925,10 @@ export async function collectSnapshot(ctx: any): Promise<SnapshotPayload> {
     source: "user" as const,
     preset: doc.preset,
     config: createListConfig(doc.config),
-    starterEntries: doc.starterEntries,
+    starterEntries: doc.starterEntries.map((entry: any) => ({
+      ...entry,
+      imageUrl: resolveMockTemplateEntryImageUrl(doc.clientId, entry),
+    })),
   }));
 
   const isEmpty =

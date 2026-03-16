@@ -32,7 +32,12 @@ import {
   type ListViewMode,
   type TrackerList,
 } from '@/data/mock-lists';
-import { createPowerUserMockSeedFromJson } from '@/data/power-user-mock-seed';
+import {
+  createPowerUserMockSeedFromJson,
+  resolveMockEntryImageUrl,
+  resolveMockListImageUrl,
+  resolveMockTemplateEntryImageUrl,
+} from '@/data/power-user-mock-seed';
 import {
   normalizeProgress as normalizeTrackerProgress,
   normalizeRating,
@@ -441,7 +446,22 @@ function normalizeEntry(value: unknown): ListEntry | null {
     id: value.id,
     title: value.title,
     type,
-    imageUrl: typeof value.imageUrl === 'string' ? value.imageUrl : undefined,
+    imageUrl: resolveMockEntryImageUrl({
+      id: value.id,
+      imageUrl: typeof value.imageUrl === 'string' ? value.imageUrl : undefined,
+      coverAssetUri: typeof value.coverAssetUri === 'string' ? value.coverAssetUri : undefined,
+      detailPath: typeof value.detailPath === 'string' ? value.detailPath : undefined,
+      sourceRef: normalizeSourceRef(value.sourceRef, {
+        ...fallbackSource,
+        detailPath: typeof value.detailPath === 'string' ? value.detailPath : undefined,
+        canonicalUrl:
+          typeof value.productUrl === 'string'
+            ? value.productUrl
+            : typeof value.canonicalUrl === 'string'
+            ? value.canonicalUrl
+            : undefined,
+      }),
+    }),
     detailPath: typeof value.detailPath === 'string' ? value.detailPath : undefined,
     notes: typeof value.notes === 'string' ? value.notes : undefined,
     customFields: Array.isArray(value.customFields)
@@ -515,7 +535,10 @@ function normalizeList(value: unknown): TrackerList | null {
   return {
     id: value.id,
     title: value.title,
-    imageUrl: typeof value.imageUrl === 'string' ? value.imageUrl : undefined,
+    imageUrl: resolveMockListImageUrl(
+      value.id,
+      typeof value.imageUrl === 'string' ? value.imageUrl : undefined
+    ),
     description: typeof value.description === 'string' ? value.description : undefined,
     tags: normalizeListTags(value.tags),
     preset,
@@ -560,15 +583,19 @@ function normalizeTemplate(value: unknown): ListTemplate | null {
         })
     : [];
   const preset = value.preset === 'blank' ? 'blank' : 'tracking';
+  const templateId = value.id;
 
   return {
-    id: value.id,
+    id: templateId,
     title: value.title,
     description: value.description,
     source: value.source === 'user' ? 'user' : 'built-in',
     preset,
     config: normalizeListConfig(value.config, { preset }),
-    starterEntries,
+    starterEntries: starterEntries.map((entry) => ({
+      ...entry,
+      imageUrl: resolveMockTemplateEntryImageUrl(templateId, entry),
+    })),
   };
 }
 

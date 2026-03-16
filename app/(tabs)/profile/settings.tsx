@@ -8,6 +8,7 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useOnboarding } from '@/contexts/onboarding-context';
 import { useListActions, useListsQuery } from '@/contexts/lists-context';
+import { useTestAccounts } from '@/contexts/test-accounts-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export default function SettingsScreen() {
@@ -16,7 +17,9 @@ export default function SettingsScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const { activeLists, deletedLists } = useListsQuery();
   const { loadMockData } = useListActions();
-  const { isComplete, isHydrated, isSyncing, state } = useOnboarding();
+  const { activeAccount } = useTestAccounts();
+  const { dataSource, isComplete, isHydrated, isSyncing, state } = useOnboarding();
+  const displayName = state.profile.displayName.trim() || activeAccount.defaultDisplayName;
   const hasStarted =
     !!state.profile.displayName.trim() ||
     !!state.profile.birthDate ||
@@ -30,7 +33,9 @@ export default function SettingsScreen() {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       if (
         window.confirm(
-          'Replace the shared Convex workspace with the power-user mock workspace? This overwrites the current shared lists and templates.'
+          dataSource === 'mock'
+            ? `Reset ${displayName}'s seeded test data back to its defaults?`
+            : 'Replace the shared Convex workspace with the power-user mock workspace? This overwrites the current shared lists and templates.'
         )
       ) {
         runLoad();
@@ -39,11 +44,13 @@ export default function SettingsScreen() {
     }
 
     Alert.alert(
-      'Load mock data?',
-      'Replace the shared Convex workspace with a seeded power-user workspace. This overwrites the current shared lists and templates.',
+      dataSource === 'mock' ? 'Reset test account?' : 'Load mock data?',
+      dataSource === 'mock'
+        ? `Reset ${displayName}'s seeded lists, templates, and recent activity back to the original mock state.`
+        : 'Replace the shared Convex workspace with a seeded power-user workspace. This overwrites the current shared lists and templates.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Load', style: 'destructive', onPress: runLoad },
+        { text: dataSource === 'mock' ? 'Reset' : 'Load', style: 'destructive', onPress: runLoad },
       ]
     );
   };
@@ -67,7 +74,9 @@ export default function SettingsScreen() {
         >
           <ThemedText type="subtitle">Data</ThemedText>
           <ThemedText style={[styles.supportingText, { color: colors.icon }]}>
-            This app now uses one shared Convex workspace. Images and tracker data persist from Convex, and reminder schedules are regenerated per device from Convex reminder times.
+            {dataSource === 'mock'
+              ? `${displayName} is using a local seeded test account. Switching away keeps the live account untouched.`
+              : 'This app now uses one shared Convex workspace. Images and tracker data persist from Convex, and reminder schedules are regenerated per device from Convex reminder times.'}
           </ThemedText>
           <ThemedText style={styles.metricsText}>
             {activeLists.length} active lists, {deletedLists.length} deleted lists
@@ -84,12 +93,13 @@ export default function SettingsScreen() {
           >
             <IconSymbol name="plus" size={18} color={colors.background} />
             <ThemedText style={[styles.primaryActionText, { color: colors.background }]}>
-              Load Power-User Mock Data
+              {dataSource === 'mock' ? 'Reset Seeded Test Data' : 'Load Power-User Mock Data'}
             </ThemedText>
           </Pressable>
           <ThemedText style={[styles.caption, { color: colors.icon }]}>
-            Imports a seeded workspace with common list types, realistic custom items, linked
-            sublists, tier data, archived history, deleted lists, templates, and API-backed entries.
+            {dataSource === 'mock'
+              ? 'Restores this test account to its original seeded lists, linked sublists, templates, and recent activity.'
+              : 'Imports a seeded workspace with common list types, realistic custom items, linked sublists, tier data, archived history, deleted lists, templates, and API-backed entries.'}
           </ThemedText>
         </View>
 
@@ -130,11 +140,11 @@ export default function SettingsScreen() {
           <ThemedText type="subtitle">Onboarding</ThemedText>
           <View style={styles.avatarRow}>
             <AvatarIcon
-              profileId="shared-workspace-profile"
-              displayName={state.profile.displayName.trim() || 'Shared Workspace'}
+              profileId={activeAccount.profileId}
+              displayName={displayName}
             />
             <View style={styles.avatarCopy}>
-              <ThemedText style={styles.avatarTitle}>Shared profile avatar</ThemedText>
+              <ThemedText style={styles.avatarTitle}>Profile avatar</ThemedText>
               <ThemedText style={[styles.caption, { color: colors.icon }]}>
                 The avatar now uses a linear gradient with initials generated from the display name.
               </ThemedText>
@@ -143,11 +153,11 @@ export default function SettingsScreen() {
           <ThemedText style={[styles.supportingText, { color: colors.icon }]}>
             {isHydrated
               ? isComplete
-                ? `Shared workspace profile complete with ${state.profile.interests.length} saved interests.`
+                ? `${displayName} has ${state.profile.interests.length} saved interests.`
                 : hasStarted
-                  ? 'Resume the shared Convex-backed profile setup from where you left off.'
-                  : 'Launch the shared workspace onboarding flow from here.'
-              : 'Loading shared workspace profile...'}
+                  ? `Resume ${dataSource === 'mock' ? 'the test account' : 'the shared'} profile setup from where you left off.`
+                  : `Launch the ${dataSource === 'mock' ? 'test account' : 'shared'} profile onboarding flow from here.`
+              : 'Loading profile...'}
           </ThemedText>
           <Pressable
             onPress={() => router.push('/profile-onboarding')}
@@ -170,14 +180,16 @@ export default function SettingsScreen() {
                     : 'Start Onboarding'}
               </ThemedText>
               <ThemedText style={[styles.linkCaption, { color: colors.icon }]}>
-                Shared across the app. Never launched automatically.
+                {dataSource === 'mock'
+                  ? 'Only affects the selected test account.'
+                  : 'Shared across the app. Never launched automatically.'}
               </ThemedText>
             </View>
             <IconSymbol name="chevron.right" size={20} color={colors.icon} />
           </Pressable>
           {isSyncing ? (
             <ThemedText style={[styles.caption, { color: colors.icon }]}>
-              Syncing Convex workspace changes...
+              {dataSource === 'mock' ? 'Updating seeded test account...' : 'Syncing Convex workspace changes...'}
             </ThemedText>
           ) : null}
         </View>

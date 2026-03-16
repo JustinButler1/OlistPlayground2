@@ -5,12 +5,16 @@ import { useMutation } from 'convex/react';
 
 import { api } from '@/convex/_generated/api';
 import {
+  applyAutomationBlocks,
   BUILT_IN_LIST_TEMPLATES,
+  cloneEntry,
   createEmptyItemUserData,
   createListConfig,
+  createListFromTemplate,
   DEFAULT_LIST_PREFERENCES,
   derivePresetFromConfig,
   hydrateListHierarchy,
+  sanitizeListPreferencesForConfig,
   type EntryProgress,
   type EntrySourceRef,
   type EntryStatus,
@@ -23,11 +27,15 @@ import {
   type ListViewMode,
   type TrackerList,
 } from '@/data/mock-lists';
+import { applyMockThumbnailsToLists } from '@/data/power-user-mock-seed';
+import { useTestAccounts } from '@/contexts/test-accounts-context';
 import { useConvexWorkspaceBootstrap } from '@/lib/convex-bootstrap';
 import { type UploadedStorageFile } from '@/lib/convex-upload';
 import {
+  cloneListsState,
   parseImportedListsState,
   serializeListsState,
+  type ListsState,
 } from '@/lib/lists-storage';
 import { reconcileReminderNotifications } from '@/lib/reminders';
 import {
@@ -39,7 +47,7 @@ import {
   getRecentlyUpdatedEntries,
   getUpcomingReminderEntries,
 } from '@/lib/tracker-selectors';
-import { normalizeProgress } from '@/lib/tracker-metadata';
+import { normalizeProgress, normalizeRating } from '@/lib/tracker-metadata';
 
 export interface EntryDraft
   extends Partial<
@@ -72,7 +80,7 @@ interface ListsQueryValue {
   isHydrated: boolean;
   isSyncing: boolean;
   lastSyncError: string | null;
-  dataSource: 'convex';
+  dataSource: 'convex' | 'mock';
 }
 
 interface ListActionsValue {
@@ -182,7 +190,114 @@ function touchRecentListIds(currentIds: string[], listId: string): string[] {
   return [listId, ...currentIds.filter((id) => id !== listId)].slice(0, 10);
 }
 
+function createClientId(prefix: 'entry' | 'list' | 'template'): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function normalizeTags(tags?: string[]): string[] {
+  return Array.from(
+    new Set(
+      (tags ?? [])
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function withHydratedMockListsState(state: ListsState): ListsState {
+  return {
+    ...state,
+    lists: hydrateListHierarchy(state.lists.map((list) => ({ ...list }))),
+    deletedLists: hydrateListHierarchy(state.deletedLists.map((list) => ({ ...list }))),
+  };
+}
+
+function createMockEntryFromDraft(draft: EntryDraft, config?: ListConfig): ListEntry {
+  const timestamp = Date.now();
+  const canonicalUrl =
+    draft.sourceRef?.canonicalUrl ??
+    draft.productUrl ??
+    (draft.type === 'link' ? draft.productUrl : undefined);
+  const hasToggle = config?.addons.includes('toggle') ?? false;
+  const hasStatus = config?.addons.includes('status') ?? false;
+
+  return {
+    id: createClientId('entry'),
+    title: draft.title.trim(),
+    type: draft.type,
+    imageUrl: draft.imageUrl,
+    detailPath: draft.detailPath,
+    notes: draft.notes,
+    customFields: draft.customFields,
+    displayVariant: draft.displayVariant,
+    totalEpisodes: draft.totalEpisodes,
+    totalChapters: draft.totalChapters,
+    totalVolumes: draft.totalVolumes,
+    linkedEntryId: draft.linkedEntryId,
+    linkedListId: draft.linkedListId,
+    checked: hasToggle ? draft.checked ?? false : draft.checked,
+    status: hasStatus ? draft.status ?? 'planned' : draft.status,
+    rating: normalizeRating(draft.rating),
+    tags: normalizeTags(draft.tags),
+    progress: normalizeProgress(
+      draft.progress
+        ? {
+            ...draft.progress,
+            updatedAt: draft.progress.updatedAt ?? timestamp,
+          }
+        : undefined
+    ),
+    sourceRef:
+      draft.sourceRef ??
+      ({
+        source: draft.type === 'game' || draft.type === 'list' ? 'custom' : draft.type,
+        externalId: draft.detailPath?.split('/').pop(),
+        detailPath: draft.detailPath,
+        canonicalUrl,
+      } satisfies EntrySourceRef),
+    addedAt: timestamp,
+    updatedAt: timestamp,
+    reminderAt: draft.reminderAt,
+    coverAssetUri: draft.uploadedCover?.url ?? draft.coverAssetUri,
+    productUrl: draft.productUrl,
+    price: draft.price,
+    archivedAt: draft.archivedAt,
+  };
+}
+
+function findListLocation(state: ListsState, listId: string) {
+  const activeIndex = state.lists.findIndex((list) => list.id === listId);
+  if (activeIndex >= 0) {
+    return { key: 'lists' as const, index: activeIndex };
+  }
+
+  const deletedIndex = state.deletedLists.findIndex((list) => list.id === listId);
+  if (deletedIndex >= 0) {
+    return { key: 'deletedLists' as const, index: deletedIndex };
+  }
+
+  return null;
+}
+
+function findEntryLocation(state: ListsState, entryId: string) {
+  for (const key of ['lists', 'deletedLists'] as const) {
+    const listIndex = state[key].findIndex((list) => list.entries.some((entry) => entry.id === entryId));
+    if (listIndex >= 0) {
+      const entryIndex = state[key][listIndex]!.entries.findIndex((entry) => entry.id === entryId);
+      return { key, listIndex, entryIndex };
+    }
+  }
+
+  return null;
+}
+
 export function ListsProvider({ children }: { children: React.ReactNode }) {
+  const {
+    activeAccount,
+    activeMockAccountSeed,
+    updateActiveMockListsState,
+    resetActiveMockListsState,
+  } = useTestAccounts();
   const { snapshot, isBootstrapping, lastBootstrapError } = useConvexWorkspaceBootstrap();
   const createListMutation = useMutation(api.lists.createList);
   const createListFromTemplateMutation = useMutation(api.lists.createListFromTemplate);
@@ -222,16 +337,32 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
     reminderNotificationIdsRef.current = reminderNotificationIds;
   }, [reminderNotificationIds]);
 
-  const state = snapshot?.listsState;
-  const lists = useMemo(() => hydrateListHierarchy(state?.lists ?? []), [state?.lists]);
+  const isMockAccount = activeAccount.kind === 'mock' && !!activeMockAccountSeed;
+  const state = isMockAccount ? activeMockAccountSeed.listsState : snapshot?.listsState;
+  const lists = useMemo(
+    () => hydrateListHierarchy(applyMockThumbnailsToLists(state?.lists ?? [])),
+    [state?.lists]
+  );
   const deletedLists = useMemo(
-    () => hydrateListHierarchy(state?.deletedLists ?? []),
+    () => hydrateListHierarchy(applyMockThumbnailsToLists(state?.deletedLists ?? [])),
     [state?.deletedLists]
   );
   const activeLists = lists;
 
+  const runMockListsUpdate = async <T,>(updater: (current: ListsState) => { nextState: ListsState; result: T }) => {
+    let result!: T;
+
+    updateActiveMockListsState((current) => {
+      const output = updater(cloneListsState(current));
+      result = output.result;
+      return withHydratedMockListsState(output.nextState);
+    });
+
+    return result;
+  };
+
   useEffect(() => {
-    if (!snapshot) {
+    if (isMockAccount || !snapshot) {
       return;
     }
 
@@ -257,7 +388,16 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [deletedLists, lists, snapshot, state?.itemUserDataByKey, state?.recentListIds, state?.recentSearches, state?.savedTemplates]);
+  }, [
+    deletedLists,
+    isMockAccount,
+    lists,
+    snapshot,
+    state?.itemUserDataByKey,
+    state?.recentListIds,
+    state?.recentSearches,
+    state?.savedTemplates,
+  ]);
 
   const runMutation = async <T,>(task: () => Promise<T>): Promise<T> => {
     setPendingMutations((current) => current + 1);
@@ -290,16 +430,645 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
       recentlyUpdated: getRecentlyUpdatedEntries(activeLists),
       upcomingReminders: getUpcomingReminderEntries(activeLists),
       addAgain: getAddAgainEntries(activeLists),
-      isHydrated: snapshot !== undefined,
-      isSyncing: isBootstrapping || pendingMutations > 0,
-      lastSyncError: lastSyncError ?? lastBootstrapError,
-      dataSource: 'convex',
+      isHydrated: isMockAccount ? true : snapshot !== undefined,
+      isSyncing: isMockAccount ? false : isBootstrapping || pendingMutations > 0,
+      lastSyncError: isMockAccount ? null : lastSyncError ?? lastBootstrapError,
+      dataSource: isMockAccount ? 'mock' : 'convex',
     };
-  }, [activeLists, deletedLists, isBootstrapping, lastBootstrapError, lastSyncError, lists, pendingMutations, snapshot, state]);
+  }, [
+    activeLists,
+    deletedLists,
+    isBootstrapping,
+    isMockAccount,
+    lastBootstrapError,
+    lastSyncError,
+    lists,
+    pendingMutations,
+    snapshot,
+    state,
+  ]);
 
   const listActions = useMemo<ListActionsValue>(
-    () => ({
-      createList: async (title, presetOrOptions = 'tracking', options) => {
+    () => {
+      if (isMockAccount) {
+        return {
+          createList: async (title, presetOrOptions = 'tracking', options) => {
+            const trimmedTitle = title.trim();
+            if (!trimmedTitle) {
+              return null;
+            }
+
+            const normalizedOptions =
+              typeof presetOrOptions === 'string'
+                ? {
+                    ...options,
+                    preset: presetOrOptions,
+                  }
+                : presetOrOptions;
+
+            return await runMockListsUpdate((current) => {
+              const timestamp = Date.now();
+              const config = createListConfig(
+                normalizedOptions.config ??
+                  (normalizedOptions.preset === 'tracking'
+                    ? {
+                        addons: [
+                          'status',
+                          'progress',
+                          'rating',
+                          'tags',
+                          'notes',
+                          'reminders',
+                          'cover',
+                        ],
+                        automationBlocks: [],
+                        fieldDefinitions: [],
+                        defaultEntryType: 'custom',
+                      }
+                    : undefined)
+              );
+              const listId = createClientId('list');
+              const nextList: TrackerList = {
+                id: listId,
+                title: trimmedTitle,
+                imageUrl: normalizedOptions.uploadedImage?.url ?? normalizedOptions.imageUrl,
+                description: normalizedOptions.description?.trim() || undefined,
+                tags: normalizeTags(normalizedOptions.tags),
+                preset: normalizedOptions.preset ?? derivePresetFromConfig(config),
+                config,
+                entries: [],
+                preferences: sanitizeListPreferencesForConfig(DEFAULT_LIST_PREFERENCES, config),
+                pinned: normalizedOptions.pinned ?? false,
+                createdAt: timestamp,
+                updatedAt: timestamp,
+                sortOrder: timestamp,
+                templateId: normalizedOptions.templateId,
+                showInMyLists:
+                  normalizedOptions.showInMyLists ?? !normalizedOptions.parentListId,
+                parentListId: normalizedOptions.parentListId,
+                childListIds: [],
+              };
+
+              return {
+                nextState: {
+                  ...current,
+                  lists: [...current.lists, nextList],
+                  recentListIds: touchRecentListIds(current.recentListIds, listId),
+                },
+                result: listId,
+              };
+            });
+          },
+          createListFromTemplate: async (templateId, overrides) =>
+            await runMockListsUpdate((current) => {
+              const template =
+                [...BUILT_IN_LIST_TEMPLATES, ...current.savedTemplates].find(
+                  (item) => item.id === templateId
+                ) ?? null;
+              if (!template) {
+                return {
+                  nextState: current,
+                  result: null,
+                };
+              }
+
+              const baseList = createListFromTemplate(template);
+              const nextList: TrackerList = {
+                ...baseList,
+                title: overrides?.title?.trim() || baseList.title,
+                description: overrides?.description?.trim() || baseList.description,
+                imageUrl: overrides?.uploadedImage?.url ?? overrides?.imageUrl ?? baseList.imageUrl,
+                pinned: overrides?.pinned ?? baseList.pinned,
+                tags: normalizeTags(overrides?.tags ?? baseList.tags),
+                showInMyLists: overrides?.showInMyLists ?? !overrides?.parentListId,
+                parentListId: overrides?.parentListId,
+                updatedAt: Date.now(),
+              };
+
+              return {
+                nextState: {
+                  ...current,
+                  lists: [...current.lists, nextList],
+                  recentListIds: touchRecentListIds(current.recentListIds, nextList.id),
+                },
+                result: nextList.id,
+              };
+            }),
+          updateList: async (listId, updates) => {
+            await runMockListsUpdate((current) => {
+              const location = findListLocation(current, listId);
+              if (!location) {
+                return {
+                  nextState: current,
+                  result: undefined,
+                };
+              }
+
+              const collection = [...current[location.key]];
+              const list = collection[location.index]!;
+              const nextConfig = updates.config ? createListConfig(updates.config) : list.config;
+              collection[location.index] = {
+                ...list,
+                title: typeof updates.title === 'string' ? updates.title : list.title,
+                description:
+                  'description' in updates ? updates.description?.trim() || undefined : list.description,
+                imageUrl:
+                  'imageUrl' in updates ? updates.imageUrl || undefined : list.imageUrl,
+                pinned: typeof updates.pinned === 'boolean' ? updates.pinned : list.pinned,
+                config: nextConfig,
+                preset: derivePresetFromConfig(nextConfig),
+                preferences: sanitizeListPreferencesForConfig(list.preferences, nextConfig),
+                templateId:
+                  'templateId' in updates ? updates.templateId || undefined : list.templateId,
+                tags: 'tags' in updates ? normalizeTags(updates.tags) : list.tags,
+                showInMyLists:
+                  'showInMyLists' in updates
+                    ? !!updates.showInMyLists
+                    : (list.showInMyLists ?? !list.parentListId),
+                parentListId:
+                  'parentListId' in updates ? updates.parentListId || undefined : list.parentListId,
+                updatedAt: Date.now(),
+              };
+
+              return {
+                nextState: {
+                  ...current,
+                  [location.key]: collection,
+                },
+                result: undefined,
+              };
+            });
+          },
+          saveListAsTemplate: async (listId, template) =>
+            await runMockListsUpdate((current) => {
+              const list = current.lists.find((item) => item.id === listId);
+              if (!list) {
+                return {
+                  nextState: current,
+                  result: null,
+                };
+              }
+
+              const templateId = createClientId('template');
+              const starterEntries = list.entries.map((entry) => {
+                const { id, addedAt, updatedAt, ...rest } = cloneEntry(entry);
+                void id;
+                void addedAt;
+                void updatedAt;
+                return rest;
+              });
+
+              return {
+                nextState: {
+                  ...current,
+                  savedTemplates: [
+                    ...current.savedTemplates,
+                    {
+                      id: templateId,
+                      title: template.title.trim(),
+                      description: template.description.trim(),
+                      source: 'user',
+                      preset: list.preset,
+                      config: createListConfig(list.config),
+                      starterEntries,
+                    },
+                  ],
+                },
+                result: templateId,
+              };
+            }),
+          deleteTemplate: async (templateId) => {
+            await runMockListsUpdate((current) => ({
+              nextState: {
+                ...current,
+                savedTemplates: current.savedTemplates.filter((template) => template.id !== templateId),
+              },
+              result: undefined,
+            }));
+          },
+          archiveList: async (listId) => {
+            await runMockListsUpdate((current) => {
+              const location = findListLocation(current, listId);
+              if (!location) {
+                return {
+                  nextState: current,
+                  result: undefined,
+                };
+              }
+
+              const collection = [...current[location.key]];
+              const list = collection[location.index]!;
+              collection[location.index] = {
+                ...list,
+                archivedAt: Date.now(),
+                updatedAt: Date.now(),
+              };
+
+              return {
+                nextState: {
+                  ...current,
+                  [location.key]: collection,
+                },
+                result: undefined,
+              };
+            });
+          },
+          restoreArchivedList: async (listId) => {
+            await runMockListsUpdate((current) => {
+              const location = findListLocation(current, listId);
+              if (!location) {
+                return {
+                  nextState: current,
+                  result: undefined,
+                };
+              }
+
+              const collection = [...current[location.key]];
+              const list = collection[location.index]!;
+              collection[location.index] = {
+                ...list,
+                archivedAt: undefined,
+                updatedAt: Date.now(),
+              };
+
+              return {
+                nextState: {
+                  ...current,
+                  [location.key]: collection,
+                },
+                result: undefined,
+              };
+            });
+          },
+          deleteList: async (listId) => {
+            await runMockListsUpdate((current) => {
+              const list = current.lists.find((item) => item.id === listId);
+              if (!list) {
+                return {
+                  nextState: current,
+                  result: undefined,
+                };
+              }
+
+              return {
+                nextState: {
+                  ...current,
+                  lists: current.lists.filter((item) => item.id !== listId),
+                  deletedLists: [
+                    ...current.deletedLists,
+                    {
+                      ...list,
+                      deletedAt: Date.now(),
+                      updatedAt: Date.now(),
+                    },
+                  ],
+                  recentListIds: current.recentListIds.filter((id) => id !== listId),
+                },
+                result: undefined,
+              };
+            });
+          },
+          restoreList: async (listId) => {
+            await runMockListsUpdate((current) => {
+              const list = current.deletedLists.find((item) => item.id === listId);
+              if (!list) {
+                return {
+                  nextState: current,
+                  result: undefined,
+                };
+              }
+
+              return {
+                nextState: {
+                  ...current,
+                  deletedLists: current.deletedLists.filter((item) => item.id !== listId),
+                  lists: [
+                    ...current.lists,
+                    {
+                      ...list,
+                      deletedAt: undefined,
+                      updatedAt: Date.now(),
+                    },
+                  ],
+                  recentListIds: touchRecentListIds(current.recentListIds, listId),
+                },
+                result: undefined,
+              };
+            });
+          },
+          reorderLists: async (orderedListIds) => {
+            if (!orderedListIds.length) {
+              return;
+            }
+
+            await runMockListsUpdate((current) => {
+              const sortOrderById = new Map(
+                orderedListIds.map((listId, index) => [listId, (index + 1) * 1_000])
+              );
+
+              return {
+                nextState: {
+                  ...current,
+                  lists: current.lists.map((list) =>
+                    sortOrderById.has(list.id)
+                      ? {
+                          ...list,
+                          sortOrder: sortOrderById.get(list.id),
+                        }
+                      : list
+                  ),
+                },
+                result: undefined,
+              };
+            });
+          },
+          setListPreferences: async (listId, updates) => {
+            await runMockListsUpdate((current) => {
+              const location = findListLocation(current, listId);
+              if (!location) {
+                return {
+                  nextState: current,
+                  result: undefined,
+                };
+              }
+
+              const collection = [...current[location.key]];
+              const list = collection[location.index]!;
+              collection[location.index] = {
+                ...list,
+                preferences: sanitizeListPreferencesForConfig(
+                  {
+                    ...list.preferences,
+                    ...updates,
+                  },
+                  list.config
+                ),
+                updatedAt: Date.now(),
+              };
+
+              return {
+                nextState: {
+                  ...current,
+                  [location.key]: collection,
+                },
+                result: undefined,
+              };
+            });
+          },
+          markListOpened: async (listId) => {
+            await runMockListsUpdate((current) => ({
+              nextState: {
+                ...current,
+                recentListIds: touchRecentListIds(current.recentListIds, listId),
+              },
+              result: undefined,
+            }));
+          },
+          recordRecentSearch: async (queryText) => {
+            const trimmedQuery = queryText.trim();
+            if (!trimmedQuery) {
+              return;
+            }
+
+            await runMockListsUpdate((current) => ({
+              nextState: {
+                ...current,
+                recentSearches: [
+                  trimmedQuery,
+                  ...current.recentSearches.filter((value) => value !== trimmedQuery),
+                ].slice(0, 8),
+              },
+              result: undefined,
+            }));
+          },
+          convertTagToSublist: async (listId, tag) =>
+            await runMockListsUpdate((current) => {
+              const normalizedTag = tag.trim();
+              const parentIndex = current.lists.findIndex((list) => list.id === listId);
+              if (!normalizedTag || parentIndex < 0) {
+                return {
+                  nextState: current,
+                  result: null,
+                };
+              }
+
+              const parentList = current.lists[parentIndex]!;
+              const matchingEntries = parentList.entries.filter((entry) =>
+                entry.tags.includes(normalizedTag)
+              );
+              if (!matchingEntries.length) {
+                return {
+                  nextState: current,
+                  result: null,
+                };
+              }
+
+              const timestamp = Date.now();
+              const sublistId = createClientId('list');
+              const matchingIds = new Set(matchingEntries.map((entry) => entry.id));
+              const insertIndex = parentList.entries.findIndex((entry) => matchingIds.has(entry.id));
+              const movedLinkedListIds = new Set(
+                matchingEntries
+                  .map((entry) => entry.linkedListId)
+                  .filter((linkedListId): linkedListId is string => !!linkedListId)
+              );
+              const placeholderEntry = createMockEntryFromDraft(
+                {
+                  title: normalizedTag,
+                  type: 'list',
+                  detailPath: `list/${sublistId}`,
+                  linkedListId: sublistId,
+                  tags: [normalizedTag],
+                  sourceRef: {
+                    source: 'custom',
+                    detailPath: `list/${sublistId}`,
+                  },
+                },
+                parentList.config
+              );
+              const nextSublist: TrackerList = {
+                id: sublistId,
+                title: normalizedTag,
+                imageUrl: undefined,
+                description: undefined,
+                tags: [normalizedTag],
+                preset: derivePresetFromConfig(parentList.config),
+                config: createListConfig(parentList.config),
+                entries: matchingEntries.map((entry) => ({
+                  ...entry,
+                  tags: entry.tags.filter((value) => value !== normalizedTag),
+                  updatedAt: timestamp,
+                })),
+                preferences: sanitizeListPreferencesForConfig(
+                  DEFAULT_LIST_PREFERENCES,
+                  createListConfig(parentList.config)
+                ),
+                pinned: false,
+                createdAt: timestamp,
+                updatedAt: timestamp,
+                sortOrder: timestamp,
+                showInMyLists: false,
+                parentListId: listId,
+                childListIds: [],
+              };
+
+              const nextLists = current.lists.map((list) => {
+                if (list.id === listId) {
+                  const remainingEntries = list.entries.filter((entry) => !matchingIds.has(entry.id));
+                  const nextEntries = [...remainingEntries];
+                  nextEntries.splice(insertIndex >= 0 ? insertIndex : 0, 0, placeholderEntry);
+
+                  return {
+                    ...list,
+                    entries: nextEntries,
+                    updatedAt: timestamp,
+                  };
+                }
+
+                if (movedLinkedListIds.has(list.id)) {
+                  return {
+                    ...list,
+                    parentListId: sublistId,
+                    tags: normalizeTags([...list.tags, normalizedTag]),
+                    updatedAt: timestamp,
+                  };
+                }
+
+                return list;
+              });
+
+              return {
+                nextState: {
+                  ...current,
+                  lists: [...nextLists, nextSublist],
+                  recentListIds: touchRecentListIds(current.recentListIds, listId),
+                },
+                result: sublistId,
+              };
+            }),
+          convertSublistToTag: async (sublistId) =>
+            await runMockListsUpdate((current) => {
+              const sublist = current.lists.find((list) => list.id === sublistId);
+              if (!sublist?.parentListId) {
+                return {
+                  nextState: current,
+                  result: null,
+                };
+              }
+
+              const normalizedTag = sublist.title.trim();
+              if (!normalizedTag) {
+                return {
+                  nextState: current,
+                  result: null,
+                };
+              }
+
+              const parentIndex = current.lists.findIndex((list) => list.id === sublist.parentListId);
+              if (parentIndex < 0) {
+                return {
+                  nextState: current,
+                  result: null,
+                };
+              }
+
+              const timestamp = Date.now();
+              const parentList = current.lists[parentIndex]!;
+              const placeholderIndex = parentList.entries.findIndex(
+                (entry) =>
+                  entry.linkedListId === sublistId || entry.detailPath === `list/${sublistId}`
+              );
+              const movedLinkedListIds = new Set(
+                sublist.entries
+                  .map((entry) => entry.linkedListId)
+                  .filter((linkedListId): linkedListId is string => !!linkedListId)
+              );
+
+              const nextLists = current.lists
+                .filter((list) => list.id !== sublistId)
+                .map((list) => {
+                  if (list.id === parentList.id) {
+                    const remainingEntries = list.entries.filter(
+                      (entry) =>
+                        entry.linkedListId !== sublistId && entry.detailPath !== `list/${sublistId}`
+                    );
+                    const nextEntries = [...remainingEntries];
+                    nextEntries.splice(
+                      placeholderIndex >= 0 ? placeholderIndex : remainingEntries.length,
+                      0,
+                      ...sublist.entries.map((entry) => ({
+                        ...entry,
+                        tags: normalizeTags([...entry.tags, normalizedTag]),
+                        updatedAt: timestamp,
+                      }))
+                    );
+
+                    return {
+                      ...list,
+                      entries: nextEntries,
+                      updatedAt: timestamp,
+                    };
+                  }
+
+                  if (movedLinkedListIds.has(list.id)) {
+                    return {
+                      ...list,
+                      parentListId: parentList.id,
+                      tags: normalizeTags([...list.tags, normalizedTag]),
+                      updatedAt: timestamp,
+                    };
+                  }
+
+                  return list;
+                });
+
+              return {
+                nextState: {
+                  ...current,
+                  lists: nextLists,
+                  recentListIds: touchRecentListIds(
+                    current.recentListIds.filter((id) => id !== sublistId),
+                    parentList.id
+                  ),
+                },
+                result: normalizedTag,
+              };
+            }),
+          exportLists: () =>
+            serializeListsState({
+              version: 5,
+              lists,
+              deletedLists,
+              savedTemplates: state?.savedTemplates ?? [],
+              itemUserDataByKey: state?.itemUserDataByKey ?? {},
+              recentSearches: state?.recentSearches ?? [],
+              recentListIds: state?.recentListIds ?? [],
+              reminderNotificationIds: {},
+            }),
+          importLists: async (raw) => {
+            const importedState = withHydratedMockListsState(parseImportedListsState(raw));
+            updateActiveMockListsState(() => importedState);
+          },
+          loadMockData: async () => {
+            resetActiveMockListsState();
+          },
+          resetAllLists: async () => {
+            updateActiveMockListsState((current) => ({
+              ...current,
+              lists: [],
+              deletedLists: [],
+              savedTemplates: [],
+              itemUserDataByKey: {},
+              recentSearches: [],
+              recentListIds: [],
+              reminderNotificationIds: {},
+            }));
+          },
+        };
+      }
+
+      return {
+        createList: async (title, presetOrOptions = 'tracking', options) => {
         const trimmedTitle = title.trim();
         if (!trimmedTitle) {
           return null;
@@ -411,12 +1180,12 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
       loadMockData: async () => {
         await runMutation(() => loadMockDataMutation({}));
       },
-      resetAllLists: async () => {
-        await runMutation(() => resetWorkspaceMutation({}));
-      },
-    }),
+        resetAllLists: async () => {
+          await runMutation(() => resetWorkspaceMutation({}));
+        },
+      };
+    },
     [
-      activeLists,
       archiveListMutation,
       convertSublistToTagMutation,
       convertTagToSublistMutation,
@@ -426,24 +1195,421 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
       deleteTemplateMutation,
       deletedLists,
       importLegacyMutation,
+      isMockAccount,
       lists,
       loadMockDataMutation,
       markListOpenedMutation,
+      resetActiveMockListsState,
       recordRecentSearchMutation,
       reorderListsMutation,
       resetWorkspaceMutation,
       restoreArchivedListMutation,
       restoreListMutation,
+      runMockListsUpdate,
       runMutation,
       saveListAsTemplateMutation,
       setListPreferencesMutation,
       state,
       updateListMutation,
+      updateActiveMockListsState,
     ]
   );
 
   const entryActions = useMemo<EntryActionsValue>(
-    () => ({
+    () => {
+      if (isMockAccount) {
+        return {
+          addEntryToList: async (listId, draft) =>
+            await runMockListsUpdate((current) => {
+              const listIndex = current.lists.findIndex((list) => list.id === listId);
+              if (listIndex < 0) {
+                return {
+                  nextState: current,
+                  result: null,
+                };
+              }
+
+              const list = current.lists[listIndex]!;
+              const entry = createMockEntryFromDraft(draft, list.config);
+              const nextLists = [...current.lists];
+              nextLists[listIndex] = {
+                ...list,
+                entries: [...list.entries, entry],
+                updatedAt: Date.now(),
+              };
+
+              return {
+                nextState: {
+                  ...current,
+                  lists: nextLists,
+                  recentListIds: touchRecentListIds(current.recentListIds, listId),
+                },
+                result: entry.id,
+              };
+            }),
+          updateEntry: async (_listId, entryId, updates) => {
+            await runMockListsUpdate((current) => {
+              const location = findEntryLocation(current, entryId);
+              if (!location) {
+                return {
+                  nextState: current,
+                  result: undefined,
+                };
+              }
+
+              const collection = [...current[location.key]];
+              const list = collection[location.listIndex]!;
+              const entry = list.entries[location.entryIndex]!;
+              const nextSourceRef =
+                updates.sourceRef !== undefined
+                  ? { ...entry.sourceRef, ...updates.sourceRef }
+                  : entry.sourceRef;
+              const nextEntries = [...list.entries];
+              nextEntries[location.entryIndex] = {
+                ...entry,
+                title: 'title' in updates ? updates.title ?? entry.title : entry.title,
+                type: 'type' in updates ? updates.type ?? entry.type : entry.type,
+                imageUrl: 'imageUrl' in updates ? updates.imageUrl : entry.imageUrl,
+                detailPath: 'detailPath' in updates ? updates.detailPath : entry.detailPath,
+                notes: 'notes' in updates ? updates.notes : entry.notes,
+                customFields: 'customFields' in updates ? updates.customFields : entry.customFields,
+                displayVariant:
+                  'displayVariant' in updates ? updates.displayVariant : entry.displayVariant,
+                totalEpisodes:
+                  'totalEpisodes' in updates ? updates.totalEpisodes : entry.totalEpisodes,
+                totalChapters:
+                  'totalChapters' in updates ? updates.totalChapters : entry.totalChapters,
+                totalVolumes:
+                  'totalVolumes' in updates ? updates.totalVolumes : entry.totalVolumes,
+                linkedEntryId:
+                  'linkedEntryId' in updates ? updates.linkedEntryId : entry.linkedEntryId,
+                linkedListId:
+                  'linkedListId' in updates ? updates.linkedListId : entry.linkedListId,
+                checked: 'checked' in updates ? updates.checked : entry.checked,
+                status: 'status' in updates ? updates.status : entry.status,
+                rating: 'rating' in updates ? normalizeRating(updates.rating) : entry.rating,
+                tags: 'tags' in updates ? normalizeTags(updates.tags) : entry.tags,
+                progress:
+                  'progress' in updates ? normalizeProgress(updates.progress) : entry.progress,
+                sourceRef: nextSourceRef,
+                reminderAt: 'reminderAt' in updates ? updates.reminderAt : entry.reminderAt,
+                coverAssetUri:
+                  'coverAssetUri' in updates ? updates.coverAssetUri : entry.coverAssetUri,
+                productUrl: 'productUrl' in updates ? updates.productUrl : entry.productUrl,
+                price: 'price' in updates ? updates.price : entry.price,
+                archivedAt: 'archivedAt' in updates ? updates.archivedAt : entry.archivedAt,
+                updatedAt: Date.now(),
+              };
+              collection[location.listIndex] = {
+                ...list,
+                entries: nextEntries,
+                updatedAt: Date.now(),
+              };
+
+              return {
+                nextState: {
+                  ...current,
+                  [location.key]: collection,
+                  recentListIds: touchRecentListIds(current.recentListIds, list.id),
+                },
+                result: undefined,
+              };
+            });
+          },
+          deleteEntryFromList: async (_listId, entryId) => {
+            await runMockListsUpdate((current) => {
+              const location = findEntryLocation(current, entryId);
+              if (!location) {
+                return {
+                  nextState: current,
+                  result: undefined,
+                };
+              }
+
+              const collection = [...current[location.key]];
+              const list = collection[location.listIndex]!;
+              collection[location.listIndex] = {
+                ...list,
+                entries: list.entries.filter((entry) => entry.id !== entryId),
+                updatedAt: Date.now(),
+              };
+
+              return {
+                nextState: {
+                  ...current,
+                  [location.key]: collection,
+                },
+                result: undefined,
+              };
+            });
+          },
+          moveEntry: async (sourceListId, targetListId, entryIds) => {
+            await runMockListsUpdate((current) => {
+              if (!entryIds.length || sourceListId === targetListId) {
+                return {
+                  nextState: current,
+                  result: undefined,
+                };
+              }
+
+              const sourceIndex = current.lists.findIndex((list) => list.id === sourceListId);
+              const targetIndex = current.lists.findIndex((list) => list.id === targetListId);
+              if (sourceIndex < 0 || targetIndex < 0) {
+                return {
+                  nextState: current,
+                  result: undefined,
+                };
+              }
+
+              const sourceList = current.lists[sourceIndex]!;
+              const targetList = current.lists[targetIndex]!;
+              const movingEntries = sourceList.entries.filter((entry) => entryIds.includes(entry.id));
+              if (!movingEntries.length) {
+                return {
+                  nextState: current,
+                  result: undefined,
+                };
+              }
+
+              const nextLists = [...current.lists];
+              nextLists[sourceIndex] = {
+                ...sourceList,
+                entries: sourceList.entries.filter((entry) => !entryIds.includes(entry.id)),
+                updatedAt: Date.now(),
+              };
+              nextLists[targetIndex] = {
+                ...targetList,
+                entries: [...movingEntries, ...targetList.entries],
+                updatedAt: Date.now(),
+              };
+
+              return {
+                nextState: {
+                  ...current,
+                  lists: nextLists,
+                  recentListIds: touchRecentListIds(current.recentListIds, targetListId),
+                },
+                result: undefined,
+              };
+            });
+          },
+          reorderEntries: async (listId, orderedEntryIds) => {
+            await runMockListsUpdate((current) => {
+              const listIndex = current.lists.findIndex((list) => list.id === listId);
+              if (listIndex < 0) {
+                return {
+                  nextState: current,
+                  result: undefined,
+                };
+              }
+
+              const list = current.lists[listIndex]!;
+              const entriesById = new Map(list.entries.map((entry) => [entry.id, entry]));
+              const orderedEntries = orderedEntryIds
+                .map((entryId) => entriesById.get(entryId))
+                .filter((entry): entry is ListEntry => !!entry);
+              const remainingEntries = list.entries.filter((entry) => !orderedEntryIds.includes(entry.id));
+              const nextLists = [...current.lists];
+              nextLists[listIndex] = {
+                ...list,
+                entries: [...orderedEntries, ...remainingEntries],
+                updatedAt: Date.now(),
+              };
+
+              return {
+                nextState: {
+                  ...current,
+                  lists: nextLists,
+                },
+                result: undefined,
+              };
+            });
+          },
+          setEntryProgress: async (_listId, entryId, progress) => {
+            await runMockListsUpdate((current) => {
+              const location = findEntryLocation(current, entryId);
+              if (!location) {
+                return {
+                  nextState: current,
+                  result: undefined,
+                };
+              }
+
+              const collection = [...current[location.key]];
+              const list = collection[location.listIndex]!;
+              const entry = list.entries[location.entryIndex]!;
+              const nextEntries = [...list.entries];
+              nextEntries[location.entryIndex] = {
+                ...entry,
+                progress:
+                  progress !== undefined
+                    ? normalizeProgress({
+                        ...progress,
+                        updatedAt: progress.updatedAt ?? Date.now(),
+                      })
+                    : undefined,
+                updatedAt: Date.now(),
+              };
+              collection[location.listIndex] = {
+                ...list,
+                entries: nextEntries,
+                updatedAt: Date.now(),
+              };
+
+              return {
+                nextState: {
+                  ...current,
+                  [location.key]: collection,
+                },
+                result: undefined,
+              };
+            });
+          },
+          setEntryChecked: async (_listId, entryId, checked) => {
+            await runMockListsUpdate((current) => {
+              const location = findEntryLocation(current, entryId);
+              if (!location) {
+                return {
+                  nextState: current,
+                  result: undefined,
+                };
+              }
+
+              const collection = [...current[location.key]];
+              const list = collection[location.listIndex]!;
+              const entry = list.entries[location.entryIndex]!;
+              const nextEntries = [...list.entries];
+              nextEntries[location.entryIndex] = {
+                ...entry,
+                checked,
+                ...applyAutomationBlocks(list.config, {
+                  addonId: 'toggle',
+                  field: 'checked',
+                  value: checked,
+                }),
+                updatedAt: Date.now(),
+              };
+              collection[location.listIndex] = {
+                ...list,
+                entries: nextEntries,
+                updatedAt: Date.now(),
+              };
+
+              return {
+                nextState: {
+                  ...current,
+                  [location.key]: collection,
+                },
+                result: undefined,
+              };
+            });
+          },
+          setEntryStatus: async (_listId, entryId, status) => {
+            await runMockListsUpdate((current) => {
+              const location = findEntryLocation(current, entryId);
+              if (!location) {
+                return {
+                  nextState: current,
+                  result: undefined,
+                };
+              }
+
+              const collection = [...current[location.key]];
+              const list = collection[location.listIndex]!;
+              const entry = list.entries[location.entryIndex]!;
+              const nextEntries = [...list.entries];
+              nextEntries[location.entryIndex] = {
+                ...entry,
+                status,
+                updatedAt: Date.now(),
+              };
+              collection[location.listIndex] = {
+                ...list,
+                entries: nextEntries,
+                updatedAt: Date.now(),
+              };
+
+              return {
+                nextState: {
+                  ...current,
+                  [location.key]: collection,
+                },
+                result: undefined,
+              };
+            });
+          },
+          duplicateEntries: async (listId, entryIds) => {
+            await runMockListsUpdate((current) => {
+              const listIndex = current.lists.findIndex((list) => list.id === listId);
+              if (listIndex < 0 || !entryIds.length) {
+                return {
+                  nextState: current,
+                  result: undefined,
+                };
+              }
+
+              const list = current.lists[listIndex]!;
+              const duplicates = list.entries
+                .filter((entry) => entryIds.includes(entry.id))
+                .map((entry) => ({
+                  ...cloneEntry(entry),
+                  id: createClientId('entry'),
+                  title: `${entry.title} (Copy)`,
+                  addedAt: Date.now(),
+                  updatedAt: Date.now(),
+                }));
+              const nextLists = [...current.lists];
+              nextLists[listIndex] = {
+                ...list,
+                entries: [...duplicates, ...list.entries],
+                updatedAt: Date.now(),
+              };
+
+              return {
+                nextState: {
+                  ...current,
+                  lists: nextLists,
+                  recentListIds: touchRecentListIds(current.recentListIds, listId),
+                },
+                result: undefined,
+              };
+            });
+          },
+          archiveEntries: async (_listId, entryIds) => {
+            await runMockListsUpdate((current) => {
+              if (!entryIds.length) {
+                return {
+                  nextState: current,
+                  result: undefined,
+                };
+              }
+
+              const nextLists = current.lists.map((list) => ({
+                ...list,
+                entries: list.entries.map((entry) =>
+                  entryIds.includes(entry.id)
+                    ? {
+                        ...entry,
+                        archivedAt: Date.now(),
+                        updatedAt: Date.now(),
+                      }
+                    : entry
+                ),
+              }));
+
+              return {
+                nextState: {
+                  ...current,
+                  lists: nextLists,
+                },
+                result: undefined,
+              };
+            });
+          },
+        };
+      }
+
+      return {
       addEntryToList: async (listId, draft) =>
         await runMutation(() =>
           addEntryMutation({
@@ -503,14 +1669,17 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
       archiveEntries: async (_listId, entryIds) => {
         await runMutation(() => archiveEntriesMutation({ entryIds }));
       },
-    }),
+      };
+    },
     [
       addEntryMutation,
       archiveEntriesMutation,
       deleteEntryMutation,
       duplicateEntriesMutation,
+      isMockAccount,
       moveEntriesMutation,
       reorderEntriesMutation,
+      runMockListsUpdate,
       runMutation,
       setEntryCheckedMutation,
       setEntryProgressMutation,
@@ -520,12 +1689,37 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
   );
 
   const itemUserDataActions = useMemo<ItemUserDataActionsValue>(
-    () => ({
-      setItemUserData: async (itemKey, value) => {
-        await runMutation(() => setItemUserDataMutation({ itemKey, value }));
-      },
-    }),
-    [runMutation, setItemUserDataMutation]
+    () => {
+      if (isMockAccount) {
+        return {
+          setItemUserData: async (itemKey, value) => {
+            await runMockListsUpdate((current) => ({
+              nextState: {
+                ...current,
+                itemUserDataByKey: {
+                  ...current.itemUserDataByKey,
+                  [itemKey]: {
+                    ...value,
+                    tags: normalizeTags(value.tags),
+                    progress: normalizeProgress(value.progress),
+                    customFields: value.customFields.map((field) => ({ ...field })),
+                    updatedAt: value.updatedAt ?? Date.now(),
+                  },
+                },
+              },
+              result: undefined,
+            }));
+          },
+        };
+      }
+
+      return {
+        setItemUserData: async (itemKey, value) => {
+          await runMutation(() => setItemUserDataMutation({ itemKey, value }));
+        },
+      };
+    },
+    [isMockAccount, runMockListsUpdate, runMutation, setItemUserDataMutation]
   );
 
   const value = useMemo<ListsContextValue>(
