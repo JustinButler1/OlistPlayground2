@@ -1,5 +1,6 @@
 import { BlurView } from 'expo-blur';
 import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
+import * as Haptics from 'expo-haptics';
 import { Stack, useRouter } from 'expo-router';
 import { useHeaderHeight } from '@react-navigation/elements';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -50,7 +51,6 @@ const DROP_INDICATOR_HEIGHT = 3;
 const DRAG_THUMBNAIL_ANCHOR_X = 34;
 const LIST_CONTENT_TOP_PADDING = 16;
 const AUTO_SCROLL_EDGE_THRESHOLD = 96;
-const AUTO_SCROLL_INTERVAL_MS = 16;
 const AUTO_SCROLL_MAX_STEP = 18;
 
 function clamp(value: number, min: number, max: number): number {
@@ -175,6 +175,11 @@ export default function MyListsScreen() {
   const listViewportHeightRef = useRef(0);
   const listContentHeightRef = useRef(0);
   const scrollOffsetRef = useRef(0);
+  const itemsRef = useRef<TrackerList[]>([]);
+  const dragStateRef = useRef<DragState | null>(null);
+  const autoScrollFrameRef = useRef<number | null>(null);
+  const autoScrollVelocityRef = useRef(0);
+  const lastDragTargetIndexRef = useRef<number | null>(null);
   const rowLayoutsRef = useRef<Record<string, RowLayout>>({});
   const dragMetaRef = useRef<{
     initialLeft: number;
@@ -193,6 +198,10 @@ export default function MyListsScreen() {
   useEffect(() => {
     scrollOffsetRef.current = scrollOffset;
   }, [scrollOffset]);
+
+  useEffect(() => {
+    dragStateRef.current = dragState;
+  }, [dragState]);
 
   const persistedOrderedLists = useMemo(() => {
     const fallbackIndexById = new Map(
@@ -240,6 +249,10 @@ export default function MyListsScreen() {
   }, [filterMode, orderedLists, sortMode]);
 
   useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
+  useEffect(() => {
     const orderedIds = persistedOrderedLists.map((list) => list.id);
     setOptimisticListOrderIds((current) => {
       if (!current?.length) {
@@ -270,12 +283,166 @@ export default function MyListsScreen() {
       return;
     }
 
+    autoScrollVelocityRef.current = 0;
+    if (autoScrollFrameRef.current !== null) {
+      cancelAnimationFrame(autoScrollFrameRef.current);
+      autoScrollFrameRef.current = null;
+    }
     setDragState(null);
     dragMetaRef.current = null;
     dragPositionRef.current = { left: 0, top: 0 };
+    lastDragTargetIndexRef.current = null;
     dragLeft.value = withTiming(0, { duration: 120 });
     dragScale.value = withTiming(1, { duration: 120 });
   }, [canDragRows, dragLeft, dragScale]);
+
+  const stopAutoScroll = useCallback(() => {
+    autoScrollVelocityRef.current = 0;
+    if (autoScrollFrameRef.current !== null) {
+      cancelAnimationFrame(autoScrollFrameRef.current);
+      autoScrollFrameRef.current = null;
+    }
+  }, []);
+
+  const triggerDragStartHaptic = useCallback(() => {
+    if (!isIos) {
+      return;
+    }
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, [isIos]);
+
+  const triggerDragEndHaptic = useCallback(() => {
+    if (!isIos) {
+      return;
+    }
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, [isIos]);
+
+  const triggerDragMoveHaptic = useCallback(() => {
+    if (!isIos) {
+      return;
+    }
+    void Haptics.selectionAsync();
+  }, [isIos]);
+
+  const updateDragTarget = useCallback(
+    (listId: string, nextTargetIndex: number) => {
+      setDragState((current) => {
+        if (!current || current.listId !== listId || current.targetIndex === nextTargetIndex) {
+          return current;
+        }
+
+        if (lastDragTargetIndexRef.current !== nextTargetIndex) {
+          lastDragTargetIndexRef.current = nextTargetIndex;
+          triggerDragMoveHaptic();
+        }
+
+        return { ...current, targetIndex: nextTargetIndex };
+      });
+    },
+    [triggerDragMoveHaptic]
+  );
+
+  const startAutoScrollLoop = useCallback(() => {
+    if (autoScrollFrameRef.current !== null) {
+      return;
+    }
+
+    const tick = () => {
+      autoScrollFrameRef.current = requestAnimationFrame(() => {
+        const activeDrag = dragStateRef.current;
+        const dragMeta = dragMetaRef.current;
+        if (!activeDrag || !dragMeta || !autoScrollVelocityRef.current) {
+          autoScrollFrameRef.current = null;
+          return;
+        }
+
+        const viewportHeight = listViewportHeightRef.current;
+        const measuredContentHeight = listContentHeightRef.current;
+        const estimatedRowHeight =
+          dragMeta.rowHeight || rowLayoutsRef.current[activeDrag.listId]?.height || 104;
+        const estimatedContentHeight =
+          LIST_CONTENT_TOP_PADDING +
+          insets.bottom +
+          24 +
+          itemsRef.current.reduce(
+            (total, item) => total + (rowLayoutsRef.current[item.id]?.height ?? estimatedRowHeight),
+            0
+          );
+        const contentHeight = Math.max(measuredContentHeight, estimatedContentHeight);
+        const maxScrollOffset = Math.max(0, contentHeight - viewportHeight);
+        if (viewportHeight <= 0 || maxScrollOffset <= 0) {
+          stopAutoScroll();
+          return;
+        }
+
+        const nextScrollOffset = clamp(
+          scrollOffsetRef.current + autoScrollVelocityRef.current,
+          0,
+          maxScrollOffset
+        );
+        if (nextScrollOffset === scrollOffsetRef.current) {
+          stopAutoScroll();
+          return;
+        }
+
+        scrollOffsetRef.current = nextScrollOffset;
+        setScrollOffset(nextScrollOffset);
+        flatListRef.current?.scrollToOffset({
+          animated: false,
+          offset: nextScrollOffset,
+        });
+
+        const hoverMiddleY =
+          dragPositionRef.current.top +
+          nextScrollOffset -
+          LIST_CONTENT_TOP_PADDING +
+          dragMeta.rowHeight / 2;
+        const nextTargetIndex = getHoverTargetIndex(
+          itemsRef.current,
+          activeDrag.listId,
+          hoverMiddleY,
+          rowLayoutsRef.current
+        );
+        updateDragTarget(activeDrag.listId, nextTargetIndex);
+
+        tick();
+      });
+    };
+
+    tick();
+  }, [insets.bottom, stopAutoScroll, updateDragTarget]);
+
+  const updateAutoScroll = useCallback(
+    (fingerYInViewport: number) => {
+      const viewportHeight = listViewportHeightRef.current;
+      if (viewportHeight <= 0) {
+        stopAutoScroll();
+        return;
+      }
+
+      let nextVelocity = 0;
+
+      if (fingerYInViewport < AUTO_SCROLL_EDGE_THRESHOLD) {
+        const intensity = 1 - fingerYInViewport / AUTO_SCROLL_EDGE_THRESHOLD;
+        nextVelocity = -Math.max(4, AUTO_SCROLL_MAX_STEP * intensity);
+      } else if (fingerYInViewport > viewportHeight - AUTO_SCROLL_EDGE_THRESHOLD) {
+        const distanceFromBottom = viewportHeight - fingerYInViewport;
+        const intensity = 1 - distanceFromBottom / AUTO_SCROLL_EDGE_THRESHOLD;
+        nextVelocity = Math.max(4, AUTO_SCROLL_MAX_STEP * intensity);
+      }
+
+      autoScrollVelocityRef.current = nextVelocity;
+
+      if (!nextVelocity) {
+        stopAutoScroll();
+        return;
+      }
+
+      startAutoScrollLoop();
+    },
+    [startAutoScrollLoop, stopAutoScroll]
+  );
 
   const openNewListRoute = useCallback(() => {
     router.push({
@@ -434,6 +601,7 @@ export default function MyListsScreen() {
         };
         setMenuVisible(null);
         const originalIndex = items.findIndex((candidate) => candidate.id === listId);
+        lastDragTargetIndexRef.current = originalIndex;
         setDragState({
           item,
           listId,
@@ -441,9 +609,11 @@ export default function MyListsScreen() {
           targetIndex: originalIndex,
           rowWidth: activeLayout.width,
         });
+        updateAutoScroll(fingerYInViewport);
+        triggerDragStartHaptic();
       });
     },
-    [canDragRows, dragLeft, dragScale, dragTop, items]
+    [canDragRows, dragLeft, dragScale, dragTop, items, triggerDragStartHaptic, updateAutoScroll]
   );
 
   const updateRowDrag = useCallback(
@@ -456,6 +626,7 @@ export default function MyListsScreen() {
 
       const nextLeft = clamp(dragMeta.initialLeft + translationX, 0, dragMeta.maxLeft);
       const nextTop = dragMeta.initialTop + translationY;
+      const fingerYInViewport = nextTop + dragMeta.touchOffsetY;
       const hoverMiddleY =
         nextTop + scrollOffset - LIST_CONTENT_TOP_PADDING + dragMeta.rowHeight / 2;
       const nextTargetIndex = getHoverTargetIndex(items, listId, hoverMiddleY, rowLayoutsRef.current);
@@ -465,28 +636,31 @@ export default function MyListsScreen() {
       };
       dragLeft.value = nextLeft;
       dragTop.value = nextTop;
+      updateAutoScroll(fingerYInViewport);
 
       if (nextTargetIndex !== activeDrag.targetIndex) {
-        setDragState((current) =>
-          current && current.listId === listId ? { ...current, targetIndex: nextTargetIndex } : current
-        );
+        updateDragTarget(listId, nextTargetIndex);
       }
     },
-    [dragLeft, dragState, dragTop, items, scrollOffset]
+    [dragLeft, dragState, dragTop, items, scrollOffset, updateAutoScroll, updateDragTarget]
   );
 
   const finishRowDrag = useCallback(() => {
     const activeDrag = dragState;
     if (!activeDrag) {
+      stopAutoScroll();
       dragScale.value = withTiming(1, { duration: 120 });
       return;
     }
 
     if (activeDrag.targetIndex === activeDrag.originalIndex) {
+      stopAutoScroll();
       dragScale.value = withTiming(1, { duration: 120 });
       setDragState(null);
       dragMetaRef.current = null;
       dragPositionRef.current = { left: 0, top: 0 };
+      lastDragTargetIndexRef.current = null;
+      triggerDragEndHaptic();
       return;
     }
 
@@ -495,111 +669,30 @@ export default function MyListsScreen() {
     const previousOrderedIds = persistedOrderedLists.map((item) => item.id);
     const previousSortMode = sortMode;
 
+    stopAutoScroll();
     dragScale.value = withSpring(1, { damping: 16, stiffness: 220 });
     setOptimisticListOrderIds(reorderedIds);
     setSortMode('custom-order');
     setDragState(null);
     dragMetaRef.current = null;
     dragPositionRef.current = { left: 0, top: 0 };
+    lastDragTargetIndexRef.current = null;
+    triggerDragEndHaptic();
 
     void reorderLists(reorderedIds).catch(() => {
       setOptimisticListOrderIds(previousOrderedIds);
       setSortMode(previousSortMode);
     });
-  }, [dragScale, dragState, items, persistedOrderedLists, reorderLists, sortMode]);
-
-  useEffect(() => {
-    if (!dragState) {
-      return;
-    }
-
-    const intervalId = setInterval(() => {
-      const dragMeta = dragMetaRef.current;
-      if (!dragMeta) {
-        return;
-      }
-
-      const viewportHeight = listViewportHeightRef.current;
-      const measuredContentHeight = listContentHeightRef.current;
-      const estimatedRowHeight =
-        dragMeta.rowHeight ||
-        rowLayoutsRef.current[dragState.listId]?.height ||
-        104;
-      const estimatedContentHeight =
-        LIST_CONTENT_TOP_PADDING +
-        insets.bottom +
-        24 +
-        items.reduce(
-          (total, item) => total + (rowLayoutsRef.current[item.id]?.height ?? estimatedRowHeight),
-          0
-        );
-      const contentHeight = Math.max(measuredContentHeight, estimatedContentHeight);
-      const maxScrollOffset = Math.max(0, contentHeight - viewportHeight);
-      if (viewportHeight <= 0 || maxScrollOffset <= 0) {
-        return;
-      }
-
-      const fingerYInViewport = dragPositionRef.current.top + dragMeta.touchOffsetY;
-      let nextDelta = 0;
-
-      if (
-        fingerYInViewport < AUTO_SCROLL_EDGE_THRESHOLD &&
-        scrollOffsetRef.current > 0
-      ) {
-        const intensity = 1 - fingerYInViewport / AUTO_SCROLL_EDGE_THRESHOLD;
-        nextDelta = -Math.max(4, AUTO_SCROLL_MAX_STEP * intensity);
-      } else if (
-        fingerYInViewport > viewportHeight - AUTO_SCROLL_EDGE_THRESHOLD &&
-        scrollOffsetRef.current < maxScrollOffset
-      ) {
-        const distanceFromBottom = viewportHeight - fingerYInViewport;
-        const intensity = 1 - distanceFromBottom / AUTO_SCROLL_EDGE_THRESHOLD;
-        nextDelta = Math.max(4, AUTO_SCROLL_MAX_STEP * intensity);
-      }
-
-      if (!nextDelta) {
-        return;
-      }
-
-      const nextScrollOffset = clamp(
-        scrollOffsetRef.current + nextDelta,
-        0,
-        maxScrollOffset
-      );
-      if (nextScrollOffset === scrollOffsetRef.current) {
-        return;
-      }
-
-      scrollOffsetRef.current = nextScrollOffset;
-      setScrollOffset(nextScrollOffset);
-      flatListRef.current?.scrollToOffset({
-        animated: false,
-        offset: nextScrollOffset,
-      });
-
-      const hoverMiddleY =
-        dragPositionRef.current.top +
-        nextScrollOffset -
-        LIST_CONTENT_TOP_PADDING +
-        dragMeta.rowHeight / 2;
-      const nextTargetIndex = getHoverTargetIndex(
-        items,
-        dragState.listId,
-        hoverMiddleY,
-        rowLayoutsRef.current
-      );
-
-      setDragState((current) =>
-        current && current.listId === dragState.listId && current.targetIndex !== nextTargetIndex
-          ? { ...current, targetIndex: nextTargetIndex }
-          : current
-      );
-    }, AUTO_SCROLL_INTERVAL_MS);
-
-    return () => {
-      clearInterval(intervalId);
-    };
-  }, [dragState, insets.bottom, items]);
+  }, [
+    dragScale,
+    dragState,
+    items,
+    persistedOrderedLists,
+    reorderLists,
+    sortMode,
+    stopAutoScroll,
+    triggerDragEndHaptic,
+  ]);
 
   const renderDeleteAction = useCallback(
     (progress: RNAnimated.AnimatedInterpolation<number>, onDelete: () => void) => {
