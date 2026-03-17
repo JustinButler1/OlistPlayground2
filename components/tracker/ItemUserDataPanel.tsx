@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { IconSymbol } from '@/components/ui/icon-symbol';
 import { RatingStars } from '@/components/tracker/RatingStars';
 import { ThemedText } from '@/components/themed-text';
 import { useItemUserData } from '@/contexts/lists-context';
@@ -113,6 +114,7 @@ export function ItemUserDataPanel({
   const [sheetCurrent, setSheetCurrent] = useState<number | null>(null);
   const [sheetCurrentText, setSheetCurrentText] = useState('');
   const [editingSheetCurrent, setEditingSheetCurrent] = useState(false);
+  const [sheetInitialCurrent, setSheetInitialCurrent] = useState<number | null>(null);
   const lastPersistedSignatureRef = useRef(getItemUserDataSignature(itemUserData));
 
   useEffect(() => {
@@ -151,12 +153,24 @@ export function ItemUserDataPanel({
   );
 
   const openProgressSheet = () => {
-    setSheetCurrent(effectiveProgress?.current ?? null);
-    setSheetCurrentText(
-      effectiveProgress?.current !== undefined ? String(effectiveProgress.current) : ''
-    );
+    const initial = effectiveProgress?.current ?? null;
+    setSheetCurrent(initial);
+    setSheetInitialCurrent(initial);
+    setSheetCurrentText(initial !== null ? String(initial) : '');
     setEditingSheetCurrent(false);
     setProgressSheetVisible(true);
+  };
+
+  const sheetHasChanged = sheetCurrent !== sheetInitialCurrent;
+
+  const resetSheetCurrent = () => {
+    setSheetCurrent(sheetInitialCurrent);
+    setSheetCurrentText(sheetInitialCurrent !== null ? String(sheetInitialCurrent) : '');
+    setEditingSheetCurrent(false);
+  };
+
+  const dismissProgressSheet = () => {
+    setProgressSheetVisible(false);
   };
 
   const applyTypedCurrent = () => {
@@ -438,9 +452,9 @@ export function ItemUserDataPanel({
         visible={progressSheetVisible}
         transparent
         animationType="slide"
-        onRequestClose={() => setProgressSheetVisible(false)}
+        onRequestClose={dismissProgressSheet}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setProgressSheetVisible(false)}>
+        <Pressable style={styles.modalOverlay} onPress={dismissProgressSheet}>
           <Pressable
             onPress={(event) => event.stopPropagation()}
             style={[
@@ -448,14 +462,51 @@ export function ItemUserDataPanel({
               {
                 backgroundColor: colors.background,
                 paddingBottom: insets.bottom + 18,
-                height: Math.max(220, Dimensions.get('window').height * 0.25),
               },
             ]}
           >
+            <View style={styles.sheetHandle} />
+
+            <View style={styles.sheetHeader}>
+              <Pressable
+                onPress={dismissProgressSheet}
+                hitSlop={8}
+                style={({ pressed }) => [
+                  styles.sheetHeaderButton,
+                  { opacity: pressed ? 0.5 : 1 },
+                ]}
+              >
+                <IconSymbol name="xmark" size={16} color={colors.text} weight="semibold" />
+              </Pressable>
+
+              <Pressable
+                onPress={sheetHasChanged ? updateTrackedProgress : undefined}
+                disabled={!sheetHasChanged}
+                hitSlop={8}
+                style={({ pressed }) => [
+                  styles.sheetHeaderButton,
+                  { opacity: !sheetHasChanged ? 0.3 : pressed ? 0.5 : 1 },
+                ]}
+              >
+                <IconSymbol
+                  name="checkmark"
+                  size={16}
+                  color={sheetHasChanged ? colors.tint : colors.icon}
+                  weight="semibold"
+                />
+              </Pressable>
+            </View>
+
             <View style={styles.progressSheetBody}>
-              <ThemedText style={{ color: colors.icon }}>
-                Total {progressTotalLabel}: {progressTotal ?? '-'}
-              </ThemedText>
+              <View style={styles.sheetTitleGroup}>
+                <ThemedText style={styles.sheetTitle}>
+                  {progressConfig?.label ?? effectiveProgress?.label ?? 'Progress'}
+                </ThemedText>
+                <ThemedText style={[styles.sheetSubtitle, { color: colors.icon }]}>
+                  TOTAL {progressTotalLabel.toUpperCase()}: {progressTotal ?? '-'}
+                </ThemedText>
+              </View>
+
               <View style={styles.stepperRow}>
                 <Pressable
                   onPress={() =>
@@ -471,7 +522,7 @@ export function ItemUserDataPanel({
                     { borderColor: colors.icon + '28', backgroundColor: colors.icon + '10' },
                   ]}
                 >
-                  <ThemedText type="defaultSemiBold">-</ThemedText>
+                  <ThemedText style={styles.stepperButtonText}>-</ThemedText>
                 </Pressable>
                 <Pressable
                   onPress={() => setEditingSheetCurrent(true)}
@@ -493,7 +544,7 @@ export function ItemUserDataPanel({
                       placeholderTextColor={colors.icon}
                     />
                   ) : (
-                    <ThemedText type="defaultSemiBold">
+                    <ThemedText style={styles.stepperValueText}>
                       {sheetCurrent === null ? '-' : sheetCurrent}
                     </ThemedText>
                   )}
@@ -512,23 +563,26 @@ export function ItemUserDataPanel({
                     { borderColor: colors.icon + '28', backgroundColor: colors.icon + '10' },
                   ]}
                 >
-                  <ThemedText type="defaultSemiBold">+</ThemedText>
+                  <ThemedText style={styles.stepperButtonText}>+</ThemedText>
                 </Pressable>
               </View>
-              <Pressable
-                onPress={updateTrackedProgress}
-                style={({ pressed }) => [
-                  styles.updateButton,
-                  {
-                    backgroundColor: colors.tint,
-                    opacity: pressed ? 0.84 : 1,
-                  },
-                ]}
-              >
-                <ThemedText style={{ color: colors.background, fontWeight: '700' }}>
-                  Update
-                </ThemedText>
-              </Pressable>
+
+              {sheetHasChanged ? (
+                <Pressable
+                  onPress={resetSheetCurrent}
+                  style={({ pressed }) => [
+                    styles.resetButton,
+                    {
+                      backgroundColor: colors.icon + '18',
+                      opacity: pressed ? 0.7 : 1,
+                    },
+                  ]}
+                >
+                  <ThemedText style={{ color: colors.text, fontWeight: '600', fontSize: 16 }}>
+                    Reset
+                  </ThemedText>
+                </Pressable>
+              ) : null}
             </View>
           </Pressable>
         </Pressable>
@@ -631,11 +685,47 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
   },
-  progressSheetBody: {
-    flex: 1,
+  sheetHandle: {
+    alignSelf: 'center',
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(150, 160, 180, 0.4)',
+    marginTop: 10,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 18,
-    gap: 18,
+    paddingTop: 12,
+  },
+  sheetHeaderButton: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  progressSheetBody: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 8,
+    gap: 20,
+  },
+  sheetTitleGroup: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  sheetTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  sheetSubtitle: {
+    fontSize: 12,
+    fontWeight: '500',
+    letterSpacing: 0.8,
+    textAlign: 'center',
   },
   stepperRow: {
     flexDirection: 'row',
@@ -643,30 +733,38 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   stepperButton: {
-    width: 52,
-    height: 52,
+    width: 56,
+    height: 56,
     borderWidth: 1,
-    borderRadius: 16,
+    borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  stepperButtonText: {
+    fontSize: 22,
+    fontWeight: '600',
+  },
   stepperValue: {
     flex: 1,
-    minHeight: 52,
+    minHeight: 56,
     borderWidth: 1,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 12,
   },
+  stepperValueText: {
+    fontSize: 24,
+    fontWeight: '700',
+  },
   stepperValueInput: {
     width: '100%',
     textAlign: 'center',
-    fontSize: 18,
+    fontSize: 24,
     fontWeight: '700',
     paddingVertical: 0,
   },
-  updateButton: {
+  resetButton: {
     minHeight: 48,
     borderRadius: 14,
     alignItems: 'center',

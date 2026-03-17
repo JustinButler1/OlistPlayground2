@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Expo Dev Server",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["node_modules/expo/bin/cli", "start", "--web", "--port", "8083"],
+      "port": 8083
+    },
+    {
+      "name": "Convex Dev Server",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["convex", "dev"],
+      "port": 3210
+    }
+  ]
+}
