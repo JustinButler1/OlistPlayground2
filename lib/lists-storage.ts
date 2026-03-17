@@ -546,6 +546,7 @@ function normalizeList(value: unknown): TrackerList | null {
     entries,
     preferences: sanitizeListPreferencesForConfig(normalizePreferences(value.preferences), config),
     pinned: typeof value.pinned === 'boolean' ? value.pinned : false,
+    pinnedToProfile: typeof value.pinnedToProfile === 'boolean' ? value.pinnedToProfile : false,
     createdAt: typeof value.createdAt === 'number' ? value.createdAt : Date.now(),
     updatedAt: typeof value.updatedAt === 'number' ? value.updatedAt : Date.now(),
     sortOrder: typeof value.sortOrder === 'number' ? value.sortOrder : undefined,
@@ -822,6 +823,7 @@ function convertLegacyList(
     entries: mergedEntries,
     preferences: legacyViewModeToPreferences(legacy.listMetadataById?.[list.id]),
     pinned: false,
+    pinnedToProfile: false,
     createdAt: timestamp,
     updatedAt:
       legacy.listMetadataById?.[list.id]?.updatedAt ??

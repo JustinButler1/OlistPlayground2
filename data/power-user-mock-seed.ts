@@ -213,6 +213,7 @@ function normalizeList(list: TrackerList): TrackerList {
       nextConfig
     ),
     showInMyLists: list.showInMyLists ?? !list.parentListId,
+    pinnedToProfile: list.pinnedToProfile ?? false,
     childListIds: list.childListIds ?? [],
     entries: list.entries.map(normalizeEntry),
   };

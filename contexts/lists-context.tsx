@@ -93,6 +93,7 @@ interface ListActionsValue {
           description?: string;
           imageUrl?: string;
           pinned?: boolean;
+          pinnedToProfile?: boolean;
           preset?: ListPreset;
           templateId?: string;
           tags?: string[];
@@ -106,6 +107,7 @@ interface ListActionsValue {
         | 'description'
         | 'imageUrl'
         | 'pinned'
+        | 'pinnedToProfile'
         | 'templateId'
         | 'tags'
         | 'showInMyLists'
@@ -118,7 +120,14 @@ interface ListActionsValue {
     overrides?: Partial<
       Pick<
         TrackerList,
-        'title' | 'description' | 'imageUrl' | 'pinned' | 'tags' | 'showInMyLists' | 'parentListId'
+        | 'title'
+        | 'description'
+        | 'imageUrl'
+        | 'pinned'
+        | 'pinnedToProfile'
+        | 'tags'
+        | 'showInMyLists'
+        | 'parentListId'
       > & { uploadedImage?: UploadedStorageFile | null }
     >
   ) => Promise<string | null>;
@@ -131,6 +140,7 @@ interface ListActionsValue {
         | 'description'
         | 'imageUrl'
         | 'pinned'
+        | 'pinnedToProfile'
         | 'config'
         | 'templateId'
         | 'tags'
@@ -499,6 +509,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                 entries: [],
                 preferences: sanitizeListPreferencesForConfig(DEFAULT_LIST_PREFERENCES, config),
                 pinned: normalizedOptions.pinned ?? false,
+                pinnedToProfile: normalizedOptions.pinnedToProfile ?? false,
                 createdAt: timestamp,
                 updatedAt: timestamp,
                 sortOrder: timestamp,
@@ -539,6 +550,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                 description: overrides?.description?.trim() || baseList.description,
                 imageUrl: overrides?.uploadedImage?.url ?? overrides?.imageUrl ?? baseList.imageUrl,
                 pinned: overrides?.pinned ?? baseList.pinned,
+                pinnedToProfile: overrides?.pinnedToProfile ?? baseList.pinnedToProfile,
                 tags: normalizeTags(overrides?.tags ?? baseList.tags),
                 showInMyLists: overrides?.showInMyLists ?? !overrides?.parentListId,
                 parentListId: overrides?.parentListId,
@@ -575,6 +587,10 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                 imageUrl:
                   'imageUrl' in updates ? updates.imageUrl || undefined : list.imageUrl,
                 pinned: typeof updates.pinned === 'boolean' ? updates.pinned : list.pinned,
+                pinnedToProfile:
+                  typeof updates.pinnedToProfile === 'boolean'
+                    ? updates.pinnedToProfile
+                    : list.pinnedToProfile,
                 config: nextConfig,
                 preset: derivePresetFromConfig(nextConfig),
                 preferences: sanitizeListPreferencesForConfig(list.preferences, nextConfig),
@@ -904,6 +920,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                   createListConfig(parentList.config)
                 ),
                 pinned: false,
+                pinnedToProfile: false,
                 createdAt: timestamp,
                 updatedAt: timestamp,
                 sortOrder: timestamp,
@@ -1090,6 +1107,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
               description: normalizedOptions.description,
               imageUrl: normalizedOptions.imageUrl,
               pinned: normalizedOptions.pinned,
+              pinnedToProfile: normalizedOptions.pinnedToProfile,
               preset: normalizedOptions.preset,
               templateId: normalizedOptions.templateId,
               tags: normalizedOptions.tags,

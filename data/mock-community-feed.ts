@@ -5,6 +5,7 @@ export interface CommunityFeedItem {
   author: string;
   handle: string;
   timeAgo: string;
+  title?: string;
   body: string;
   likesLabel: string;
   repliesLabel: string;

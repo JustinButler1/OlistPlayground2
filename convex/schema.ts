@@ -58,6 +58,7 @@ export default defineSchema(
     config: listConfigValidator,
     preferences: listPreferencesValidator,
     pinned: v.boolean(),
+    pinnedToProfile: v.optional(v.boolean()),
     createdAt: v.number(),
     updatedAt: v.number(),
     sortOrder: v.optional(v.number()),

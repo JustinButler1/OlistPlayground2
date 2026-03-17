@@ -540,9 +540,21 @@ export default function MyListsScreen() {
     const pinToQuickAccess = () => {
       void updateList(item.id, { pinned: true });
     };
+    const pinToProfile = () => {
+      void updateList(item.id, { pinnedToProfile: true });
+    };
 
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      if (window.confirm(`Add "${item.title}" to Quick Access?`)) {
+      const choice = window
+        .prompt(
+          `Pin "${item.title}" where? Type "quick" for Quick Access or "profile" for Profile.`,
+          'profile'
+        )
+        ?.trim()
+        .toLowerCase();
+      if (choice === 'profile') {
+        pinToProfile();
+      } else if (choice === 'quick') {
         pinToQuickAccess();
       }
       return;
@@ -551,7 +563,7 @@ export default function MyListsScreen() {
     Alert.alert('Pin list', `Choose where to pin "${item.title}".`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Pin to Quick Access', onPress: pinToQuickAccess },
-      { text: 'Pin to Profile' },
+      { text: 'Pin to Profile', onPress: pinToProfile },
     ]);
   }, [updateList]);
 

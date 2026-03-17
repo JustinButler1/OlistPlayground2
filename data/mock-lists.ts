@@ -144,6 +144,7 @@ export interface TrackerList {
   entries: ListEntry[];
   preferences: ListPreferences;
   pinned: boolean;
+  pinnedToProfile?: boolean;
   createdAt: number;
   updatedAt: number;
   sortOrder?: number;
@@ -208,6 +209,7 @@ export function hydrateListHierarchy(lists: TrackerList[]): TrackerList[] {
   return lists.map((list) => ({
     ...list,
     showInMyLists: list.showInMyLists ?? !list.parentListId,
+    pinnedToProfile: list.pinnedToProfile ?? false,
     childListIds: childListIdsByParent.get(list.id) ?? [],
   }));
 }
@@ -461,6 +463,7 @@ function createSeedList(
       config
     ),
     pinned: options.pinned ?? false,
+    pinnedToProfile: options.pinnedToProfile ?? false,
     createdAt: options.createdAt ?? NOW,
     updatedAt: options.updatedAt ?? NOW,
     sortOrder: typeof options.sortOrder === 'number' ? options.sortOrder : undefined,

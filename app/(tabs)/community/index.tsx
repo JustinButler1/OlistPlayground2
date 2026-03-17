@@ -8,16 +8,20 @@ import { Colors } from '@/constants/theme';
 import { useTestAccounts } from '@/contexts/test-accounts-context';
 import { MOCK_COMMUNITY_FEED } from '@/data/mock-community-feed';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useCreatedCommunityPosts } from '@/lib/community-posts-store';
 
 export default function CommunityScreen() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const { activeMockAccountSeed } = useTestAccounts();
+  const { activeAccountId, activeMockAccountSeed } = useTestAccounts();
   const accountFeed = activeMockAccountSeed?.communityFeed ?? MOCK_COMMUNITY_FEED;
-  const forYouFeed = accountFeed;
-  const followingFeed = accountFeed.slice(0, 2);
-  const exploreFeed = [...accountFeed].reverse();
+  const createdPosts = useCreatedCommunityPosts(activeAccountId);
+  const mergedFeed = [...createdPosts, ...accountFeed];
+  const forYouFeed = mergedFeed;
+  const followingFeed = mergedFeed.slice(0, 2);
+  const exploreFeed = [...mergedFeed].reverse();
+  const tabsKey = mergedFeed.map((item) => item.id).join('|');
   const tabs = [
     {
       id: 'for-you',
@@ -69,6 +73,7 @@ export default function CommunityScreen() {
       >
         <View style={styles.tabsSection}>
           <TopTabs
+            key={tabsKey}
             tabs={tabs}
             activeColor={colors.text}
             inactiveColor={colors.icon}

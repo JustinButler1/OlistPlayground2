@@ -136,21 +136,33 @@ export function HomePlaceholderSections() {
                 >
                   {columnItems.map((item) => {
                     const content = (
-                      <ThemedView
-                        style={[
-                          styles.quickAccessCard,
-                          {
-                            backgroundColor: isDark
-                              ? 'rgba(7, 22, 44, 0.78)'
-                              : 'rgba(255, 255, 255, 0.78)',
-                          },
-                        ]}
-                      >
-                        <ThumbnailImage
-                          imageUrl={item.kind === 'list' ? item.imageUrl : undefined}
-                          style={[styles.quickAccessThumbnail, { width: quickAccessCardSize }]}
-                        />
-                      </ThemedView>
+                      <View style={[styles.quickAccessItem, { width: quickAccessCardSize }]}>
+                        <ThemedView
+                          style={[
+                            styles.quickAccessCard,
+                            {
+                              backgroundColor: isDark
+                                ? 'rgba(7, 22, 44, 0.78)'
+                                : 'rgba(255, 255, 255, 0.78)',
+                            },
+                          ]}
+                        >
+                          <ThumbnailImage
+                            imageUrl={item.kind === 'list' ? item.imageUrl : undefined}
+                            style={[styles.quickAccessThumbnail, { width: quickAccessCardSize }]}
+                          />
+                        </ThemedView>
+                        <ThemedText
+                          selectable
+                          numberOfLines={1}
+                          ellipsizeMode="tail"
+                          lightColor="rgba(26, 94, 133, 0.82)"
+                          darkColor="rgba(159, 180, 202, 0.9)"
+                          style={styles.quickAccessTitle}
+                        >
+                          {item.title}
+                        </ThemedText>
+                      </View>
                     );
 
                     if (item.kind === 'list') {
@@ -252,6 +264,9 @@ const styles = StyleSheet.create({
   quickAccessColumn: {
     gap: CARD_GAP,
   },
+  quickAccessItem: {
+    gap: 8,
+  },
   quickAccessCardShell: {
     borderRadius: 22,
     boxShadow: '0 12px 28px rgba(7, 22, 44, 0.12)',
@@ -263,6 +278,11 @@ const styles = StyleSheet.create({
   },
   quickAccessThumbnail: {
     aspectRatio: 1,
+  },
+  quickAccessTitle: {
+    fontSize: 12,
+    lineHeight: 16,
+    textAlign: 'center',
   },
   cardShell: {
     borderRadius: 22,

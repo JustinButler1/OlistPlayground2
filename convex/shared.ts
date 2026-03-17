@@ -277,6 +277,7 @@ export function isCurrentListRecord(value: any): value is {
   config: ListConfig;
   preferences: ListPreferences;
   pinned: boolean;
+  pinnedToProfile?: boolean;
   createdAt: number;
   updatedAt: number;
   sortOrder?: number;
@@ -686,6 +687,7 @@ export async function importListStateIntoWorkspace(
           createListConfig(list.config)
         ),
         pinned: list.pinned,
+        pinnedToProfile: list.pinnedToProfile,
         createdAt: list.createdAt,
         updatedAt: list.updatedAt,
         sortOrder: typeof list.sortOrder === "number" ? list.sortOrder : (listIndex + 1) * LIST_SORT_STEP,
@@ -874,6 +876,7 @@ export async function collectSnapshot(ctx: any): Promise<SnapshotPayload> {
           createListConfig(listDoc.config)
         ),
         pinned: listDoc.pinned,
+        pinnedToProfile: listDoc.pinnedToProfile ?? false,
         createdAt: listDoc.createdAt,
         updatedAt: listDoc.updatedAt,
         sortOrder: listDoc.sortOrder,
@@ -1074,7 +1077,7 @@ export function buildListRecordFromTemplate(
   overrides?: Partial<
     Pick<
       TrackerList,
-      "title" | "description" | "imageUrl" | "pinned" | "tags" | "showInMyLists" | "parentListId"
+      "title" | "description" | "imageUrl" | "pinned" | "pinnedToProfile" | "tags" | "showInMyLists" | "parentListId"
     >
   >
 ) {
@@ -1115,6 +1118,7 @@ export function buildListRecordFromTemplate(
       entries,
       preferences: sanitizeListPreferencesForConfig(DEFAULT_LIST_PREFERENCES, listConfig),
       pinned: overrides?.pinned ?? false,
+      pinnedToProfile: overrides?.pinnedToProfile ?? false,
       createdAt: timestamp,
       updatedAt: timestamp,
       sortOrder: timestamp,
@@ -1134,6 +1138,7 @@ export function createBlankListRecord(args: {
   description?: string;
   imageUrl?: string;
   pinned?: boolean;
+  pinnedToProfile?: boolean;
   templateId?: string;
   tags?: string[];
   showInMyLists?: boolean;
@@ -1164,6 +1169,7 @@ export function createBlankListRecord(args: {
     entries: [],
     preferences: sanitizeListPreferencesForConfig(DEFAULT_LIST_PREFERENCES, listConfig),
     pinned: args.pinned ?? false,
+    pinnedToProfile: args.pinnedToProfile ?? false,
     createdAt: timestamp,
     updatedAt: timestamp,
     sortOrder: timestamp,

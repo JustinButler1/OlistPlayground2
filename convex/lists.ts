@@ -53,6 +53,7 @@ async function insertListWithEntries(ctx: any, list: any) {
     config: list.config,
     preferences: list.preferences,
     pinned: list.pinned,
+    pinnedToProfile: list.pinnedToProfile,
     createdAt: list.createdAt,
     updatedAt: list.updatedAt,
     sortOrder: list.sortOrder,
@@ -143,6 +144,7 @@ export const createList = mutation({
       description: args.options?.description,
       imageUrl: args.options?.imageUrl,
       pinned: args.options?.pinned,
+      pinnedToProfile: args.options?.pinnedToProfile,
       templateId: args.options?.templateId,
       tags: args.options?.tags,
       showInMyLists: args.options?.showInMyLists,
@@ -255,6 +257,10 @@ export const updateList = mutation({
         "imageUrl" in (args.updates ?? {}) ? args.updates.imageUrl || undefined : list.imageUrl,
       pinned:
         typeof args.updates?.pinned === "boolean" ? args.updates.pinned : list.pinned,
+      pinnedToProfile:
+        typeof args.updates?.pinnedToProfile === "boolean"
+          ? args.updates.pinnedToProfile
+          : (list.pinnedToProfile ?? false),
       config: nextConfig,
       preset: derivePresetFromConfig(nextConfig),
       preferences: sanitizeListPreferencesForConfig(

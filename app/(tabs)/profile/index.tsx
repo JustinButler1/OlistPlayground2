@@ -29,7 +29,15 @@ export default function ProfileScreen() {
   const profileHandle = activeAccount.handle;
   const trackedItems = activeLists.reduce((sum, list) => sum + getListStats(list).total, 0);
   const completedItems = activeLists.reduce((sum, list) => sum + getListStats(list).completed, 0);
-  const featuredLists = [...activeLists].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 3);
+  const publicLists = [...activeLists]
+    .filter((list) => list.showInMyLists)
+    .sort((a, b) => {
+      if (!!b.pinnedToProfile !== !!a.pinnedToProfile) {
+        return Number(!!b.pinnedToProfile) - Number(!!a.pinnedToProfile);
+      }
+
+      return b.updatedAt - a.updatedAt;
+    });
   const interestLabels = state.profile.interests
     .map((interestId) => ONBOARDING_INTEREST_OPTIONS.find((item) => item.id === interestId)?.label)
     .filter(Boolean) as string[];
@@ -59,9 +67,9 @@ export default function ProfileScreen() {
       contentComponent: (
         <ProfileTabPanel>
           <ThemedText style={styles.tabHeading}>Public Lists</ThemedText>
-          {featuredLists.length > 0 ? (
+          {publicLists.length > 0 ? (
             <View style={styles.stack}>
-              {featuredLists.map((list) => {
+              {publicLists.map((list) => {
                 const stats = getListStats(list);
 
                 return (
@@ -75,6 +83,11 @@ export default function ProfileScreen() {
                       },
                     ]}
                   >
+                    {list.pinnedToProfile ? (
+                      <View style={styles.rowPinBadge}>
+                        <IconSymbol name="pin.fill" size={14} color={colors.tint} />
+                      </View>
+                    ) : null}
                     <View style={styles.rowCopy}>
                       <ThemedText numberOfLines={1} selectable style={styles.rowTitle}>
                         {list.title}
@@ -622,9 +635,16 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
     paddingHorizontal: 16,
     paddingVertical: 14,
+    position: 'relative',
+  },
+  rowPinBadge: {
+    position: 'absolute',
+    right: 14,
+    top: 14,
   },
   rowCopy: {
     gap: 4,
+    paddingRight: 24,
   },
   rowTitle: {
     fontSize: 16,
