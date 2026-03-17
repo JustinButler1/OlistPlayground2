@@ -25,6 +25,7 @@ const MAPPING = {
   'chevron.up': 'keyboard-arrow-up',
   'xmark': 'close',
   'plus': 'add',
+  'minus': 'remove',
   'checkmark': 'check',
   'magnifyingglass': 'search',
   'sparkle.magnifyingglass': 'manage-search',

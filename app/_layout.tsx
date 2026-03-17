@@ -1,15 +1,15 @@
-import { ConvexProvider } from 'convex/react';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { QueryClientProvider } from '@tanstack/react-query';
+import { ConvexProvider } from 'convex/react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { type ComponentType, type PropsWithChildren, useState } from 'react';
-import 'react-native-reanimated';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import 'react-native-reanimated';
 
 import { ThemePalette } from '@/constants/theme';
-import { OnboardingProvider } from '@/contexts/onboarding-context';
 import { ListsProvider } from '@/contexts/lists-context';
+import { OnboardingProvider } from '@/contexts/onboarding-context';
 import { TestAccountsProvider } from '@/contexts/test-accounts-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { convex } from '@/lib/convex-client';
@@ -55,9 +55,9 @@ export default function RootLayout() {
     presentation: isIos ? 'formSheet' : 'modal',
     ...(isIos
       ? {
-          sheetGrabberVisible: true,
-          contentStyle: { backgroundColor: 'transparent' },
-        }
+        sheetGrabberVisible: true,
+        contentStyle: { backgroundColor: 'transparent' },
+      }
       : {}),
   } as const;
 
@@ -85,6 +85,14 @@ export default function RootLayout() {
                       }}
                     />
                     <Stack.Screen name="list-entry/[id]" />
+                    <Stack.Screen
+                      name="progress-sheet"
+                      options={{
+                        ...sheetOptions,
+                        title: '',
+                        ...(isIos ? { sheetAllowedDetents: [0.35] } : {}),
+                      }}
+                    />
                     <Stack.Screen name="games/[id]" />
                     <Stack.Screen name="product-import" options={{ title: 'Import Product' }} />
                     <Stack.Screen
