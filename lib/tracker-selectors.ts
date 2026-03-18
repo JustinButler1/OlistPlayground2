@@ -18,8 +18,6 @@ export interface EntryWithList {
   list: TrackerList;
 }
 
-const ACTIVE_STATUSES: EntryStatus[] = ['active', 'paused'];
-
 function compareByStatus(a: ListEntry, b: ListEntry): number {
   const order: EntryStatus[] = ['active', 'planned', 'paused', 'completed', 'dropped'];
   const aIndex = a.status ? order.indexOf(a.status) : order.length;
@@ -97,12 +95,20 @@ export function flattenEntries(lists: TrackerList[]): EntryWithList[] {
   );
 }
 
-export function getContinueTrackingEntries(lists: TrackerList[], limit = 6): EntryWithList[] {
-  return flattenEntries(lists)
-    .filter(
-      ({ entry }) => !!entry.status && ACTIVE_STATUSES.includes(entry.status) && !entry.archivedAt
-    )
-    .sort((a, b) => b.entry.updatedAt - a.entry.updatedAt)
+export function getContinueEntries(
+  lists: TrackerList[],
+  continueEntryIds: string[],
+  limit = 6
+): EntryWithList[] {
+  const entriesById = new Map(
+    flattenEntries(lists)
+      .filter(({ entry }) => !entry.archivedAt)
+      .map((value) => [value.entry.id, value])
+  );
+
+  return continueEntryIds
+    .map((entryId) => entriesById.get(entryId))
+    .filter((value): value is EntryWithList => value !== undefined)
     .slice(0, limit);
 }
 
@@ -145,7 +151,10 @@ export function getListStats(list: TrackerList) {
     (entry) => !entry.archivedAt && entry.status === 'completed'
   ).length;
   const active = list.entries.filter(
-    (entry) => !entry.archivedAt && !!entry.status && ACTIVE_STATUSES.includes(entry.status)
+    (entry) =>
+      !entry.archivedAt &&
+      !!entry.status &&
+      (entry.status === 'active' || entry.status === 'paused')
   ).length;
   const planned = list.entries.filter(
     (entry) => !entry.archivedAt && entry.status === 'planned'
@@ -171,6 +180,21 @@ export function getRecentLists(lists: TrackerList[], recentListIds: string[]): T
     .sort((a, b) => b.updatedAt - a.updatedAt);
 
   return [...orderedRecent, ...fallbackLists];
+}
+
+export function getRecentActivityLists(
+  lists: TrackerList[],
+  recentActivityListIds: string[],
+  limit = 8
+): TrackerList[] {
+  const byId = new Map(
+    lists.filter((list) => !list.archivedAt && !list.deletedAt).map((list) => [list.id, list])
+  );
+
+  return recentActivityListIds
+    .map((id) => byId.get(id))
+    .filter((list): list is TrackerList => !!list)
+    .slice(0, limit);
 }
 
 export function getPinnedLists(lists: TrackerList[]): TrackerList[] {

@@ -81,6 +81,8 @@ export const importLegacyLocalState = mutation({
         itemUserDataByKey: Record<string, any>;
         recentSearches: string[];
         recentListIds: string[];
+        recentActivityListIds?: string[];
+        continueEntryIds?: string[];
       };
 
       for (const list of [...(listsState.lists ?? []), ...(listsState.deletedLists ?? [])]) {

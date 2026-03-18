@@ -5,7 +5,7 @@ import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { openBrowserAsync, WebBrowserPresentationStyle } from 'expo-web-browser';
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ComponentProps, type ReactNode, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActionSheetIOS,
   Alert,
@@ -27,7 +27,6 @@ import Animated, {
   FadeIn,
   FadeOut,
   LinearTransition,
-  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -39,6 +38,7 @@ import { ThemedView } from '@/components/themed-view';
 import { PLACEHOLDER_THUMBNAIL, ThumbnailImage } from '@/components/thumbnail-image';
 import { CatalogSearchPanel } from '@/components/tracker/CatalogSearchPanel';
 import { ComposerActionBar } from '@/components/tracker/composer-action-bar';
+import { ContextActionPopover } from '@/components/tracker/context-action-popover';
 import { FilterSortControlRow } from '@/components/tracker/filter-sort-control-row';
 import { LinkImportPanel } from '@/components/tracker/LinkImportPanel';
 import { ListConfigurationEditor } from '@/components/tracker/ListConfigurationEditor';
@@ -46,8 +46,18 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import type { EntryDraft } from '@/contexts/lists-context';
 import { useEntryActions, useListActions, useListPreferences, useListsQuery } from '@/contexts/lists-context';
-import type { ListEntry, ListFilterMode, ListPreset, ListSortMode, ListViewMode } from '@/data/mock-lists';
+import { useTestAccounts } from '@/contexts/test-accounts-context';
+import {
+  DEFAULT_LIST_PREFERENCES,
+  type ListEntry,
+  type ListFilterMode,
+  type ListPreferences,
+  type ListPreset,
+  type ListSortMode,
+  type ListViewMode,
+} from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useAccountSnapshots } from '@/hooks/use-account-snapshots';
 import { sortEntries } from '@/lib/tracker-selectors';
 
 const TIER_COLORS = ['#2A1B60', '#3A227A', '#4E2899', '#5F34B0', '#1A5E85', '#139EC1', '#68C7DB'];
@@ -65,6 +75,8 @@ const AUTO_SCROLL_MAX_STEP = 18;
 const DRAG_LIFT_DURATION_MS = 5;
 const DRAG_RELEASE_DURATION_MS = 5;
 const DRAG_SWIPE_FAIL_OFFSET_X = 24;
+const HOLD_CONTEXT_DELAY_MS = 1_000;
+const HOLD_DRAG_DELAY_MS = 2_000;
 
 type RowLayout = {
   height: number;
@@ -169,7 +181,9 @@ function getDropIndicatorTop(
 }
 
 export default function ListDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, ownerAccountId } = useLocalSearchParams<{ id: string; ownerAccountId?: string }>();
+  const normalizedListId = Array.isArray(id) ? id[0] : id;
+  const normalizedOwnerAccountId = Array.isArray(ownerAccountId) ? ownerAccountId[0] : ownerAccountId;
   const router = useRouter();
   const isIos = process.env.EXPO_OS === 'ios';
   const supportsLiquidGlass = isIos && isGlassEffectAPIAvailable();
@@ -206,9 +220,15 @@ export default function ListDetailScreen() {
   const dragScale = useSharedValue(1);
   const scrollOffsetValue = useSharedValue(0);
   const composerAccessoryId = useMemo(
-    () => `list-entry-composer-action-bar-${String(id ?? 'unknown').replace(/[^A-Za-z0-9_-]/g, '-')}`,
-    [id]
+    () =>
+      `list-entry-composer-action-bar-${String(normalizedListId ?? 'unknown').replace(
+        /[^A-Za-z0-9_-]/g,
+        '-'
+      )}`,
+    [normalizedListId]
   );
+  const accountSnapshots = useAccountSnapshots();
+  const { activeAccountId } = useTestAccounts();
   const { activeLists, itemUserDataByKey } = useListsQuery();
   const {
     createList,
@@ -221,8 +241,51 @@ export default function ListDetailScreen() {
   const { addEntryToList, deleteEntryFromList, reorderEntries, setEntryChecked } = useEntryActions();
   const latestMarkListOpenedRef = useRef(markListOpened);
   const lastOpenedListIdRef = useRef<string | null>(null);
-  const list = activeLists.find((item) => item.id === id) ?? null;
-  const { preferences, setListPreferences } = useListPreferences(id ?? '');
+  const ownList = activeLists.find((item) => item.id === normalizedListId) ?? null;
+  const foreignOwnerSnapshot =
+    normalizedOwnerAccountId && normalizedOwnerAccountId !== activeAccountId
+      ? accountSnapshots.find((snapshot) => snapshot.owner.accountId === normalizedOwnerAccountId) ??
+        null
+      : null;
+  const foreignList =
+    foreignOwnerSnapshot?.lists.find((item) => item.id === normalizedListId) ?? null;
+  const isForeignList = !!foreignList && foreignOwnerSnapshot?.owner.accountId !== activeAccountId;
+  const list = foreignList ?? ownList;
+  const ownerLists = useMemo(
+    () => (isForeignList ? foreignOwnerSnapshot?.lists ?? [] : activeLists),
+    [activeLists, foreignOwnerSnapshot?.lists, isForeignList]
+  );
+  const ownerAvatar = isForeignList && foreignOwnerSnapshot
+    ? {
+        profileId: foreignOwnerSnapshot.owner.profileId,
+        displayName: foreignOwnerSnapshot.owner.displayName,
+        accessibilityLabel: `Open ${foreignOwnerSnapshot.owner.displayName}'s profile`,
+        onPress: () =>
+          router.push({
+            pathname: '/profile-sheet',
+            params: { accountId: foreignOwnerSnapshot.owner.accountId },
+          }),
+      }
+    : null;
+  const ownListPreferences = useListPreferences(normalizedListId ?? '');
+  const [foreignPreferences, setForeignPreferences] = useState<ListPreferences | null>(null);
+  const preferences = isForeignList
+    ? foreignPreferences ?? list?.preferences ?? DEFAULT_LIST_PREFERENCES
+    : ownListPreferences.preferences;
+  const setListPreferences = useCallback(
+    (updates: Partial<ListPreferences>) => {
+      if (isForeignList) {
+        setForeignPreferences((current) => ({
+          ...(current ?? foreignList?.preferences ?? DEFAULT_LIST_PREFERENCES),
+          ...updates,
+        }));
+        return;
+      }
+
+      ownListPreferences.setListPreferences(updates);
+    },
+    [foreignList?.preferences, isForeignList, ownListPreferences]
+  );
   const [menuVisible, setMenuVisible] =
     useState<null | 'view' | 'sort' | 'filter' | 'tag-to-sublist'>(null);
   const [newSublistVisible, setNewSublistVisible] = useState(false);
@@ -247,6 +310,19 @@ export default function ListDetailScreen() {
   const [composerFocusPending, setComposerFocusPending] = useState(false);
   const [dragState, setDragState] = useState<EntryDragState | null>(null);
   const [optimisticEntryOrderIds, setOptimisticEntryOrderIds] = useState<string[] | null>(null);
+  const [contextMenuState, setContextMenuState] = useState<{
+    anchor: { x: number; y: number; width: number; height: number };
+    entry: ListEntry;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!isForeignList) {
+      setForeignPreferences(null);
+      return;
+    }
+
+    setForeignPreferences(list?.preferences ?? DEFAULT_LIST_PREFERENCES);
+  }, [isForeignList, list?.id, list?.preferences]);
 
   const scrollComposerIntoView = useCallback((animated = true) => {
     if (preferences.viewMode !== 'list') {
@@ -287,13 +363,13 @@ export default function ListDetailScreen() {
   }, [markListOpened]);
 
   useEffect(() => {
-    if (!list?.id || lastOpenedListIdRef.current === list.id) {
+    if (isForeignList || !list?.id || lastOpenedListIdRef.current === list.id) {
       return;
     }
 
     lastOpenedListIdRef.current = list.id;
     void latestMarkListOpenedRef.current(list.id);
-  }, [list?.id]);
+  }, [isForeignList, list?.id]);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -304,12 +380,7 @@ export default function ListDetailScreen() {
     });
     const hideSubscription = Keyboard.addListener(hideEvent, () => {
       setKeyboardHeight(0);
-      if (
-        process.env.EXPO_OS !== 'ios' &&
-        !listSearchVisible &&
-        !searchVisible &&
-        !tagSheetVisible
-      ) {
+      if (!listSearchVisible && !searchVisible && !tagSheetVisible) {
         collapseComposer();
       }
     });
@@ -321,12 +392,16 @@ export default function ListDetailScreen() {
   }, [collapseComposer, listSearchVisible, searchVisible, tagSheetVisible]);
 
   const openComposer = useCallback(() => {
+    if (isForeignList) {
+      return;
+    }
+
     if (preferences.viewMode !== 'list') {
       setListPreferences({ viewMode: 'list' });
     }
     setComposerVisible(true);
     setComposerFocusPending(true);
-  }, [preferences.viewMode, setListPreferences]);
+  }, [isForeignList, preferences.viewMode, setListPreferences]);
 
   const closeListSearch = useCallback(() => {
     setListSearchQuery('');
@@ -376,7 +451,8 @@ export default function ListDetailScreen() {
     preferences.viewMode === 'list' &&
     preferences.sortMode === 'manual' &&
     preferences.filterMode === 'all' &&
-    !listSearchQuery.trim();
+    !listSearchQuery.trim() &&
+    !isForeignList;
   const bottomToolbarInset = insets.bottom + BOTTOM_TOOLBAR_HEIGHT + BOTTOM_TOOLBAR_MARGIN * 2;
   const nativeSearchWidth = Math.max(180, windowWidth - 156);
   const keyboardContentInset = isIos && composerVisible && keyboardHeight > 0 ? keyboardHeight : 0;
@@ -515,10 +591,10 @@ export default function ListDetailScreen() {
             id: entry.id,
             title: entry.title,
             color: TIER_COLORS[index % TIER_COLORS.length],
-            list: activeLists.find((item) => item.id === sublistId) ?? null,
+            list: ownerLists.find((item) => item.id === sublistId) ?? null,
           };
         }),
-    [activeLists, list?.entries, listSearchQuery]
+    [list?.entries, listSearchQuery, ownerLists]
   );
 
   const tagConversionOptions = useMemo(() => {
@@ -576,7 +652,7 @@ export default function ListDetailScreen() {
   }
 
   function submitComposer() {
-    if (!list) {
+    if (!list || isForeignList) {
       return;
     }
 
@@ -600,7 +676,7 @@ export default function ListDetailScreen() {
   }
 
   function addCatalogEntry(entry: EntryDraft) {
-    if (!list) {
+    if (!list || isForeignList) {
       return;
     }
 
@@ -613,7 +689,7 @@ export default function ListDetailScreen() {
   }
 
   function addUrlEntry(entry: EntryDraft) {
-    if (!list) {
+    if (!list || isForeignList) {
       return;
     }
 
@@ -626,7 +702,7 @@ export default function ListDetailScreen() {
   }
 
   const openExistingListSheet = useCallback(() => {
-    if (!list) {
+    if (!list || isForeignList) {
       return;
     }
 
@@ -638,7 +714,7 @@ export default function ListDetailScreen() {
         query: composerText.trim() || undefined,
       },
     });
-  }, [composerText, list, router]);
+  }, [composerText, isForeignList, list, router]);
 
   const openUrlImportSheet = useCallback(() => {
     Keyboard.dismiss();
@@ -646,6 +722,10 @@ export default function ListDetailScreen() {
   }, []);
 
   const openLinkOptions = useCallback(() => {
+    if (isForeignList) {
+      return;
+    }
+
     if (process.env.EXPO_OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
         {
@@ -674,21 +754,42 @@ export default function ListDetailScreen() {
     ]);
   }, [
     colorScheme,
+    isForeignList,
     openExistingListSheet,
     openUrlImportSheet,
   ]);
 
   const openEntry = (entry: ListEntry) => {
-    const pathname = entry.linkedListId
-      ? `/list/${entry.linkedListId}`
-      : entry.detailPath
-        ? `/${entry.detailPath}`
-        : `/list-entry/${entry.id}`;
+    const linkedListId =
+      entry.linkedListId ||
+      (entry.detailPath?.startsWith('list/') ? entry.detailPath.split('/').pop() : undefined);
 
+    if (linkedListId) {
+      router.push({
+        pathname: '/list/[id]',
+        params: {
+          id: linkedListId,
+          ...(isForeignList && foreignOwnerSnapshot
+            ? { ownerAccountId: foreignOwnerSnapshot.owner.accountId }
+            : {}),
+        },
+      });
+      return;
+    }
+
+    if (!entry.detailPath && isForeignList) {
+      return;
+    }
+
+    const pathname = entry.detailPath ? `/${entry.detailPath}` : `/list-entry/${entry.id}`;
     router.push(pathname as never);
   };
 
   const openEntryMetadata = (entry: ListEntry) => {
+    if (isForeignList) {
+      return;
+    }
+
     router.push(`/list-entry/${entry.id}` as never);
   };
 
@@ -996,24 +1097,37 @@ export default function ListDetailScreen() {
   }, [dragScale, dragState, list, orderedEntries, reorderEntries, stopAutoScroll, triggerDragEndHaptic]);
 
   const openNewSublist = useCallback(() => {
+    if (isForeignList) {
+      return;
+    }
+
     setMenuVisible(null);
     setSublistTitle('');
     setSublistPreset('blank');
     setNewSublistVisible(true);
-  }, []);
+  }, [isForeignList]);
 
   const openListConfiguration = useCallback(() => {
-    if (!list) {
+    if (!list || isForeignList) {
       return;
     }
 
     setMenuVisible(null);
     setDraftConfig(list.config);
     setConfigVisible(true);
-  }, [list]);
+  }, [isForeignList, list]);
+
+  const openListSettings = useCallback(() => {
+    if (!list || isForeignList) {
+      return;
+    }
+
+    setMenuVisible(null);
+    router.push(`/list-settings/${list.id}` as never);
+  }, [isForeignList, list, router]);
 
   const openSaveTemplate = useCallback(() => {
-    if (!list) {
+    if (!list || isForeignList) {
       return;
     }
 
@@ -1021,10 +1135,10 @@ export default function ListDetailScreen() {
     setTemplateTitle(`${list.title} Template`);
     setTemplateDescription(list.description ?? '');
     setTemplateVisible(true);
-  }, [list]);
+  }, [isForeignList, list]);
 
   const convertCurrentSublistToTag = useCallback(() => {
-    if (!list?.parentListId) {
+    if (isForeignList || !list?.parentListId) {
       return;
     }
 
@@ -1052,10 +1166,10 @@ export default function ListDetailScreen() {
         { text: 'Convert', onPress: runConversion },
       ]
     );
-  }, [convertSublistToTag, list, router]);
+  }, [convertSublistToTag, isForeignList, list, router]);
 
   const confirmDeleteEntry = (entry: ListEntry) => {
-    if (!list) {
+    if (!list || isForeignList) {
       return;
     }
 
@@ -1072,6 +1186,38 @@ export default function ListDetailScreen() {
       { text: 'Delete', style: 'destructive', onPress: runDelete },
     ]);
   };
+
+  const closeContextMenu = useCallback(() => {
+    setContextMenuState(null);
+  }, []);
+
+  const openContextMenu = useCallback((
+    entry: ListEntry,
+    anchor: { x: number; y: number; width: number; height: number }
+  ) => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setContextMenuState({ entry, anchor });
+  }, []);
+
+  const openMoveSheet = useCallback(
+    (entry: ListEntry) => {
+      if (!list || isForeignList) {
+        return;
+      }
+
+      closeContextMenu();
+      router.push({
+        pathname: '/move-to-sheet',
+        params: {
+          mode: 'entry',
+          entryId: entry.id,
+          itemTitle: entry.title,
+          sourceListId: list.id,
+        },
+      });
+    },
+    [closeContextMenu, isForeignList, list, router]
+  );
 
   const renderRightActions = (
     progress: RNAnimated.AnimatedInterpolation<number>,
@@ -1243,12 +1389,12 @@ export default function ListDetailScreen() {
                 ) : null}
               </Stack.Toolbar.Menu>
             </Stack.Toolbar.Menu>
-            {list.config.addons.includes('sublists') ? (
+            {!isForeignList && list.config.addons.includes('sublists') ? (
               <Stack.Toolbar.MenuAction onPress={openNewSublist}>
                 Create sublist
               </Stack.Toolbar.MenuAction>
             ) : null}
-            {tagConversionOptions.length ? (
+            {!isForeignList && tagConversionOptions.length ? (
               <Stack.Toolbar.Menu title="Convert tag to sublist">
                 <Stack.Toolbar.Menu inline>
                   {tagConversionOptions.map((option) => (
@@ -1262,17 +1408,26 @@ export default function ListDetailScreen() {
                 </Stack.Toolbar.Menu>
               </Stack.Toolbar.Menu>
             ) : null}
-            {list.parentListId ? (
+            {!isForeignList && list.parentListId ? (
               <Stack.Toolbar.MenuAction onPress={convertCurrentSublistToTag}>
                 Convert this sublist to tag
               </Stack.Toolbar.MenuAction>
             ) : null}
-            <Stack.Toolbar.MenuAction onPress={openListConfiguration}>
-              Configure list
-            </Stack.Toolbar.MenuAction>
-            <Stack.Toolbar.MenuAction onPress={openSaveTemplate}>
-              Save as template
-            </Stack.Toolbar.MenuAction>
+            {!isForeignList ? (
+              <Stack.Toolbar.MenuAction onPress={openListSettings}>
+                List settings
+              </Stack.Toolbar.MenuAction>
+            ) : null}
+            {!isForeignList ? (
+              <Stack.Toolbar.MenuAction onPress={openListConfiguration}>
+                Configure list
+              </Stack.Toolbar.MenuAction>
+            ) : null}
+            {!isForeignList ? (
+              <Stack.Toolbar.MenuAction onPress={openSaveTemplate}>
+                Save as template
+              </Stack.Toolbar.MenuAction>
+            ) : null}
           </Stack.Toolbar.Menu>
         </Stack.Toolbar>
       ) : null}
@@ -1324,6 +1479,7 @@ export default function ListDetailScreen() {
               onFilterChange={(value) => setListPreferences({ filterMode: value as ListFilterMode })}
               onOpenFilter={() => setMenuVisible('filter')}
               onOpenSort={() => setMenuVisible('sort')}
+              ownerAvatar={ownerAvatar}
               sortLabel={labelForSort(preferences.sortMode)}
               sortOptions={[
                 { value: 'manual', label: 'Custom Order' },
@@ -1430,6 +1586,8 @@ export default function ListDetailScreen() {
                       onDragEnd={finishEntryDrag}
                       onDragMove={updateEntryDrag}
                       onDragStart={startEntryDrag}
+                      onHoldMenuClose={closeContextMenu}
+                      onHoldMenuOpen={openContextMenu}
                       onLayout={registerRowLayout}
                       onOpenEntry={openEntry}
                       onOpenEntryUrl={openEntryUrl}
@@ -1437,6 +1595,20 @@ export default function ListDetailScreen() {
                       renderRightActions={(progress) => renderRightActions(progress, item)}
                       renderEntryTags={renderEntryTags}
                     />
+                  ) : isForeignList ? (
+                    <View style={index < visibleEntries.length - 1 ? styles.rowWithSpacing : undefined}>
+                      <EntryRow
+                        colors={colors}
+                        entry={item}
+                        hasToggle={hasToggle}
+                        isIos={isIos}
+                        supportsLiquidGlass={supportsLiquidGlass}
+                        onOpenEntry={openEntry}
+                        onOpenEntryUrl={openEntryUrl}
+                        onToggleChecked={() => {}}
+                        renderEntryTags={renderEntryTags}
+                      />
+                    </View>
                   ) : (
                     <View style={index < visibleEntries.length - 1 ? styles.rowWithSpacing : undefined}>
                       <Swipeable
@@ -1541,6 +1713,30 @@ export default function ListDetailScreen() {
                   </View>
                 </Animated.View>
               ) : null}
+              <ContextActionPopover
+                actions={
+                  contextMenuState
+                    ? [
+                        {
+                          id: 'move',
+                          icon: 'list.bullet' as const,
+                          label: 'Move to',
+                          onPress: () => openMoveSheet(contextMenuState.entry),
+                        },
+                        {
+                          id: 'delete',
+                          destructive: true,
+                          icon: 'trash' as const,
+                          label: 'Delete',
+                          onPress: () => confirmDeleteEntry(contextMenuState.entry),
+                        },
+                      ]
+                    : []
+                }
+                anchor={contextMenuState?.anchor ?? null}
+                onClose={closeContextMenu}
+                visible={contextMenuState !== null}
+              />
             </View>
           )}
         </View>
@@ -1580,7 +1776,7 @@ export default function ListDetailScreen() {
             ) : (
               <>
                 <Stack.Toolbar.Spacer />
-                <Stack.Toolbar.Button icon="plus" onPress={openComposer} />
+                {!isForeignList ? <Stack.Toolbar.Button icon="plus" onPress={openComposer} /> : null}
               </>
             )}
           </Stack.Toolbar>
@@ -1643,34 +1839,38 @@ export default function ListDetailScreen() {
                   >
                     <IconSymbol name="magnifyingglass" size={20} color={colors.tint} />
                   </Pressable>
-                  <View style={styles.bottomToolbarSpacer} />
-                  <Pressable
-                    accessibilityLabel="Add item"
-                    accessibilityRole="button"
-                    hitSlop={8}
-                    onPress={openComposer}
-                    style={({ pressed }) => [
-                      styles.bottomToolbarButton,
-                      { opacity: pressed ? 0.72 : 1, backgroundColor: colors.tint },
-                    ]}
-                  >
-                    <IconSymbol name="plus" size={22} color={colors.background} />
-                  </Pressable>
+                  {!isForeignList ? <View style={styles.bottomToolbarSpacer} /> : null}
+                  {!isForeignList ? (
+                    <Pressable
+                      accessibilityLabel="Add item"
+                      accessibilityRole="button"
+                      hitSlop={8}
+                      onPress={openComposer}
+                      style={({ pressed }) => [
+                        styles.bottomToolbarButton,
+                        { opacity: pressed ? 0.72 : 1, backgroundColor: colors.tint },
+                      ]}
+                    >
+                      <IconSymbol name="plus" size={22} color={colors.background} />
+                    </Pressable>
+                  ) : null}
                 </>
               )}
             </View>
           </View>
         )}
 
-        <ComposerActionBar
-          accessoryId={composerAccessoryId}
-          visible={composerAccessoryVisible}
-          colors={colors}
-          bottom={actionBarBottom}
-          onLinkPress={openLinkOptions}
-          onSearchPress={() => setSearchVisible(true)}
-          onTagPress={() => setTagSheetVisible(true)}
-        />
+        {!isForeignList ? (
+          <ComposerActionBar
+            accessoryId={composerAccessoryId}
+            visible={composerAccessoryVisible}
+            colors={colors}
+            bottom={actionBarBottom}
+            onLinkPress={openLinkOptions}
+            onSearchPress={() => setSearchVisible(true)}
+            onTagPress={() => setTagSheetVisible(true)}
+          />
+        ) : null}
 
         <SelectionMenu
           visible={menuVisible === 'view'}
@@ -1684,17 +1884,22 @@ export default function ListDetailScreen() {
             ...(list.config.addons.includes('tier')
               ? [{ value: 'tier', label: 'Tier view' }]
               : []),
-            ...(list.config.addons.includes('sublists')
+            ...(!isForeignList && list.config.addons.includes('sublists')
               ? [{ value: 'sublist', label: 'Create sublist' }]
               : []),
-            ...(tagConversionOptions.length
+            ...(!isForeignList && tagConversionOptions.length
               ? [{ value: 'tag-to-sublist', label: 'Convert tag to sublist' }]
               : []),
-            ...(list.parentListId
+            ...(!isForeignList && list.parentListId
               ? [{ value: 'sublist-to-tag', label: 'Convert this sublist to tag' }]
               : []),
-            { value: 'configure', label: 'Configure list' },
-            { value: 'save-template', label: 'Save as template' },
+            ...(!isForeignList
+              ? [
+                  { value: 'settings', label: 'List settings' },
+                  { value: 'configure', label: 'Configure list' },
+                  { value: 'save-template', label: 'Save as template' },
+                ]
+              : []),
           ]}
           selectedValue={preferences.viewMode}
           onClose={() => setMenuVisible(null)}
@@ -1705,6 +1910,10 @@ export default function ListDetailScreen() {
             }
             if (value === 'configure') {
               openListConfiguration();
+              return;
+            }
+            if (value === 'settings') {
+              openListSettings();
               return;
             }
             if (value === 'tag-to-sublist') {
@@ -1724,7 +1933,7 @@ export default function ListDetailScreen() {
           }}
         />
         <SelectionMenu
-          visible={menuVisible === 'tag-to-sublist'}
+          visible={!isForeignList && menuVisible === 'tag-to-sublist'}
           title="Convert tag to sublist"
           options={tagConversionOptions}
           selectedValue=""
@@ -2256,6 +2465,10 @@ function EntryRow({
   isIos,
   supportsLiquidGlass,
   onOpenEntry,
+  thumbnailAnchorRef,
+  rowMainAnchorRef,
+  onRowPressIn,
+  onRowPressOut,
   onOpenEntryUrl,
   onToggleChecked,
   renderEntryTags,
@@ -2266,11 +2479,16 @@ function EntryRow({
   isIos: boolean;
   supportsLiquidGlass: boolean;
   onOpenEntry: (entry: ListEntry) => void;
+  thumbnailAnchorRef?: RefObject<View | null>;
+  rowMainAnchorRef?: RefObject<View | null>;
+  onRowPressIn?: (event: Parameters<NonNullable<ComponentProps<typeof Pressable>['onPressIn']>>[0]) => void;
+  onRowPressOut?: () => void;
   onOpenEntryUrl: (entry: ListEntry) => Promise<void>;
   onToggleChecked: (entry: ListEntry) => void;
   renderEntryTags: (tags: string[]) => ReactNode;
 }) {
   const itemImageUrl = getEntryImageUrl(entry);
+  const isLinkedListEntry = !!entry.linkedListId || entry.detailPath?.startsWith('list/');
 
   return (
     <ListRowSurface
@@ -2294,14 +2512,23 @@ function EntryRow({
           ) : null}
         </Pressable>
       ) : null}
-      <Pressable onPress={() => onOpenEntry(entry)} style={styles.rowMain}>
+      <Pressable
+        ref={rowMainAnchorRef}
+        collapsable={false}
+        onPress={() => onOpenEntry(entry)}
+        onPressIn={onRowPressIn}
+        onPressOut={onRowPressOut}
+        style={styles.rowMain}
+      >
         {itemImageUrl || entry.sourceRef.source === 'anime' || entry.sourceRef.source === 'manga' ? (
-          <ThumbnailImage
-            imageUrl={itemImageUrl}
-            sourceRef={entry.sourceRef}
-            detailPath={entry.detailPath}
-            style={styles.rowImage}
-          />
+          <View ref={thumbnailAnchorRef} collapsable={false}>
+            <ThumbnailImage
+              imageUrl={itemImageUrl}
+              sourceRef={entry.sourceRef}
+              detailPath={entry.detailPath}
+              style={styles.rowImage}
+            />
+          </View>
         ) : null}
         <View style={styles.rowInfo}>
           <ThemedText style={styles.rowTitle} numberOfLines={2}>
@@ -2310,19 +2537,28 @@ function EntryRow({
           {renderEntryTags(entry.tags)}
         </View>
       </Pressable>
-      {entry.productUrl?.trim() ? (
-        <Pressable
-          accessibilityLabel={`Open ${entry.title} link`}
-          accessibilityRole="button"
-          hitSlop={12}
-          onPress={() => void onOpenEntryUrl(entry)}
-          style={({ pressed }) => [
-            styles.rowLinkButton,
-            { opacity: pressed ? 0.68 : 1 },
-          ]}
-        >
-          <IconSymbol name="link" size={18} color={colors.tint} />
-        </Pressable>
+      {entry.productUrl?.trim() || isLinkedListEntry ? (
+        <View style={styles.rowTrailingActions}>
+          {entry.productUrl?.trim() ? (
+            <Pressable
+              accessibilityLabel={`Open ${entry.title} link`}
+              accessibilityRole="button"
+              hitSlop={12}
+              onPress={() => void onOpenEntryUrl(entry)}
+              style={({ pressed }) => [
+                styles.rowLinkButton,
+                { opacity: pressed ? 0.68 : 1 },
+              ]}
+            >
+              <IconSymbol name="link" size={18} color={colors.tint} />
+            </Pressable>
+          ) : null}
+          {isLinkedListEntry ? (
+            <View pointerEvents="none" style={styles.rowChevron}>
+              <IconSymbol name="chevron.right" size={18} color={colors.icon} />
+            </View>
+          ) : null}
+        </View>
       ) : null}
     </ListRowSurface>
   );
@@ -2339,6 +2575,8 @@ function DraggableEntryRow({
   onDragEnd,
   onDragMove,
   onDragStart,
+  onHoldMenuClose,
+  onHoldMenuOpen,
   onLayout,
   onOpenEntry,
   onOpenEntryUrl,
@@ -2362,6 +2600,11 @@ function DraggableEntryRow({
     absoluteX: number,
     absoluteY: number
   ) => void;
+  onHoldMenuClose: () => void;
+  onHoldMenuOpen: (
+    entry: ListEntry,
+    anchor: { x: number; y: number; width: number; height: number }
+  ) => void;
   onLayout: (entryId: string, layout: RowLayout) => void;
   onOpenEntry: (entry: ListEntry) => void;
   onOpenEntryUrl: (entry: ListEntry) => Promise<void>;
@@ -2369,21 +2612,48 @@ function DraggableEntryRow({
   renderRightActions: (progress: RNAnimated.AnimatedInterpolation<number>) => ReactNode;
   renderEntryTags: (tags: string[]) => ReactNode;
 }) {
+  const contextTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMenuOpenRef = useRef(false);
+  const suppressNextPressRef = useRef(false);
+  const thumbnailAnchorRef = useRef<View | null>(null);
+  const rowMainAnchorRef = useRef<View | null>(null);
+
+  const clearContextTimer = useCallback(() => {
+    if (contextTimerRef.current) {
+      clearTimeout(contextTimerRef.current);
+      contextTimerRef.current = null;
+    }
+  }, []);
+
   const gesture = useMemo(
     () =>
       Gesture.Pan()
-        .activateAfterLongPress(220)
+        .runOnJS(true)
+        .activateAfterLongPress(HOLD_DRAG_DELAY_MS)
         .failOffsetX([-DRAG_SWIPE_FAIL_OFFSET_X, DRAG_SWIPE_FAIL_OFFSET_X])
         .onStart((event) => {
-          runOnJS(onDragStart)(entry.id, event.x, event.y, event.absoluteX, event.absoluteY);
+          clearContextTimer();
+          if (isMenuOpenRef.current) {
+            isMenuOpenRef.current = false;
+            onHoldMenuClose();
+          }
+          suppressNextPressRef.current = true;
+          onDragStart(entry.id, event.x, event.y, event.absoluteX, event.absoluteY);
         })
         .onUpdate((event) => {
-          runOnJS(onDragMove)(entry.id, event.translationX, event.translationY);
+          onDragMove(entry.id, event.translationX, event.translationY);
         })
         .onFinalize(() => {
-          runOnJS(onDragEnd)();
+          clearContextTimer();
+          isMenuOpenRef.current = false;
+          onDragEnd();
+          if (suppressNextPressRef.current) {
+            setTimeout(() => {
+              suppressNextPressRef.current = false;
+            }, 180);
+          }
         }),
-    [entry.id, onDragEnd, onDragMove, onDragStart]
+    [clearContextTimer, entry.id, onDragEnd, onDragMove, onDragStart, onHoldMenuClose]
   );
 
   return (
@@ -2413,7 +2683,30 @@ function DraggableEntryRow({
               hasToggle={hasToggle}
               isIos={isIos}
               supportsLiquidGlass={supportsLiquidGlass}
-              onOpenEntry={onOpenEntry}
+              onOpenEntry={(selectedEntry) => {
+                if (suppressNextPressRef.current) {
+                  suppressNextPressRef.current = false;
+                  return;
+                }
+                onOpenEntry(selectedEntry);
+              }}
+              thumbnailAnchorRef={thumbnailAnchorRef}
+              rowMainAnchorRef={rowMainAnchorRef}
+              onRowPressIn={(event) => {
+                clearContextTimer();
+                isMenuOpenRef.current = false;
+                contextTimerRef.current = setTimeout(() => {
+                  const anchorTarget = thumbnailAnchorRef.current ?? rowMainAnchorRef.current;
+                  anchorTarget?.measureInWindow((x, y, width, height) => {
+                    isMenuOpenRef.current = true;
+                    suppressNextPressRef.current = true;
+                    onHoldMenuOpen(entry, { x, y, width, height });
+                  });
+                }, HOLD_CONTEXT_DELAY_MS);
+              }}
+              onRowPressOut={() => {
+                clearContextTimer();
+              }}
               onOpenEntryUrl={onOpenEntryUrl}
               onToggleChecked={onToggleChecked}
               renderEntryTags={renderEntryTags}
@@ -2899,6 +3192,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 44,
     paddingHorizontal: 6,
+  },
+  rowTrailingActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 2,
+  },
+  rowChevron: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+    paddingLeft: 2,
+    paddingRight: 4,
   },
   rowTitle: { fontSize: 16, fontWeight: '600', lineHeight: 20 },
   hiddenRow: {

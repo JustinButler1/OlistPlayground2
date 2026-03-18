@@ -261,3 +261,73 @@ This implementation required several corrections because the first passes mixed 
 - Floating overlay, insertion line, haptics, and edge auto-scroll implemented
 - Performance improved by moving drag-time scroll values out of React state
 - This implementation should be reused as the reference pattern for future reorderable row lists
+
+## FlatList keyboard avoidance does not work with contentContainerStyle paddingBottom
+
+### Summary
+
+On the list detail screen, the "Add an item" composer text input at the bottom of the FlatList was not scrolling into view when the keyboard appeared. The composer was hidden behind the keyboard even though keyboard-avoidance code existed.
+
+### Affected area
+
+- [app/list/[id].tsx](/C:/Users/Justin/Development/Projects/OlistPlayground2/app/list/[id].tsx)
+
+### Symptoms
+
+- Tapping the "Add an item" input opened the keyboard, but the input remained hidden behind it.
+- The list scrolled a tiny amount (roughly one row height) but immediately bounced back.
+- Various JS-side scroll-to-end attempts all failed or partially failed.
+
+### What was tried and why it failed
+
+Three JS-side approaches were attempted before finding the correct fix:
+
+1. **`useEffect` watching `keyboardHeight` + `scrollToEnd` via `requestAnimationFrame`**
+   Scrolled a tiny bit but not nearly enough. `scrollToEnd` fired before the FlatList's native content size had been updated with the new `paddingBottom`, so the scroll target was based on the old (small) content size.
+
+2. **`useEffect` watching `keyboardHeight` + `scrollToEnd` via `setTimeout(150)`**
+   No visible change. Same underlying issue — the timeout was not long enough or reliable enough to wait for the native layout engine to process the new `paddingBottom` and update the scroll view's content size.
+
+3. **`onContentSizeChange` callback with a `pendingScrollToEndRef` flag + `scrollToOffset`**
+   Scrolled about one row height, then bounced back. `onContentSizeChange` fires multiple times with incrementally-updating heights as the layout engine processes the new padding. The first (partial) callback consumed the flag and scrolled to a small offset. By the time the final content size was reported, the flag was already consumed.
+
+### Root cause
+
+The FlatList sits inside a `flex: 1` View that does **not** shrink when the keyboard appears (there is no `KeyboardAvoidingView`). The approach was to add `keyboardHeight` to `contentContainerStyle.paddingBottom` to create extra scrollable space, then call `scrollToEnd` to scroll the composer into view.
+
+This failed because React Native's FlatList does not synchronously update its native scroll view `contentSize` when `contentContainerStyle.paddingBottom` changes via a JS re-render. The native layout update is asynchronous and may fire `onContentSizeChange` multiple times with intermediate values. Any JS-side scroll attempt — whether immediate, delayed, or callback-driven — races against this native layout pipeline and cannot reliably scroll to the correct offset.
+
+### Fix implemented
+
+Replaced the JS-side `paddingBottom` keyboard compensation with the native iOS `contentInset` prop on the FlatList.
+
+```tsx
+const keyboardContentInset = isIos && composerVisible && keyboardHeight > 0 ? keyboardHeight : 0;
+
+<FlatList
+  contentInset={{ bottom: keyboardContentInset }}
+  scrollIndicatorInsets={{ bottom: keyboardContentInset }}
+  ...
+/>
+```
+
+`contentInset` is a native `UIScrollView` property that expands the scrollable area without changing the content size. It is processed entirely on the native side with no JS timing dependency. `scrollToEnd` respects `contentInset` natively, so the existing `scrollComposerIntoView` calls now work correctly without any additional scroll logic.
+
+`keyboardHeight` was removed from `footerSpacerHeight` on iOS since `contentInset` handles that space natively. Android still includes `keyboardHeight` in `footerSpacerHeight` since `contentInset` is iOS-only.
+
+### What to avoid
+
+- Do not use `contentContainerStyle.paddingBottom` to compensate for keyboard height on iOS FlatLists. The native content size update is asynchronous and unreliable for scroll targeting.
+- Do not use `scrollToEnd` or `scrollToOffset` with JS-calculated offsets that depend on `contentContainerStyle` padding changes having been applied. The scroll view's native content size may not reflect the JS-side padding yet.
+- Do not use `onContentSizeChange` as a reliable signal that a specific padding change has been fully applied. It can fire multiple times with intermediate values.
+- Do not use `setTimeout` or `requestAnimationFrame` to work around native layout timing. The delay is unpredictable and platform-dependent.
+
+### Correct approach for keyboard avoidance in FlatList on iOS
+
+Use `contentInset={{ bottom: keyboardHeight }}` on the FlatList. This is the native `UIScrollView` mechanism for expanding scrollable area and is handled entirely by the native layout engine. Pair it with `scrollIndicatorInsets` so the scroll indicator also stops at the keyboard top. Then use `scrollToEnd` normally — it will respect the inset.
+
+### Current status
+
+- Keyboard avoidance working correctly on iOS using `contentInset`
+- Android path unchanged (still uses `paddingBottom` with `keyboardHeight`)
+- No additional JS scroll timing logic needed

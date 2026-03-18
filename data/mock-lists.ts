@@ -13,6 +13,7 @@ export type EntrySourceType =
   | 'custom';
 export type ListEntryType = EntrySourceType | 'game' | 'list';
 export type ListPreset = 'blank' | 'tracking';
+export type ListPrivacy = 'public' | 'private' | 'password';
 export type ListViewMode = 'list' | 'grid' | 'compare' | 'tier';
 export type ListSortMode = 'manual' | 'updated-desc' | 'title-asc' | 'rating-desc' | 'status';
 export type ListAddonId =
@@ -139,6 +140,7 @@ export interface TrackerList {
   imageUrl?: string;
   description?: string;
   tags: string[];
+  privacy?: ListPrivacy;
   preset: ListPreset;
   config: ListConfig;
   entries: ListEntry[];
@@ -193,6 +195,10 @@ export function createListPreferences(
   };
 }
 
+export function normalizeListPrivacy(value: unknown): ListPrivacy {
+  return value === 'private' || value === 'password' ? value : 'public';
+}
+
 export function hydrateListHierarchy(lists: TrackerList[]): TrackerList[] {
   const childListIdsByParent = new Map<string, string[]>();
 
@@ -208,6 +214,7 @@ export function hydrateListHierarchy(lists: TrackerList[]): TrackerList[] {
 
   return lists.map((list) => ({
     ...list,
+    privacy: normalizeListPrivacy(list.privacy),
     showInMyLists: list.showInMyLists ?? !list.parentListId,
     pinnedToProfile: list.pinnedToProfile ?? false,
     childListIds: childListIdsByParent.get(list.id) ?? [],
@@ -455,6 +462,7 @@ function createSeedList(
     imageUrl: options.imageUrl,
     description: options.description,
     tags: options.tags ? [...options.tags] : [],
+    privacy: normalizeListPrivacy(options.privacy),
     preset: options.preset ?? derivePresetFromConfig(config),
     config,
     entries,
@@ -630,6 +638,8 @@ export interface MockListsSeed {
   itemUserDataByKey: Record<string, ItemUserData>;
   recentSearches: string[];
   recentListIds: string[];
+  recentActivityListIds?: string[];
+  continueEntryIds?: string[];
 }
 
 function bookKeyToDetailPath(key: string): string {
@@ -1449,8 +1459,7 @@ export function createPowerUserMockSeed(): MockListsSeed {
     }
   );
 
-  return {
-    lists: [
+  const lists = [
       watchQueue,
       readingStack,
       wishlist,
@@ -1463,7 +1472,16 @@ export function createPowerUserMockSeed(): MockListsSeed {
       takeoutBTier,
       takeoutCTier,
       archivedReadingChallenge,
-    ],
+    ];
+  const continueEntryIds = lists
+    .flatMap((list) => list.entries)
+    .filter((entry) => !entry.archivedAt)
+    .sort((left, right) => right.updatedAt - left.updatedAt)
+    .slice(0, 6)
+    .map((entry) => entry.id);
+
+  return {
+    lists,
     deletedLists: [deletedGiftIdeas],
     savedTemplates: [
       {
@@ -1544,6 +1562,8 @@ export function createPowerUserMockSeed(): MockListsSeed {
     },
     recentSearches: ['frieren', 'atomic habits', 'mx master 3s', 'severance'],
     recentListIds: [watchQueueId, readingStackId, homeProjectsId, wishlistId, takeoutTierId],
+    recentActivityListIds: [watchQueueId, readingStackId, homeProjectsId, wishlistId, takeoutTierId],
+    continueEntryIds,
   };
 }
 

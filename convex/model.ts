@@ -37,6 +37,11 @@ export const entryProgressUnitValidator = v.union(
 );
 
 export const listPresetValidator = v.union(v.literal("blank"), v.literal("tracking"));
+export const listPrivacyValidator = v.union(
+  v.literal("public"),
+  v.literal("private"),
+  v.literal("password")
+);
 
 export const listViewModeValidator = v.union(
   v.literal("list"),

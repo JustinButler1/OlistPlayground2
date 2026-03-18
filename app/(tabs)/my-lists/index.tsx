@@ -3,14 +3,13 @@ import { BlurView } from 'expo-blur';
 import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
 import * as Haptics from 'expo-haptics';
 import { Stack, useRouter } from 'expo-router';
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, FlatList, Modal, Platform, Pressable, Animated as RNAnimated, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector, Swipeable } from 'react-native-gesture-handler';
 import Animated, {
   FadeIn,
   FadeOut,
   LinearTransition,
-  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withTiming
@@ -20,6 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TabRootBackground } from '@/components/tab-root-background';
 import { ThemedText } from '@/components/themed-text';
 import { ThumbnailImage } from '@/components/thumbnail-image';
+import { ContextActionPopover } from '@/components/tracker/context-action-popover';
 import { FilterSortControlRow } from '@/components/tracker/filter-sort-control-row';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
@@ -54,6 +54,8 @@ const AUTO_SCROLL_MAX_STEP = 18;
 const DRAG_LIFT_DURATION_MS = 5;
 const DRAG_RELEASE_DURATION_MS = 5;
 const DRAG_SWIPE_FAIL_OFFSET_X = 24;
+const HOLD_CONTEXT_DELAY_MS = 1_000;
+const HOLD_DRAG_DELAY_MS = 2_000;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -170,6 +172,10 @@ export default function MyListsScreen() {
   const [selectedListIds, setSelectedListIds] = useState<string[]>([]);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [optimisticListOrderIds, setOptimisticListOrderIds] = useState<string[] | null>(null);
+  const [contextMenuState, setContextMenuState] = useState<{
+    anchor: { x: number; y: number; width: number; height: number };
+    item: TrackerList;
+  } | null>(null);
   const flatListRef = useRef<FlatList<TrackerList> | null>(null);
   const listViewportRef = useRef<View | null>(null);
   const listViewportWidthRef = useRef(0);
@@ -567,6 +573,30 @@ export default function MyListsScreen() {
     ]);
   }, [updateList]);
 
+  const closeContextMenu = useCallback(() => {
+    setContextMenuState(null);
+  }, []);
+
+  const openContextMenu = useCallback((item: TrackerList, anchor: { x: number; y: number; width: number; height: number }) => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setContextMenuState({ item, anchor });
+  }, []);
+
+  const openMoveSheet = useCallback(
+    (item: TrackerList) => {
+      closeContextMenu();
+      router.push({
+        pathname: '/move-to-sheet',
+        params: {
+          mode: 'list',
+          listId: item.id,
+          itemTitle: item.title,
+        },
+      });
+    },
+    [closeContextMenu, router]
+  );
+
   const registerRowLayout = useCallback((listId: string, layout: RowLayout) => {
     rowLayoutsRef.current[listId] = layout;
   }, []);
@@ -615,6 +645,7 @@ export default function MyListsScreen() {
           rowWidth: activeLayout.width,
           maxLeft,
         };
+        setContextMenuState(null);
         setMenuVisible(null);
         const originalIndex = items.findIndex((candidate) => candidate.id === listId);
         lastDragTargetIndexRef.current = originalIndex;
@@ -1021,6 +1052,8 @@ export default function MyListsScreen() {
                     onDragEnd={finishRowDrag}
                     onDragMove={updateRowDrag}
                     onDragStart={startRowDrag}
+                    onHoldMenuClose={closeContextMenu}
+                    onHoldMenuOpen={openContextMenu}
                     onLayout={registerRowLayout}
                     onPress={() => openListDetail(item)}
                     renderLeftActions={(progress) => renderPinAction(progress, () => openPinDialog(item))}
@@ -1096,6 +1129,36 @@ export default function MyListsScreen() {
               </View>
             </Animated.View>
           ) : null}
+          <ContextActionPopover
+            actions={
+              contextMenuState
+                ? [
+                    {
+                      id: 'move',
+                      icon: 'list.bullet' as const,
+                      label: 'Move to',
+                      onPress: () => openMoveSheet(contextMenuState.item),
+                    },
+                    {
+                      id: 'pin',
+                      icon: 'pin.fill' as const,
+                      label: 'Pin',
+                      onPress: () => openPinDialog(contextMenuState.item),
+                    },
+                    {
+                      id: 'delete',
+                      destructive: true,
+                      icon: 'trash' as const,
+                      label: 'Delete',
+                      onPress: () => confirmDeleteList(contextMenuState.item),
+                    },
+                  ]
+                : []
+            }
+            anchor={contextMenuState?.anchor ?? null}
+            onClose={closeContextMenu}
+            visible={contextMenuState !== null}
+          />
         </View>
       </View>
 
@@ -1163,14 +1226,18 @@ function ListRowContent({
   colors,
   item,
   showChevron = true,
+  thumbnailAnchorRef,
 }: {
   colors: ThemeColors;
   item: TrackerList;
   showChevron?: boolean;
+  thumbnailAnchorRef?: RefObject<View | null>;
 }) {
   return (
     <>
-      <ThumbnailImage imageUrl={item.imageUrl} style={styles.resultPoster} />
+      <View ref={thumbnailAnchorRef} collapsable={false}>
+        <ThumbnailImage imageUrl={item.imageUrl} style={styles.resultPoster} />
+      </View>
       <View style={styles.resultInfo}>
         <ThemedText style={styles.resultTitle} numberOfLines={2}>
           {item.title}
@@ -1200,6 +1267,8 @@ function DraggableListRow({
   onDragEnd,
   onDragMove,
   onDragStart,
+  onHoldMenuClose,
+  onHoldMenuOpen,
   onLayout,
   onPress,
   renderLeftActions,
@@ -1217,26 +1286,57 @@ function DraggableListRow({
     absoluteX: number,
     absoluteY: number
   ) => void;
+  onHoldMenuClose: () => void;
+  onHoldMenuOpen: (
+    item: TrackerList,
+    anchor: { x: number; y: number; width: number; height: number }
+  ) => void;
   onLayout: (listId: string, layout: RowLayout) => void;
   onPress: () => void;
   renderLeftActions: (progress: RNAnimated.AnimatedInterpolation<number>) => ReactNode;
   renderRightActions: (progress: RNAnimated.AnimatedInterpolation<number>) => ReactNode;
 }) {
+  const contextTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMenuOpenRef = useRef(false);
+  const suppressNextPressRef = useRef(false);
+  const thumbnailAnchorRef = useRef<View | null>(null);
+
+  const clearContextTimer = useCallback(() => {
+    if (contextTimerRef.current) {
+      clearTimeout(contextTimerRef.current);
+      contextTimerRef.current = null;
+    }
+  }, []);
+
   const gesture = useMemo(
     () =>
       Gesture.Pan()
-        .activateAfterLongPress(220)
+        .runOnJS(true)
+        .activateAfterLongPress(HOLD_DRAG_DELAY_MS)
         .failOffsetX([-DRAG_SWIPE_FAIL_OFFSET_X, DRAG_SWIPE_FAIL_OFFSET_X])
         .onStart((event) => {
-          runOnJS(onDragStart)(item.id, event.x, event.y, event.absoluteX, event.absoluteY);
+          clearContextTimer();
+          if (isMenuOpenRef.current) {
+            isMenuOpenRef.current = false;
+            onHoldMenuClose();
+          }
+          suppressNextPressRef.current = true;
+          onDragStart(item.id, event.x, event.y, event.absoluteX, event.absoluteY);
         })
         .onUpdate((event) => {
-          runOnJS(onDragMove)(item.id, event.translationX, event.translationY);
+          onDragMove(item.id, event.translationX, event.translationY);
         })
         .onFinalize(() => {
-          runOnJS(onDragEnd)();
+          clearContextTimer();
+          isMenuOpenRef.current = false;
+          onDragEnd();
+          if (suppressNextPressRef.current) {
+            setTimeout(() => {
+              suppressNextPressRef.current = false;
+            }, 180);
+          }
         }),
-    [item.id, onDragEnd, onDragMove, onDragStart]
+    [clearContextTimer, item.id, onDragEnd, onDragMove, onDragStart, onHoldMenuClose]
   );
 
   return (
@@ -1263,10 +1363,30 @@ function DraggableListRow({
           renderRightActions={renderRightActions}
         >
           <Pressable
-            onPress={onPress}
+            onPressIn={(event) => {
+              clearContextTimer();
+              isMenuOpenRef.current = false;
+              contextTimerRef.current = setTimeout(() => {
+                thumbnailAnchorRef.current?.measureInWindow((x, y, width, height) => {
+                  isMenuOpenRef.current = true;
+                  suppressNextPressRef.current = true;
+                  onHoldMenuOpen(item, { x, y, width, height });
+                });
+              }, HOLD_CONTEXT_DELAY_MS);
+            }}
+            onPressOut={() => {
+              clearContextTimer();
+            }}
+            onPress={() => {
+              if (suppressNextPressRef.current) {
+                suppressNextPressRef.current = false;
+                return;
+              }
+              onPress();
+            }}
             style={({ pressed }) => [styles.resultRow, { opacity: pressed ? 0.82 : 1 }]}
           >
-            <ListRowContent colors={colors} item={item} />
+            <ListRowContent colors={colors} item={item} thumbnailAnchorRef={thumbnailAnchorRef} />
           </Pressable>
         </Swipeable>
       </Animated.View>

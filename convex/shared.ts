@@ -11,6 +11,7 @@ import {
   type ListConfig,
   type ListEntry,
   type ListFieldDefinition,
+  type ListPrivacy,
   type ListPreferences,
   type ListTemplate,
   type TrackerList,
@@ -56,6 +57,8 @@ export interface SnapshotPayload {
     slug: string;
     recentSearches: string[];
     recentListIds: string[];
+    recentActivityListIds: string[];
+    continueEntryIds: string[];
     createdAt: number;
     updatedAt: number;
     lastImportedAt?: number;
@@ -78,6 +81,8 @@ export interface SnapshotPayload {
     itemUserDataByKey: Record<string, ItemUserData>;
     recentSearches: string[];
     recentListIds: string[];
+    recentActivityListIds: string[];
+    continueEntryIds: string[];
   };
   isEmpty: boolean;
 }
@@ -96,6 +101,10 @@ export function createTemplateId(): string {
 
 export function touchRecentListIds(currentIds: string[], listId: string): string[] {
   return [listId, ...currentIds.filter((id) => id !== listId)].slice(0, 10);
+}
+
+export function touchContinueEntryIds(currentIds: string[], entryId: string): string[] {
+  return [entryId, ...currentIds.filter((id) => id !== entryId)].slice(0, 12);
 }
 
 export function normalizeTags(tags?: string[]): string[] {
@@ -278,6 +287,7 @@ export function isCurrentListRecord(value: any): value is {
   preferences: ListPreferences;
   pinned: boolean;
   pinnedToProfile?: boolean;
+  privacy?: ListPrivacy;
   createdAt: number;
   updatedAt: number;
   sortOrder?: number;
@@ -418,6 +428,8 @@ export async function ensureWorkspaceRecord(ctx: any) {
     slug: MAIN_WORKSPACE_SLUG,
     recentSearches: [],
     recentListIds: [],
+    recentActivityListIds: [],
+    continueEntryIds: [],
     createdAt: now,
     updatedAt: now,
   });
@@ -655,6 +667,8 @@ export async function importListStateIntoWorkspace(
     itemUserDataByKey: Record<string, ItemUserData>;
     recentSearches: string[];
     recentListIds: string[];
+    recentActivityListIds?: string[];
+    continueEntryIds?: string[];
   }
 ) {
   for (const existing of await ctx.db.query("listEntries").collect()) {
@@ -680,6 +694,7 @@ export async function importListStateIntoWorkspace(
         imageUrl: list.imageUrl,
         description: list.description,
         tags: normalizeTags(list.tags),
+        privacy: list.privacy ?? "public",
         preset: list.preset,
         config: createListConfig(list.config),
         preferences: sanitizeListPreferencesForConfig(
@@ -766,6 +781,8 @@ export async function importListStateIntoWorkspace(
   await replaceWorkspaceRecord(ctx, workspace, {
     recentSearches: state.recentSearches.slice(0, 8),
     recentListIds: state.recentListIds.slice(0, 10),
+    recentActivityListIds: (state.recentActivityListIds ?? []).slice(0, 10),
+    continueEntryIds: (state.continueEntryIds ?? []).slice(0, 12),
     updatedAt: Date.now(),
     lastImportedAt: Date.now(),
   });
@@ -780,6 +797,8 @@ export async function createMockWorkspaceState(ctx: any) {
     itemUserDataByKey: seed.itemUserDataByKey,
     recentSearches: seed.recentSearches,
     recentListIds: seed.recentListIds,
+    recentActivityListIds: seed.recentActivityListIds ?? seed.recentListIds,
+    continueEntryIds: seed.continueEntryIds ?? [],
   });
 }
 
@@ -877,6 +896,7 @@ export async function collectSnapshot(ctx: any): Promise<SnapshotPayload> {
         ),
         pinned: listDoc.pinned,
         pinnedToProfile: listDoc.pinnedToProfile ?? false,
+        privacy: listDoc.privacy ?? "public",
         createdAt: listDoc.createdAt,
         updatedAt: listDoc.updatedAt,
         sortOrder: listDoc.sortOrder,
@@ -950,6 +970,8 @@ export async function collectSnapshot(ctx: any): Promise<SnapshotPayload> {
       slug: workspace.slug,
       recentSearches: workspace.recentSearches,
       recentListIds: workspace.recentListIds,
+      recentActivityListIds: workspace.recentActivityListIds ?? [],
+      continueEntryIds: workspace.continueEntryIds ?? [],
       createdAt: workspace.createdAt,
       updatedAt: workspace.updatedAt,
       lastImportedAt: workspace.lastImportedAt,
@@ -972,6 +994,8 @@ export async function collectSnapshot(ctx: any): Promise<SnapshotPayload> {
       itemUserDataByKey,
       recentSearches: workspace.recentSearches,
       recentListIds: workspace.recentListIds,
+      recentActivityListIds: workspace.recentActivityListIds ?? [],
+      continueEntryIds: workspace.continueEntryIds ?? [],
     },
     isEmpty,
   };
@@ -1004,12 +1028,21 @@ export async function resequenceListEntries(ctx: any, listClientId: string, orde
 
 export async function updateWorkspaceListsMetadata(
   ctx: any,
-  updates: Partial<{ recentListIds: string[]; recentSearches: string[]; lastImportedAt: number }>
+  updates: Partial<{
+    recentListIds: string[];
+    recentSearches: string[];
+    recentActivityListIds: string[];
+    continueEntryIds: string[];
+    lastImportedAt: number;
+  }>
 ) {
   const workspace = await ensureWorkspaceRecord(ctx);
   await replaceWorkspaceRecord(ctx, workspace, {
     recentListIds: updates.recentListIds ?? workspace.recentListIds,
     recentSearches: updates.recentSearches ?? workspace.recentSearches,
+    recentActivityListIds:
+      updates.recentActivityListIds ?? workspace.recentActivityListIds ?? [],
+    continueEntryIds: updates.continueEntryIds ?? workspace.continueEntryIds ?? [],
     lastImportedAt: updates.lastImportedAt ?? workspace.lastImportedAt,
     updatedAt: Date.now(),
   });
@@ -1077,7 +1110,7 @@ export function buildListRecordFromTemplate(
   overrides?: Partial<
     Pick<
       TrackerList,
-      "title" | "description" | "imageUrl" | "pinned" | "pinnedToProfile" | "tags" | "showInMyLists" | "parentListId"
+      "title" | "description" | "imageUrl" | "pinned" | "pinnedToProfile" | "privacy" | "tags" | "showInMyLists" | "parentListId"
     >
   >
 ) {
@@ -1113,6 +1146,7 @@ export function buildListRecordFromTemplate(
       imageUrl: overrides?.imageUrl,
       description: overrides?.description?.trim() || template.description,
       tags: normalizeTags(overrides?.tags),
+      privacy: overrides?.privacy ?? "public",
       preset: template.preset,
       config: listConfig,
       entries,
@@ -1139,6 +1173,7 @@ export function createBlankListRecord(args: {
   imageUrl?: string;
   pinned?: boolean;
   pinnedToProfile?: boolean;
+  privacy?: ListPrivacy;
   templateId?: string;
   tags?: string[];
   showInMyLists?: boolean;
@@ -1164,6 +1199,7 @@ export function createBlankListRecord(args: {
     imageUrl: args.imageUrl,
     description: args.description?.trim() || undefined,
     tags: normalizeTags(args.tags),
+    privacy: args.privacy ?? "public",
     preset: args.preset ?? derivePresetFromConfig(listConfig),
     config: listConfig,
     entries: [],

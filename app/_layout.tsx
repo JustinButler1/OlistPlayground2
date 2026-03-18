@@ -77,11 +77,31 @@ export default function RootLayout() {
                     <Stack.Screen name="tv-movie/[type]/[id]" />
                     <Stack.Screen name="list/[id]" />
                     <Stack.Screen
+                      name="list-settings/[id]"
+                      options={{ title: 'List Settings' }}
+                    />
+                    <Stack.Screen
                       name="list-existing-sheet"
                       options={{
                         ...sheetOptions,
                         title: 'Existing List',
                         ...(isIos ? { sheetAllowedDetents: [0.55, 0.92] } : {}),
+                      }}
+                    />
+                    <Stack.Screen
+                      name="move-to-sheet"
+                      options={{
+                        ...sheetOptions,
+                        title: 'Move to',
+                        ...(isIos ? { sheetAllowedDetents: [0.55, 0.92] } : {}),
+                      }}
+                    />
+                    <Stack.Screen
+                      name="profile-sheet"
+                      options={{
+                        ...sheetOptions,
+                        title: 'Profile',
+                        ...(isIos ? { sheetAllowedDetents: [0.6, 0.94] } : {}),
                       }}
                     />
                     <Stack.Screen name="list-entry/[id]" />

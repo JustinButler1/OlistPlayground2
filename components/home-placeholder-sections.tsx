@@ -6,69 +6,20 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { ThumbnailImage } from '@/components/thumbnail-image';
 import { useListsQuery } from '@/contexts/lists-context';
+import type { TrackerList } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-
-const HOME_SECTIONS = [
-  {
-    title: 'Quick Access',
-    slug: 'quick-access',
-    items: [
-      'Watchlist',
-      'Reading queue',
-      'Wishlist',
-      'Import links',
-      'Favorites',
-      'Completed',
-      'Top picks',
-      'For later',
-    ],
-  },
-  {
-    title: 'Recent activity',
-    slug: 'recent-activity',
-    items: ['Dune: Part Two', 'Blue Lock Vol. 1', 'Cozy Games', 'Movie watchlist'],
-  },
-  {
-    title: 'People you follow',
-    slug: 'people-you-follow',
-    items: ['Maya Chen', 'Jordan Park', 'Avery Brooks', 'Theo James'],
-  },
-  {
-    title: 'Continue',
-    slug: 'continue',
-    items: ['Blue Eye Samurai', 'Project Hail Mary', 'Hades II', 'Frieren'],
-  },
-  {
-    title: 'For you',
-    slug: 'for-you',
-    items: [
-      'Weekend comfort picks',
-      'Prestige sci-fi',
-      'Low-commitment reads',
-      'Late-night anime',
-      'Cozy co-op games',
-      'Award-season movies',
-    ],
-  },
-] as const;
+import { getListStats } from '@/lib/tracker-selectors';
 
 const SECTION_HORIZONTAL_PADDING = 20;
 const CARD_GAP = 14;
 const QUICK_ACCESS_PEEK = 48;
 
-type QuickAccessItem =
-  | {
-      key: string;
-      kind: 'placeholder';
-      title: string;
-    }
-  | {
-      key: string;
-      kind: 'list';
-      title: string;
-      imageUrl?: string;
-      listId: string;
-    };
+type QuickAccessItem = {
+  key: string;
+  title: string;
+  imageUrl?: string;
+  listId: string;
+};
 
 function chunkItems<T>(items: readonly T[], size: number) {
   const chunks: T[][] = [];
@@ -80,12 +31,49 @@ function chunkItems<T>(items: readonly T[], size: number) {
   return chunks;
 }
 
+function formatListActivityLabel(list: TrackerList): string {
+  const stats = getListStats(list);
+
+  if (stats.active > 0) {
+    return `${stats.active} active`;
+  }
+  if (stats.planned > 0) {
+    return `${stats.planned} planned`;
+  }
+  if (stats.completed > 0) {
+    return `${stats.completed} completed`;
+  }
+
+  return `${stats.total} items`;
+}
+
+function formatContinueLabel(entry: {
+  status?: string;
+  notes?: string;
+  progress?: { current?: number; total?: number; unit: string };
+}) {
+  if (entry.progress?.current !== undefined && entry.progress.total !== undefined) {
+    return `${entry.progress.current}/${entry.progress.total}`;
+  }
+  if (entry.progress?.current !== undefined) {
+    return `${entry.progress.current}`;
+  }
+  if (entry.status) {
+    return entry.status;
+  }
+  if (entry.notes?.trim()) {
+    return 'Notes updated';
+  }
+
+  return 'Continue entry';
+}
+
 export function HomePlaceholderSections() {
   const router = useRouter();
   const colorScheme = useColorScheme();
-  const { pinnedLists } = useListsQuery();
   const isDark = colorScheme === 'dark';
   const { width: windowWidth } = useWindowDimensions();
+  const { pinnedLists, recentActivity, continueEntries } = useListsQuery();
   const quickAccessCardSize = Math.max(
     72,
     Math.floor(
@@ -93,136 +81,233 @@ export function HomePlaceholderSections() {
     )
   );
   const quickAccessItems = useMemo<QuickAccessItem[]>(
-    () => [
-      ...pinnedLists.map((list) => ({
+    () =>
+      pinnedLists.map((list) => ({
         key: `list-${list.id}`,
-        kind: 'list' as const,
         title: list.title,
         imageUrl: list.imageUrl,
         listId: list.id,
       })),
-      ...HOME_SECTIONS[0].items.map((item) => ({
-        key: `placeholder-${item}`,
-        kind: 'placeholder' as const,
-        title: item,
-      })),
-    ],
     [pinnedLists]
   );
   const quickAccessColumns = chunkItems(quickAccessItems, 2);
 
   return (
     <View style={styles.sectionStack}>
-      {HOME_SECTIONS.map((section) => (
-        <View key={section.slug} style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionHeaderContent}>
-              <ThemedText selectable type="subtitle" style={styles.sectionTitle}>
-                {section.title}
-              </ThemedText>
-            </View>
-          </View>
-          {section.slug === 'quick-access' ? (
-            <ScrollView
-              horizontal
-              style={styles.rowViewport}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.quickAccessContent}
-            >
-              {quickAccessColumns.map((columnItems, columnIndex) => (
-                <View
-                  key={`quick-access-column-${columnIndex}`}
-                  style={[styles.quickAccessColumn, { width: quickAccessCardSize }]}
-                >
-                  {columnItems.map((item) => {
-                    const content = (
-                      <View style={[styles.quickAccessItem, { width: quickAccessCardSize }]}>
-                        <ThemedView
-                          style={[
-                            styles.quickAccessCard,
-                            {
-                              backgroundColor: isDark
-                                ? 'rgba(7, 22, 44, 0.78)'
-                                : 'rgba(255, 255, 255, 0.78)',
-                            },
-                          ]}
-                        >
-                          <ThumbnailImage
-                            imageUrl={item.kind === 'list' ? item.imageUrl : undefined}
-                            style={[styles.quickAccessThumbnail, { width: quickAccessCardSize }]}
-                          />
-                        </ThemedView>
-                        <ThemedText
-                          selectable
-                          numberOfLines={1}
-                          ellipsizeMode="tail"
-                          lightColor="rgba(26, 94, 133, 0.82)"
-                          darkColor="rgba(159, 180, 202, 0.9)"
-                          style={styles.quickAccessTitle}
-                        >
-                          {item.title}
-                        </ThemedText>
-                      </View>
-                    );
-
-                    if (item.kind === 'list') {
-                      return (
-                        <Pressable
-                          key={item.key}
-                          accessibilityLabel={`Open ${item.title} from Quick Access`}
-                          accessibilityRole="button"
-                          onPress={() =>
-                            router.push({
-                              pathname: '/list/[id]',
-                              params: { id: item.listId, title: item.title },
-                            })
-                          }
-                          style={({ pressed }) => [
-                            styles.quickAccessCardShell,
-                            { opacity: pressed ? 0.84 : 1 },
-                          ]}
-                        >
-                          {content}
-                        </Pressable>
-                      );
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <ThemedText selectable type="subtitle" style={styles.sectionTitle}>
+            Quick Access
+          </ThemedText>
+        </View>
+        {quickAccessColumns.length > 0 ? (
+          <ScrollView
+            horizontal
+            style={styles.rowViewport}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.quickAccessContent}
+          >
+            {quickAccessColumns.map((columnItems, columnIndex) => (
+              <View
+                key={`quick-access-column-${columnIndex}`}
+                style={[styles.quickAccessColumn, { width: quickAccessCardSize }]}
+              >
+                {columnItems.map((item) => (
+                  <Pressable
+                    key={item.key}
+                    accessibilityLabel={`Open ${item.title} from Quick Access`}
+                    accessibilityRole="button"
+                    onPress={() =>
+                      router.push({
+                        pathname: '/list/[id]',
+                        params: { id: item.listId, title: item.title },
+                      })
                     }
-
-                    return (
-                      <View key={item.key} style={styles.quickAccessCardShell}>
-                        {content}
-                      </View>
-                    );
-                  })}
-                </View>
-              ))}
-            </ScrollView>
-          ) : (
-            <ScrollView
-              horizontal
-              style={styles.rowViewport}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.rowContent}
-            >
-              {section.items.slice(0, 6).map((item) => (
-                <View key={item} style={styles.cardShell}>
-                  <ThemedView
-                    style={[
-                      styles.card,
-                      {
-                        backgroundColor: isDark
-                          ? 'rgba(7, 22, 44, 0.72)'
-                          : 'rgba(255, 255, 255, 0.72)',
-                      },
+                    style={({ pressed }) => [
+                      styles.quickAccessCardShell,
+                      { opacity: pressed ? 0.84 : 1 },
                     ]}
                   >
-                    <ThumbnailImage style={styles.thumbnail} />
-                  </ThemedView>
-                </View>
-              ))}
-            </ScrollView>
-          )}
+                    <View style={[styles.quickAccessItem, { width: quickAccessCardSize }]}>
+                      <ThemedView
+                        style={[
+                          styles.quickAccessCard,
+                          {
+                            backgroundColor: isDark
+                              ? 'rgba(7, 22, 44, 0.78)'
+                              : 'rgba(255, 255, 255, 0.78)',
+                          },
+                        ]}
+                      >
+                        <ThumbnailImage
+                          imageUrl={item.imageUrl}
+                          style={[styles.quickAccessThumbnail, { width: quickAccessCardSize }]}
+                        />
+                      </ThemedView>
+                      <ThemedText
+                        selectable
+                        numberOfLines={1}
+                        ellipsizeMode="tail"
+                        lightColor="rgba(26, 94, 133, 0.82)"
+                        darkColor="rgba(159, 180, 202, 0.9)"
+                        style={styles.quickAccessTitle}
+                      >
+                        {item.title}
+                      </ThemedText>
+                    </View>
+                  </Pressable>
+                ))}
+              </View>
+            ))}
+          </ScrollView>
+        ) : (
+          <ThemedView
+            style={[
+              styles.emptyCard,
+              {
+                backgroundColor: isDark ? 'rgba(7, 22, 44, 0.72)' : 'rgba(255, 255, 255, 0.72)',
+              },
+            ]}
+          >
+            <ThemedText selectable style={styles.emptyCopy}>
+              Pin a list to keep it here.
+            </ThemedText>
+          </ThemedView>
+        )}
+      </View>
+
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <ThemedText selectable type="subtitle" style={styles.sectionTitle}>
+            Recent Activity
+          </ThemedText>
         </View>
-      ))}
+        {recentActivity.length > 0 ? (
+          <ScrollView
+            horizontal
+            style={styles.rowViewport}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.rowContent}
+          >
+            {recentActivity.map((list) => (
+              <Pressable
+                key={list.id}
+                accessibilityLabel={`Open ${list.title} from Recent Activity`}
+                accessibilityRole="button"
+                onPress={() =>
+                  router.push({
+                    pathname: '/list/[id]',
+                    params: { id: list.id, title: list.title },
+                  })
+                }
+                style={({ pressed }) => [styles.cardShell, { opacity: pressed ? 0.84 : 1 }]}
+              >
+                <ThemedView
+                  style={[
+                    styles.card,
+                    {
+                      backgroundColor: isDark
+                        ? 'rgba(7, 22, 44, 0.72)'
+                        : 'rgba(255, 255, 255, 0.72)',
+                    },
+                  ]}
+                >
+                  <ThumbnailImage imageUrl={list.imageUrl} style={styles.thumbnail} />
+                  <View style={styles.cardCopy}>
+                    <ThemedText selectable numberOfLines={2} type="defaultSemiBold">
+                      {list.title}
+                    </ThemedText>
+                    <ThemedText selectable style={styles.metaText}>
+                      {formatListActivityLabel(list)}
+                    </ThemedText>
+                  </View>
+                </ThemedView>
+              </Pressable>
+            ))}
+          </ScrollView>
+        ) : (
+          <ThemedView
+            style={[
+              styles.emptyCard,
+              {
+                backgroundColor: isDark ? 'rgba(7, 22, 44, 0.72)' : 'rgba(255, 255, 255, 0.72)',
+              },
+            ]}
+          >
+            <ThemedText selectable style={styles.emptyCopy}>
+              Edit a list and it will appear here.
+            </ThemedText>
+          </ThemedView>
+        )}
+      </View>
+
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <ThemedText selectable type="subtitle" style={styles.sectionTitle}>
+            Continue
+          </ThemedText>
+        </View>
+        {continueEntries.length > 0 ? (
+          <ScrollView
+            horizontal
+            style={styles.rowViewport}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.rowContent}
+          >
+            {continueEntries.map(({ entry, list }) => (
+              <Pressable
+                key={entry.id}
+                accessibilityLabel={`Continue ${entry.title}`}
+                accessibilityRole="button"
+                onPress={() =>
+                  router.push({
+                    pathname: '/list-entry/[id]',
+                    params: { id: entry.id },
+                  })
+                }
+                style={({ pressed }) => [styles.cardShell, { opacity: pressed ? 0.84 : 1 }]}
+              >
+                <ThemedView
+                  style={[
+                    styles.card,
+                    {
+                      backgroundColor: isDark
+                        ? 'rgba(7, 22, 44, 0.72)'
+                        : 'rgba(255, 255, 255, 0.72)',
+                    },
+                  ]}
+                >
+                  <ThumbnailImage imageUrl={entry.imageUrl} style={styles.thumbnail} />
+                  <View style={styles.cardCopy}>
+                    <ThemedText selectable numberOfLines={2} type="defaultSemiBold">
+                      {entry.title}
+                    </ThemedText>
+                    <ThemedText selectable numberOfLines={1} style={styles.metaText}>
+                      {list.title}
+                    </ThemedText>
+                    <ThemedText selectable numberOfLines={1} style={styles.metaText}>
+                      {formatContinueLabel(entry)}
+                    </ThemedText>
+                  </View>
+                </ThemedView>
+              </Pressable>
+            ))}
+          </ScrollView>
+        ) : (
+          <ThemedView
+            style={[
+              styles.emptyCard,
+              {
+                backgroundColor: isDark ? 'rgba(7, 22, 44, 0.72)' : 'rgba(255, 255, 255, 0.72)',
+              },
+            ]}
+          >
+            <ThemedText selectable style={styles.emptyCopy}>
+              Update entry notes, progress, or status to keep working from here.
+            </ThemedText>
+          </ThemedView>
+        )}
+      </View>
     </View>
   );
 }
@@ -236,11 +321,6 @@ const styles = StyleSheet.create({
   },
   sectionHeader: {
     alignItems: 'flex-start',
-  },
-  sectionHeaderContent: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 4,
   },
   sectionTitle: {
     fontSize: 22,
@@ -287,7 +367,7 @@ const styles = StyleSheet.create({
   cardShell: {
     borderRadius: 22,
     boxShadow: '0 12px 28px rgba(7, 22, 44, 0.12)',
-    width: 148,
+    width: 168,
   },
   card: {
     borderCurve: 'continuous',
@@ -295,7 +375,25 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   thumbnail: {
-    aspectRatio: 0.72,
+    aspectRatio: 0.78,
     width: '100%',
+  },
+  cardCopy: {
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  metaText: {
+    fontSize: 12,
+    opacity: 0.68,
+  },
+  emptyCard: {
+    borderCurve: 'continuous',
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    paddingVertical: 18,
+  },
+  emptyCopy: {
+    opacity: 0.72,
   },
 });

@@ -83,6 +83,8 @@ function createBaseListsState(): ListsState {
     ),
     recentSearches: [...seed.recentSearches],
     recentListIds: [...seed.recentListIds],
+    recentActivityListIds: [...(seed.recentActivityListIds ?? seed.recentListIds)],
+    continueEntryIds: [...(seed.continueEntryIds ?? [])],
     reminderNotificationIds: {},
   };
 }
@@ -185,6 +187,7 @@ function createCreatorLabSeed(): MockTestAccountSeed {
     'list-mock-reading-stack',
     'list-mock-takeout-tier',
   ];
+  listsState.recentActivityListIds = [...listsState.recentListIds];
 
   return {
     onboardingState: {
@@ -296,6 +299,7 @@ function createWeekendResetSeed(): MockTestAccountSeed {
     'list-mock-wishlist',
     'list-mock-pantry-reset',
   ];
+  listsState.recentActivityListIds = [...listsState.recentListIds];
 
   return {
     onboardingState: {

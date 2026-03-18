@@ -248,8 +248,12 @@ function normalizeItemUserData(item: ItemUserData): ItemUserData {
 }
 
 export function createPowerUserMockSeedFromJson(): MockListsSeed {
+  const lists = hydrateListHierarchy(rawSeed.lists.map(normalizeList));
+  const continueEntryIds = (rawSeed.continueEntryIds ?? [])
+    .filter((entryId) => typeof entryId === 'string');
+
   return {
-    lists: hydrateListHierarchy(rawSeed.lists.map(normalizeList)),
+    lists,
     deletedLists: hydrateListHierarchy(rawSeed.deletedLists.map(normalizeList)),
     savedTemplates: rawSeed.savedTemplates.map(normalizeTemplate),
     itemUserDataByKey: Object.fromEntries(
@@ -260,5 +264,15 @@ export function createPowerUserMockSeedFromJson(): MockListsSeed {
     ),
     recentSearches: [...rawSeed.recentSearches],
     recentListIds: [...rawSeed.recentListIds],
+    recentActivityListIds: [...(rawSeed.recentActivityListIds ?? rawSeed.recentListIds)],
+    continueEntryIds:
+      continueEntryIds.length > 0
+        ? continueEntryIds
+        : lists
+            .flatMap((list) => list.entries)
+            .filter((entry) => !entry.archivedAt)
+            .sort((left, right) => right.updatedAt - left.updatedAt)
+            .slice(0, 6)
+            .map((entry) => entry.id),
   };
 }

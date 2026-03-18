@@ -142,7 +142,7 @@ export function ItemUserDataPanel({
 }: ItemUserDataPanelProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const { itemUserData, setItemUserData } = useItemUserData(itemKey);
+  const { itemUserData, setItemUserData } = useItemUserData(itemKey, statusConfig?.entryId);
   const [draft, setDraft] = useState<ItemUserData>(() => cloneItemUserData(itemUserData));
   const lastPersistedSignatureRef = useRef(getItemUserDataSignature(itemUserData));
 
@@ -188,6 +188,7 @@ export function ItemUserDataPanel({
       pathname: '/progress-sheet',
       params: {
         itemKey,
+        ...(statusConfig?.entryId ? { entryId: statusConfig.entryId } : {}),
         label: progressConfig.label ?? effectiveProgress?.label ?? 'Progress',
         unit: progressConfig.unit,
         ...(progressTotal !== undefined ? { total: String(progressTotal) } : {}),
@@ -198,7 +199,10 @@ export function ItemUserDataPanel({
   const openRatingSheet = () => {
     router.push({
       pathname: '/rating-sheet',
-      params: { itemKey },
+      params: {
+        itemKey,
+        ...(statusConfig?.entryId ? { entryId: statusConfig.entryId } : {}),
+      },
     });
   };
 

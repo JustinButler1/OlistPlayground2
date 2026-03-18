@@ -1,56 +1,57 @@
 import { Link } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
+import { ExplorePublicListCard } from '@/components/explore-public-list-card';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { ThumbnailImage } from '@/components/thumbnail-image';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { MOCK_EXPLORE_SECTIONS } from '@/data/mock-explore-sections';
+import { useExplorePublicLists } from '@/hooks/use-explore-public-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export function ExplorePlaceholderSections() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
+  const { sections } = useExplorePublicLists();
+
+  if (!sections.length) {
+    return (
+      <View style={styles.emptyState}>
+        <ThemedText selectable style={styles.emptyText}>
+          Public lists will appear here once the seeded accounts finish loading.
+        </ThemedText>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.sectionStack}>
-      {MOCK_EXPLORE_SECTIONS.map((section) => {
-        const hasDetailPage = section.items.length > 6;
-        const previewItems = section.items.slice(0, 6);
+      {sections.map((section) => {
+        const previewItems = section.items.slice(0, 8);
 
         const sectionHeaderContent = (
           <View style={styles.sectionHeaderContent}>
             <ThemedText type="subtitle" style={styles.sectionTitle}>
               {section.title}
             </ThemedText>
-            {hasDetailPage ? (
-              <IconSymbol
-                name="chevron.right"
-                size={18}
-                color={isDark ? 'rgba(255,255,255,0.72)' : 'rgba(7,22,44,0.64)'}
-              />
-            ) : null}
+            <IconSymbol
+              name="chevron.right"
+              size={18}
+              color={isDark ? 'rgba(255,255,255,0.72)' : 'rgba(7,22,44,0.64)'}
+            />
           </View>
         );
 
         return (
           <View key={section.slug} style={styles.section}>
             <View style={styles.sectionHeader}>
-              {hasDetailPage ? (
-                <Link
-                  href={{
-                    pathname: '/explore/[sectionSlug]',
-                    params: { sectionSlug: section.slug },
-                  }}
-                  asChild
-                >
-                  <Pressable style={styles.sectionHeaderPressable}>
-                    {sectionHeaderContent}
-                  </Pressable>
-                </Link>
-              ) : (
-                sectionHeaderContent
-              )}
+              <Link
+                href={{
+                  pathname: '/explore/[sectionSlug]',
+                  params: { sectionSlug: section.slug },
+                }}
+                asChild
+              >
+                <Pressable style={styles.sectionHeaderPressable}>{sectionHeaderContent}</Pressable>
+              </Link>
             </View>
             <ScrollView
               horizontal
@@ -59,20 +60,7 @@ export function ExplorePlaceholderSections() {
               contentContainerStyle={styles.rowContent}
             >
               {previewItems.map((item) => (
-                <View key={item} style={styles.cardShell}>
-                  <ThemedView
-                    style={[
-                      styles.card,
-                      {
-                        backgroundColor: isDark
-                          ? 'rgba(7, 22, 44, 0.72)'
-                          : 'rgba(255, 255, 255, 0.72)',
-                      },
-                    ]}
-                  >
-                    <ThumbnailImage style={styles.thumbnail} />
-                  </ThemedView>
-                </View>
+                <ExplorePublicListCard key={item.id} item={item} />
               ))}
             </ScrollView>
           </View>
@@ -113,18 +101,11 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     overflow: 'visible',
   },
-  cardShell: {
-    borderRadius: 22,
-    boxShadow: '0 12px 28px rgba(7, 22, 44, 0.12)',
-    width: 148,
+  emptyState: {
+    paddingVertical: 18,
   },
-  card: {
-    borderCurve: 'continuous',
-    borderRadius: 22,
-    overflow: 'hidden',
-  },
-  thumbnail: {
-    aspectRatio: 0.72,
-    width: '100%',
+  emptyText: {
+    fontSize: 15,
+    lineHeight: 22,
   },
 });

@@ -30,6 +30,7 @@ import type { TrackerList } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { buildSeededDetailHref } from '@/lib/detail-navigation';
+import { isPublicExploreList } from '@/lib/explore-public-lists';
 import { apiQueryKeys } from '@/services/api-query-keys';
 import {
   searchCatalog,
@@ -309,6 +310,10 @@ export default function ExploreScreen() {
     () => activeLists.filter((list) => !list.archivedAt),
     [activeLists]
   );
+  const publicExploreLists = useMemo(
+    () => visibleLists.filter(isPublicExploreList),
+    [visibleLists]
+  );
 
   const sortOptions = SEARCH_SORT_OPTIONS[mediaScope];
   const selectedScopeLabel =
@@ -354,9 +359,9 @@ export default function ExploreScreen() {
   const localListResults = useMemo(
     () =>
       trimmedQuery && (mediaScope === 'all-media' || mediaScope === 'list')
-        ? searchListsLocally(visibleLists, trimmedQuery)
+        ? searchListsLocally(publicExploreLists, trimmedQuery)
         : [],
-    [mediaScope, trimmedQuery, visibleLists]
+    [mediaScope, publicExploreLists, trimmedQuery]
   );
 
   const results = useMemo(
@@ -410,8 +415,8 @@ export default function ExploreScreen() {
     () =>
       sortId === 'relevance'
         ? sortCatalogSearchItemsByRelevance(results)
-        : sortSearchResults(results, sortId, visibleLists),
-    [results, sortId, visibleLists]
+        : sortSearchResults(results, sortId, publicExploreLists),
+    [publicExploreLists, results, sortId]
   );
 
   function openSelectionMenu(config: SelectionMenuState) {

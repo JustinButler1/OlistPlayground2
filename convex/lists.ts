@@ -38,6 +38,7 @@ import {
   replaceListRecord,
   resequenceListEntries,
   resolveStorageUrl,
+  touchContinueEntryIds,
   touchRecentListIds,
   updateWorkspaceListsMetadata,
 } from "./shared";
@@ -49,6 +50,7 @@ async function insertListWithEntries(ctx: any, list: any) {
     imageUrl: list.imageUrl,
     description: list.description,
     tags: list.tags,
+    privacy: list.privacy ?? "public",
     preset: list.preset,
     config: list.config,
     preferences: list.preferences,
@@ -131,6 +133,25 @@ async function detachLinkedListFromParentIfUnlinked(
   });
 }
 
+async function listReferencesTarget(
+  ctx: any,
+  listId: string,
+  targetListId: string | undefined
+) {
+  let pointer = targetListId;
+
+  while (pointer) {
+    if (pointer === listId) {
+      return true;
+    }
+
+    const parent = await getListRecordByClientId(ctx, pointer);
+    pointer = parent?.parentListId;
+  }
+
+  return false;
+}
+
 export const createList = mutation({
   args: {
     title: v.string(),
@@ -175,6 +196,7 @@ export const createList = mutation({
     const workspace = await ensureWorkspaceRecord(ctx);
     await updateWorkspaceListsMetadata(ctx, {
       recentListIds: touchRecentListIds(workspace.recentListIds, list.id),
+      recentActivityListIds: touchRecentListIds(workspace.recentActivityListIds ?? [], list.id),
     });
 
     return list.id;
@@ -230,6 +252,7 @@ export const createListFromTemplate = mutation({
     const workspace = await ensureWorkspaceRecord(ctx);
     await updateWorkspaceListsMetadata(ctx, {
       recentListIds: touchRecentListIds(workspace.recentListIds, list.id),
+      recentActivityListIds: touchRecentListIds(workspace.recentActivityListIds ?? [], list.id),
     });
     return list.id;
   },
@@ -261,6 +284,10 @@ export const updateList = mutation({
         typeof args.updates?.pinnedToProfile === "boolean"
           ? args.updates.pinnedToProfile
           : (list.pinnedToProfile ?? false),
+      privacy:
+        "privacy" in (args.updates ?? {})
+          ? args.updates.privacy ?? "public"
+          : (list.privacy ?? "public"),
       config: nextConfig,
       preset: derivePresetFromConfig(nextConfig),
       preferences: sanitizeListPreferencesForConfig(
@@ -280,6 +307,11 @@ export const updateList = mutation({
           : list.parentListId,
       updatedAt: Date.now(),
     });
+
+    const workspace = await ensureWorkspaceRecord(ctx);
+    await updateWorkspaceListsMetadata(ctx, {
+      recentActivityListIds: touchRecentListIds(workspace.recentActivityListIds ?? [], args.listId),
+    });
   },
 });
 
@@ -295,6 +327,11 @@ export const archiveList = mutation({
       archivedAt: Date.now(),
       updatedAt: Date.now(),
     });
+
+    const workspace = await ensureWorkspaceRecord(ctx);
+    await updateWorkspaceListsMetadata(ctx, {
+      recentActivityListIds: touchRecentListIds(workspace.recentActivityListIds ?? [], args.listId),
+    });
   },
 });
 
@@ -309,6 +346,11 @@ export const restoreArchivedList = mutation({
     await replaceListRecord(ctx, list, {
       archivedAt: undefined,
       updatedAt: Date.now(),
+    });
+
+    const workspace = await ensureWorkspaceRecord(ctx);
+    await updateWorkspaceListsMetadata(ctx, {
+      recentActivityListIds: touchRecentListIds(workspace.recentActivityListIds ?? [], args.listId),
     });
   },
 });
@@ -329,6 +371,9 @@ export const deleteList = mutation({
     const workspace = await ensureWorkspaceRecord(ctx);
     await updateWorkspaceListsMetadata(ctx, {
       recentListIds: workspace.recentListIds.filter((id: string) => id !== args.listId),
+      recentActivityListIds: (workspace.recentActivityListIds ?? []).filter(
+        (id: string) => id !== args.listId
+      ),
     });
   },
 });
@@ -349,6 +394,100 @@ export const restoreList = mutation({
     const workspace = await ensureWorkspaceRecord(ctx);
     await updateWorkspaceListsMetadata(ctx, {
       recentListIds: touchRecentListIds(workspace.recentListIds, args.listId),
+      recentActivityListIds: touchRecentListIds(
+        workspace.recentActivityListIds ?? [],
+        args.listId
+      ),
+    });
+  },
+});
+
+export const moveList = mutation({
+  args: {
+    listId: v.string(),
+    targetListId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (args.listId === args.targetListId) {
+      return;
+    }
+
+    const list = await getListRecordByClientId(ctx, args.listId);
+    const targetList = await getListRecordByClientId(ctx, args.targetListId);
+    if (!list || !targetList || list.deletedAt || targetList.deletedAt) {
+      return;
+    }
+
+    if (
+      list.parentListId === args.targetListId ||
+      (await listReferencesTarget(ctx, args.listId, args.targetListId))
+    ) {
+      return;
+    }
+
+    const timestamp = Date.now();
+    const previousParentListId = list.parentListId;
+
+    if (previousParentListId && previousParentListId !== args.targetListId) {
+      const previousParentEntries = await getEntriesForList(ctx, previousParentListId);
+      const placeholderEntry = previousParentEntries.find(
+        (entry) =>
+          entry.linkedListId === args.listId || entry.detailPath === `list/${args.listId}`
+      );
+
+      if (placeholderEntry) {
+        await ctx.db.delete(placeholderEntry._id);
+        await resequenceListEntries(
+          ctx,
+          previousParentListId,
+          previousParentEntries
+            .filter((entry) => entry.clientId !== placeholderEntry.clientId)
+            .map((entry) => entry.clientId)
+        );
+      }
+
+      const previousParentList = await getListRecordByClientId(ctx, previousParentListId);
+      if (previousParentList) {
+        await replaceListRecord(ctx, previousParentList, {
+          updatedAt: timestamp,
+        });
+      }
+    }
+
+    const targetEntries = await getEntriesForList(ctx, args.targetListId);
+    const targetAlreadyLinksList = targetEntries.some(
+      (entry) => entry.linkedListId === args.listId || entry.detailPath === `list/${args.listId}`
+    );
+    if (!targetAlreadyLinksList) {
+      await ctx.db.insert(
+        "listEntries",
+        buildEntryInsert(
+          createLinkedListEntry(list.title, args.listId),
+          args.targetListId,
+          nextAppendSortOrder(targetEntries)
+        )
+      );
+    }
+
+    await replaceListRecord(ctx, list, {
+      parentListId: args.targetListId,
+      showInMyLists: false,
+      updatedAt: timestamp,
+    });
+    await replaceListRecord(ctx, targetList, {
+      updatedAt: timestamp,
+    });
+
+    const workspace = await ensureWorkspaceRecord(ctx);
+    await updateWorkspaceListsMetadata(ctx, {
+      recentListIds: touchRecentListIds(
+        touchRecentListIds(workspace.recentListIds, args.targetListId),
+        args.listId
+      ),
+      recentActivityListIds: [previousParentListId, args.targetListId, args.listId].reduce(
+        (ids, currentListId) => (currentListId ? touchRecentListIds(ids, currentListId) : ids),
+        workspace.recentActivityListIds ?? []
+      ),
     });
   },
 });
@@ -368,6 +507,11 @@ export const setListPreferences = mutation({
       preferences: mergeListPreferences(list.preferences, list.config, args.updates ?? {}),
       updatedAt: Date.now(),
     });
+
+    const workspace = await ensureWorkspaceRecord(ctx);
+    await updateWorkspaceListsMetadata(ctx, {
+      recentActivityListIds: touchRecentListIds(workspace.recentActivityListIds ?? [], args.listId),
+    });
   },
 });
 
@@ -380,6 +524,8 @@ export const reorderLists = mutation({
       return;
     }
 
+    const timestamp = Date.now();
+
     for (const [index, listId] of args.orderedListIds.entries()) {
       const list = await getListRecordByClientId(ctx, listId);
       if (!list || list.deletedAt) {
@@ -388,8 +534,17 @@ export const reorderLists = mutation({
 
       await replaceListRecord(ctx, list, {
         sortOrder: (index + 1) * LIST_SORT_STEP,
+        updatedAt: timestamp,
       });
     }
+
+    const workspace = await ensureWorkspaceRecord(ctx);
+    await updateWorkspaceListsMetadata(ctx, {
+      recentActivityListIds: touchRecentListIds(
+        workspace.recentActivityListIds ?? [],
+        args.orderedListIds[0]!
+      ),
+    });
   },
 });
 
@@ -515,6 +670,7 @@ export const convertTagToSublist = mutation({
     const workspace = await ensureWorkspaceRecord(ctx);
     await updateWorkspaceListsMetadata(ctx, {
       recentListIds: touchRecentListIds(workspace.recentListIds, args.listId),
+      recentActivityListIds: touchRecentListIds(workspace.recentActivityListIds ?? [], args.listId),
     });
 
     return sublistId;
@@ -596,6 +752,10 @@ export const convertSublistToTag = mutation({
         workspace.recentListIds.filter((id: string) => id !== args.sublistId),
         parentId
       ),
+      recentActivityListIds: touchRecentListIds(
+        (workspace.recentActivityListIds ?? []).filter((id: string) => id !== args.sublistId),
+        parentId
+      ),
     });
 
     return normalizedTag;
@@ -622,6 +782,8 @@ export const resetWorkspace = mutation({
     await updateWorkspaceListsMetadata(ctx, {
       recentListIds: [],
       recentSearches: [],
+      recentActivityListIds: [],
+      continueEntryIds: [],
       lastImportedAt: workspace.lastImportedAt,
     });
   },
@@ -671,10 +833,14 @@ export const addEntry = mutation({
       })
     );
     await attachLinkedListToParent(ctx, getLinkedListId(entry), args.listId);
+    await replaceListRecord(ctx, list, {
+      updatedAt: Date.now(),
+    });
 
     const workspace = await ensureWorkspaceRecord(ctx);
     await updateWorkspaceListsMetadata(ctx, {
       recentListIds: touchRecentListIds(workspace.recentListIds, args.listId),
+      recentActivityListIds: touchRecentListIds(workspace.recentActivityListIds ?? [], args.listId),
     });
 
     return entry.id;
@@ -754,10 +920,21 @@ export const updateEntry = mutation({
         "archivedAt" in (args.updates ?? {}) ? args.updates.archivedAt : entry.archivedAt,
       updatedAt: Date.now(),
     });
+    const list = await getListRecordByClientId(ctx, entry.listClientId);
+    if (list) {
+      await replaceListRecord(ctx, list, {
+        updatedAt: Date.now(),
+      });
+    }
 
     const workspace = await ensureWorkspaceRecord(ctx);
     await updateWorkspaceListsMetadata(ctx, {
       recentListIds: touchRecentListIds(workspace.recentListIds, entry.listClientId),
+      recentActivityListIds: touchRecentListIds(
+        workspace.recentActivityListIds ?? [],
+        entry.listClientId
+      ),
+      continueEntryIds: touchContinueEntryIds(workspace.continueEntryIds ?? [], args.entryId),
     });
   },
 });
@@ -777,6 +954,23 @@ export const deleteEntry = mutation({
     await ctx.db.delete(entry._id);
     await detachLinkedListFromParentIfUnlinked(ctx, linkedListId, entry.listClientId);
     await maybeDeleteAssetIfUnreferenced(ctx, previousAssetId);
+    const list = await getListRecordByClientId(ctx, entry.listClientId);
+    if (list) {
+      await replaceListRecord(ctx, list, {
+        updatedAt: Date.now(),
+      });
+    }
+
+    const workspace = await ensureWorkspaceRecord(ctx);
+    await updateWorkspaceListsMetadata(ctx, {
+      recentActivityListIds: touchRecentListIds(
+        workspace.recentActivityListIds ?? [],
+        entry.listClientId
+      ),
+      continueEntryIds: (workspace.continueEntryIds ?? []).filter(
+        (id: string) => id !== args.entryId
+      ),
+    });
   },
 });
 
@@ -826,9 +1020,26 @@ export const moveEntries = mutation({
       await detachLinkedListFromParentIfUnlinked(ctx, linkedListId, args.sourceListId);
     }
 
+    const sourceList = await getListRecordByClientId(ctx, args.sourceListId);
+    if (sourceList) {
+      await replaceListRecord(ctx, sourceList, {
+        updatedAt: Date.now(),
+      });
+    }
+    const targetList = await getListRecordByClientId(ctx, args.targetListId);
+    if (targetList) {
+      await replaceListRecord(ctx, targetList, {
+        updatedAt: Date.now(),
+      });
+    }
+
     const workspace = await ensureWorkspaceRecord(ctx);
     await updateWorkspaceListsMetadata(ctx, {
       recentListIds: touchRecentListIds(workspace.recentListIds, args.targetListId),
+      recentActivityListIds: touchRecentListIds(
+        touchRecentListIds(workspace.recentActivityListIds ?? [], args.sourceListId),
+        args.targetListId
+      ),
     });
   },
 });
@@ -840,6 +1051,18 @@ export const reorderEntries = mutation({
   },
   handler: async (ctx, args) => {
     await resequenceListEntries(ctx, args.listId, args.orderedEntryIds);
+
+    const list = await getListRecordByClientId(ctx, args.listId);
+    if (list) {
+      await replaceListRecord(ctx, list, {
+        updatedAt: Date.now(),
+      });
+    }
+
+    const workspace = await ensureWorkspaceRecord(ctx);
+    await updateWorkspaceListsMetadata(ctx, {
+      recentActivityListIds: touchRecentListIds(workspace.recentActivityListIds ?? [], args.listId),
+    });
   },
 });
 
@@ -864,10 +1087,18 @@ export const setEntryChecked = mutation({
       ...applyCheckedAutomation(list.config, args.checked),
       updatedAt: Date.now(),
     });
+    await replaceListRecord(ctx, list, {
+      updatedAt: Date.now(),
+    });
 
     const workspace = await ensureWorkspaceRecord(ctx);
     await updateWorkspaceListsMetadata(ctx, {
       recentListIds: touchRecentListIds(workspace.recentListIds, entry.listClientId),
+      recentActivityListIds: touchRecentListIds(
+        workspace.recentActivityListIds ?? [],
+        entry.listClientId
+      ),
+      continueEntryIds: touchContinueEntryIds(workspace.continueEntryIds ?? [], args.entryId),
     });
   },
 });
@@ -887,6 +1118,22 @@ export const setEntryStatus = mutation({
       status: args.status,
       updatedAt: Date.now(),
     });
+
+    const list = await getListRecordByClientId(ctx, entry.listClientId);
+    if (list) {
+      await replaceListRecord(ctx, list, {
+        updatedAt: Date.now(),
+      });
+    }
+
+    const workspace = await ensureWorkspaceRecord(ctx);
+    await updateWorkspaceListsMetadata(ctx, {
+      recentActivityListIds: touchRecentListIds(
+        workspace.recentActivityListIds ?? [],
+        entry.listClientId
+      ),
+      continueEntryIds: touchContinueEntryIds(workspace.continueEntryIds ?? [], args.entryId),
+    });
   },
 });
 
@@ -904,6 +1151,22 @@ export const setEntryProgress = mutation({
     await replaceEntryRecord(ctx, entry, {
       progress: args.progress ? normalizeProgress(args.progress) : undefined,
       updatedAt: Date.now(),
+    });
+
+    const list = await getListRecordByClientId(ctx, entry.listClientId);
+    if (list) {
+      await replaceListRecord(ctx, list, {
+        updatedAt: Date.now(),
+      });
+    }
+
+    const workspace = await ensureWorkspaceRecord(ctx);
+    await updateWorkspaceListsMetadata(ctx, {
+      recentActivityListIds: touchRecentListIds(
+        workspace.recentActivityListIds ?? [],
+        entry.listClientId
+      ),
+      continueEntryIds: touchContinueEntryIds(workspace.continueEntryIds ?? [], args.entryId),
     });
   },
 });
@@ -967,10 +1230,17 @@ export const duplicateEntries = mutation({
       ...duplicates.map((entry) => entry.clientId),
       ...entries.map((entry) => entry.clientId),
     ]);
+    const list = await getListRecordByClientId(ctx, args.listId);
+    if (list) {
+      await replaceListRecord(ctx, list, {
+        updatedAt: Date.now(),
+      });
+    }
 
     const workspace = await ensureWorkspaceRecord(ctx);
     await updateWorkspaceListsMetadata(ctx, {
       recentListIds: touchRecentListIds(workspace.recentListIds, args.listId),
+      recentActivityListIds: touchRecentListIds(workspace.recentActivityListIds ?? [], args.listId),
     });
   },
 });
@@ -984,6 +1254,8 @@ export const archiveEntries = mutation({
       return;
     }
 
+    const touchedListIds = new Set<string>();
+
     for (const entryId of args.entryIds) {
       const entry = await getEntryRecordByClientId(ctx, entryId);
       if (!entry) {
@@ -994,7 +1266,34 @@ export const archiveEntries = mutation({
         archivedAt: Date.now(),
         updatedAt: Date.now(),
       });
+      touchedListIds.add(entry.listClientId);
     }
+
+    if (!touchedListIds.size) {
+      return;
+    }
+
+    for (const listId of touchedListIds) {
+      const list = await getListRecordByClientId(ctx, listId);
+      if (!list) {
+        continue;
+      }
+
+      await replaceListRecord(ctx, list, {
+        updatedAt: Date.now(),
+      });
+    }
+
+    const workspace = await ensureWorkspaceRecord(ctx);
+    await updateWorkspaceListsMetadata(ctx, {
+      recentActivityListIds: Array.from(touchedListIds).reduce(
+        (ids, listId) => touchRecentListIds(ids, listId),
+        workspace.recentActivityListIds ?? []
+      ),
+      continueEntryIds: (workspace.continueEntryIds ?? []).filter(
+        (id: string) => !args.entryIds.includes(id)
+      ),
+    });
   },
 });
 

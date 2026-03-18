@@ -19,6 +19,7 @@ interface TestAccountsContextValue {
   activeAccount: TestAccountDefinition;
   activeAccountId: TestAccountId;
   activeMockAccountSeed: MockTestAccountSeed | null;
+  mockAccountSeeds: Record<MockTestAccountId, MockTestAccountSeed>;
   isHydrated: boolean;
   switchAccount: (accountId: TestAccountId) => Promise<void>;
   updateActiveMockOnboardingState: (
@@ -79,6 +80,7 @@ export function TestAccountsProvider({ children }: { children: ReactNode }) {
       activeAccount,
       activeAccountId,
       activeMockAccountSeed,
+      mockAccountSeeds: mockSeeds,
       isHydrated,
       switchAccount: async (accountId) => {
         setActiveAccountId(accountId);
@@ -135,7 +137,7 @@ export function TestAccountsProvider({ children }: { children: ReactNode }) {
         }));
       },
     }),
-    [activeAccount, activeAccountId, activeMockAccountSeed, isHydrated]
+    [activeAccount, activeAccountId, activeMockAccountSeed, isHydrated, mockSeeds]
   );
 
   return <TestAccountsContext.Provider value={value}>{children}</TestAccountsContext.Provider>;

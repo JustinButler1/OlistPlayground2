@@ -1,6 +1,13 @@
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Pressable, TextInput, View } from 'react-native';
+import {
+  InputAccessoryView,
+  Keyboard,
+  Pressable,
+  TextInput,
+  TouchableWithoutFeedback,
+  View,
+} from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -17,13 +24,16 @@ function clampRating(value: number): number {
   return Math.min(Math.max(stepped, 0), RATING_MAX);
 }
 
+const isIos = process.env.EXPO_OS === 'ios';
+const ratingInputAccessoryId = 'rating-sheet-input-accessory';
+
 export default function RatingSheet() {
-  const params = useLocalSearchParams<{ itemKey: string }>();
+  const params = useLocalSearchParams<{ itemKey: string; entryId?: string }>();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
 
   const itemKey = params.itemKey;
-  const { itemUserData, setItemUserData } = useItemUserData(itemKey);
+  const { itemUserData, setItemUserData } = useItemUserData(itemKey, params.entryId);
 
   const originalRating = itemUserData.rating ?? null;
   const [sheetRating, setSheetRating] = useState<number | null>(originalRating);
@@ -80,7 +90,7 @@ export default function RatingSheet() {
               hitSlop={12}
               style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
             >
-              <ThemedText style={{ fontSize: 24, fontWeight: '600' }}>✕</ThemedText>
+              <ThemedText style={{ fontSize: 24, fontWeight: '600' }}>{'\u2715'}</ThemedText>
             </Pressable>
           ),
           headerRight: () => (
@@ -97,155 +107,207 @@ export default function RatingSheet() {
                   color: hasChanged ? colors.text : colors.icon + '40',
                 }}
               >
-                ✓
+                {'\u2713'}
               </ThemedText>
             </Pressable>
           ),
         }}
       />
-      <View
-        style={{
-          flex: 1,
-          alignItems: 'center',
-          justifyContent: 'space-evenly',
-          paddingHorizontal: 24,
-        }}
-      >
-        <View style={{ alignItems: 'center', gap: 12 }}>
-          <ThemedText style={{ fontSize: 24, fontWeight: '700', textAlign: 'center' }}>
-            Rating
-          </ThemedText>
-          <ThemedText
-            style={{
-              fontSize: 14,
-              fontWeight: '400',
-              letterSpacing: 2,
-              color: colors.icon,
-              textAlign: 'center',
-            }}
-          >
-            MAX: 5
-          </ThemedText>
-        </View>
-
+      <TouchableWithoutFeedback accessible={false} onPress={Keyboard.dismiss}>
         <View
           style={{
-            flexDirection: 'row',
+            flex: 1,
             alignItems: 'center',
-            justifyContent: 'center',
-            gap: 24,
-            width: '100%',
+            justifyContent: editing ? 'flex-start' : 'space-evenly',
+            paddingHorizontal: 24,
+            paddingTop: editing ? 96 : 0,
+            paddingBottom: editing ? 24 : 0,
+            gap: editing ? 32 : 0,
           }}
         >
-          <Pressable
-            onPress={() =>
-              setSheetRating((current) => {
-                const base = current ?? 0;
-                const next = clampRating(base - RATING_STEP);
-                const value = next <= 0 ? null : next;
-                setSheetRatingText(value !== null ? formatRatingValue(value) : '');
-                return value;
-              })
-            }
+          <View style={{ alignItems: 'center', gap: 12 }}>
+            <ThemedText style={{ fontSize: 24, fontWeight: '700', textAlign: 'center' }}>
+              Rating
+            </ThemedText>
+            <ThemedText
+              style={{
+                fontSize: 14,
+                fontWeight: '400',
+                letterSpacing: 2,
+                color: colors.icon,
+                textAlign: 'center',
+              }}
+            >
+              MAX: 5
+            </ThemedText>
+          </View>
+
+          <View
             style={{
-              width: 76,
-              height: 76,
-              borderWidth: 1,
-              borderRadius: 56,
-              borderColor: colors.icon + '28',
-              backgroundColor: colors.icon + '10',
+              flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'center',
+              gap: 24,
+              width: '100%',
             }}
           >
-            <IconSymbol name="minus" size={32} color={colors.text} />
-          </Pressable>
+            <Pressable
+              onPress={() =>
+                setSheetRating((current) => {
+                  const base = current ?? 0;
+                  const next = clampRating(base - RATING_STEP);
+                  const value = next <= 0 ? null : next;
+                  setSheetRatingText(value !== null ? formatRatingValue(value) : '');
+                  return value;
+                })
+              }
+              style={{
+                width: 76,
+                height: 76,
+                borderWidth: 1,
+                borderRadius: 56,
+                borderColor: colors.icon + '28',
+                backgroundColor: colors.icon + '10',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <IconSymbol name="minus" size={32} color={colors.text} />
+            </Pressable>
+
+            <Pressable
+              onPress={() => setEditing(true)}
+              style={{
+                flex: 1,
+                minHeight: 72,
+                borderWidth: 1,
+                borderRadius: 20,
+                borderColor: colors.icon + '28',
+                backgroundColor: colors.icon + '10',
+                borderCurve: 'continuous',
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingHorizontal: 24,
+              }}
+            >
+              {editing ? (
+                <TextInput
+                  autoFocus
+                  keyboardType="decimal-pad"
+                  inputAccessoryViewID={isIos ? ratingInputAccessoryId : undefined}
+                  returnKeyType="done"
+                  value={sheetRatingText}
+                  onChangeText={setSheetRatingText}
+                  onBlur={applyTypedRating}
+                  onSubmitEditing={applyTypedRating}
+                  style={{
+                    width: '100%',
+                    textAlign: 'center',
+                    fontSize: 40,
+                    lineHeight: 40,
+                    fontWeight: '700',
+                    fontVariant: ['tabular-nums'],
+                    color: colors.text,
+                    paddingVertical: 0,
+                  }}
+                  placeholder="-"
+                  placeholderTextColor={colors.icon}
+                />
+              ) : (
+                <ThemedText
+                  style={{
+                    fontSize: 40,
+                    lineHeight: 40,
+                    fontWeight: '700',
+                    fontVariant: ['tabular-nums'],
+                  }}
+                >
+                  {sheetRating === null ? '-' : formatRatingValue(sheetRating)}
+                </ThemedText>
+              )}
+            </Pressable>
+
+            <Pressable
+              onPress={() =>
+                setSheetRating((current) => {
+                  const base = current ?? 0;
+                  const next = clampRating(base + RATING_STEP);
+                  setSheetRatingText(formatRatingValue(next));
+                  return next;
+                })
+              }
+              style={{
+                width: 76,
+                height: 76,
+                borderWidth: 1,
+                borderRadius: 56,
+                borderColor: colors.icon + '28',
+                backgroundColor: colors.icon + '10',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <IconSymbol name="plus" size={32} color={colors.text} />
+            </Pressable>
+          </View>
 
           <Pressable
-            onPress={() => setEditing(true)}
-            style={{
-              flex: 1,
-              minHeight: 72,
-              borderWidth: 1,
-              borderRadius: 20,
-              borderColor: colors.icon + '28',
-              backgroundColor: colors.icon + '10',
+            onPress={handleReset}
+            style={({ pressed }) => ({
+              width: '100%',
+              minHeight: 56,
+              borderRadius: 16,
               borderCurve: 'continuous',
+              backgroundColor: hasChanged ? colors.icon + '18' : colors.icon + '08',
               alignItems: 'center',
               justifyContent: 'center',
-              paddingHorizontal: 24,
-            }}
+              opacity: pressed ? 0.7 : 1,
+            })}
           >
-            {editing ? (
-              <TextInput
-                autoFocus
-                keyboardType="decimal-pad"
-                value={sheetRatingText}
-                onChangeText={setSheetRatingText}
-                onBlur={applyTypedRating}
-                onSubmitEditing={applyTypedRating}
-                style={{
-                  width: '100%',
-                  textAlign: 'center',
-                  fontSize: 40,
-                  lineHeight: 40,
-                  fontWeight: '700',
-                  fontVariant: ['tabular-nums'],
-                  color: colors.text,
-                  paddingVertical: 0,
-                }}
-                placeholder="-"
-                placeholderTextColor={colors.icon}
-              />
-            ) : (
-              <ThemedText
-                style={{ fontSize: 40, lineHeight: 40, fontWeight: '700', fontVariant: ['tabular-nums'] }}
-              >
-                {sheetRating === null ? '-' : formatRatingValue(sheetRating)}
-              </ThemedText>
-            )}
-          </Pressable>
-
-          <Pressable
-            onPress={() =>
-              setSheetRating((current) => {
-                const base = current ?? 0;
-                const next = clampRating(base + RATING_STEP);
-                setSheetRatingText(formatRatingValue(next));
-                return next;
-              })
-            }
-            style={{
-              width: 76,
-              height: 76,
-              borderWidth: 1,
-              borderRadius: 56,
-              borderColor: colors.icon + '28',
-              backgroundColor: colors.icon + '10',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <IconSymbol name="plus" size={32} color={colors.text} />
+            <ThemedText
+              style={{
+                fontWeight: '300',
+                fontSize: 20,
+                lineHeight: 20,
+                color: hasChanged ? colors.text : colors.icon + '40',
+              }}
+            >
+              Reset
+            </ThemedText>
           </Pressable>
         </View>
-
-        <Pressable
-          onPress={handleReset}
-          style={({ pressed }) => ({
-            width: '100%',
-            minHeight: 56,
-            borderRadius: 16,
-            borderCurve: 'continuous',
-            backgroundColor: hasChanged ? colors.icon + '18' : colors.icon + '08',
-            alignItems: 'center',
-            justifyContent: 'center',
-            opacity: pressed ? 0.7 : 1,
-          })}
-        >
-          <ThemedText style={{ fontWeight: '300', fontSize: 20, lineHeight: 20, color: hasChanged ? colors.text : colors.icon + '40' }}>Reset</ThemedText>
-        </Pressable>
-      </View>
+      </TouchableWithoutFeedback>
+      {isIos && editing ? (
+        <InputAccessoryView nativeID={ratingInputAccessoryId}>
+          <View
+            style={{
+              alignItems: 'flex-end',
+              paddingHorizontal: 16,
+              paddingVertical: 10,
+              borderTopWidth: 1,
+              borderColor: colors.icon + '20',
+              backgroundColor: colors.background,
+            }}
+          >
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                applyTypedRating();
+                Keyboard.dismiss();
+              }}
+              style={({ pressed }) => ({
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                opacity: pressed ? 0.7 : 1,
+              })}
+            >
+              <ThemedText style={{ color: colors.tint, fontSize: 17, fontWeight: '600' }}>
+                Done
+              </ThemedText>
+            </Pressable>
+          </View>
+        </InputAccessoryView>
+      ) : null}
     </>
   );
 }

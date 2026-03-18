@@ -11,6 +11,9 @@ import {
   parseItemKey,
   replaceEntryRecord,
   replaceItemUserDataRecord,
+  touchContinueEntryIds,
+  updateWorkspaceListsMetadata,
+  ensureWorkspaceRecord,
   isEmptyItemUserData,
 } from "./shared";
 import type { ListEntry } from "../data/mock-lists";
@@ -19,6 +22,7 @@ export const setItemUserData = mutation({
   args: {
     itemKey: v.string(),
     value: v.any(),
+    entryId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const trimmedKey = args.itemKey.trim();
@@ -78,10 +82,20 @@ export const setItemUserData = mutation({
       }
     }
 
+    const workspace = await ensureWorkspaceRecord(ctx);
+    const nextContinueEntryIds = args.entryId
+      ? touchContinueEntryIds(workspace.continueEntryIds ?? [], args.entryId)
+      : workspace.continueEntryIds ?? [];
+
     const existing = await getItemUserDataRecordByKey(ctx, trimmedKey);
     if (isEmptyItemUserData(normalized)) {
       if (existing) {
         await ctx.db.delete(existing._id);
+      }
+      if (args.entryId) {
+        await updateWorkspaceListsMetadata(ctx, {
+          continueEntryIds: nextContinueEntryIds,
+        });
       }
       return;
     }
@@ -95,6 +109,11 @@ export const setItemUserData = mutation({
         customFields: normalized.customFields,
         updatedAt: normalized.updatedAt,
       });
+      if (args.entryId) {
+        await updateWorkspaceListsMetadata(ctx, {
+          continueEntryIds: nextContinueEntryIds,
+        });
+      }
       return;
     }
 
@@ -107,5 +126,10 @@ export const setItemUserData = mutation({
       customFields: normalized.customFields,
       updatedAt: normalized.updatedAt,
     }));
+    if (args.entryId) {
+      await updateWorkspaceListsMetadata(ctx, {
+        continueEntryIds: nextContinueEntryIds,
+      });
+    }
   },
 });

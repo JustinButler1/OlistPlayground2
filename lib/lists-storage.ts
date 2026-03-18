@@ -12,6 +12,7 @@ import {
   hydrateListHierarchy,
   LEGACY_MOCK_LISTS,
   LEGACY_MOCK_TIER_SUBLISTS,
+  normalizeListPrivacy,
   sanitizeListPreferencesForConfig,
   type CustomField,
   type EntryStatus,
@@ -57,6 +58,8 @@ export interface ListsState {
   itemUserDataByKey: Record<string, ItemUserData>;
   recentSearches: string[];
   recentListIds: string[];
+  recentActivityListIds: string[];
+  continueEntryIds: string[];
   reminderNotificationIds: Record<string, string>;
   lastExportedAt?: number;
 }
@@ -116,6 +119,8 @@ export function createInitialListsState(): ListsState {
     itemUserDataByKey: {},
     recentSearches: [],
     recentListIds: [],
+    recentActivityListIds: [],
+    continueEntryIds: [],
     reminderNotificationIds: {},
   };
 }
@@ -150,6 +155,8 @@ export function createPowerUserMockListsState(): ListsState {
     ),
     recentSearches: [...seed.recentSearches],
     recentListIds: [...seed.recentListIds],
+    recentActivityListIds: [...(seed.recentActivityListIds ?? seed.recentListIds)],
+    continueEntryIds: [...(seed.continueEntryIds ?? [])],
     reminderNotificationIds: {},
   };
 }
@@ -541,6 +548,7 @@ function normalizeList(value: unknown): TrackerList | null {
     ),
     description: typeof value.description === 'string' ? value.description : undefined,
     tags: normalizeListTags(value.tags),
+    privacy: normalizeListPrivacy(value.privacy),
     preset,
     config,
     entries,
@@ -636,6 +644,12 @@ function normalizeListsState(value: unknown): ListsState | null {
   const recentListIds = Array.isArray(value.recentListIds)
     ? value.recentListIds.filter((item): item is string => typeof item === 'string')
     : [];
+  const recentActivityListIds = Array.isArray(value.recentActivityListIds)
+    ? value.recentActivityListIds.filter((item): item is string => typeof item === 'string')
+    : [];
+  const continueEntryIds = Array.isArray(value.continueEntryIds)
+    ? value.continueEntryIds.filter((item): item is string => typeof item === 'string')
+    : [];
 
   const reminderNotificationIds = isRecord(value.reminderNotificationIds)
     ? Object.fromEntries(
@@ -653,6 +667,8 @@ function normalizeListsState(value: unknown): ListsState | null {
     itemUserDataByKey,
     recentSearches,
     recentListIds,
+    recentActivityListIds,
+    continueEntryIds,
     reminderNotificationIds,
     lastExportedAt:
       typeof value.lastExportedAt === 'number' ? value.lastExportedAt : undefined,
@@ -881,6 +897,8 @@ function migrateLegacyState(value: unknown): ListsState | null {
     itemUserDataByKey: {},
     recentSearches: [],
     recentListIds: [],
+    recentActivityListIds: [],
+    continueEntryIds: [],
     reminderNotificationIds: {},
   };
 }
@@ -1046,6 +1064,8 @@ export function cloneListsState(state: ListsState): ListsState {
     ),
     recentSearches: [...state.recentSearches],
     recentListIds: [...state.recentListIds],
+    recentActivityListIds: [...state.recentActivityListIds],
+    continueEntryIds: [...state.continueEntryIds],
     reminderNotificationIds: { ...state.reminderNotificationIds },
   };
 }

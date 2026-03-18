@@ -21,6 +21,7 @@ import {
   type ItemUserData,
   type ListConfig,
   type ListEntry,
+  type ListPrivacy,
   type ListPreset,
   type ListPreferences,
   type ListTemplate,
@@ -41,13 +42,14 @@ import { reconcileReminderNotifications } from '@/lib/reminders';
 import {
   getAddAgainEntries,
   getArchivedLists,
-  getContinueTrackingEntries,
+  getContinueEntries,
+  getRecentActivityLists,
   getPinnedLists,
   getRecentLists,
   getRecentlyUpdatedEntries,
   getUpcomingReminderEntries,
 } from '@/lib/tracker-selectors';
-import { normalizeProgress, normalizeRating } from '@/lib/tracker-metadata';
+import { getEntryItemKey, normalizeProgress, normalizeRating } from '@/lib/tracker-metadata';
 
 export interface EntryDraft
   extends Partial<
@@ -73,7 +75,10 @@ interface ListsQueryValue {
   itemUserDataByKey: Record<string, ItemUserData>;
   recentSearches: string[];
   recentListIds: string[];
-  continueTracking: Array<{ entry: ListEntry; list: TrackerList }>;
+  recentActivityListIds: string[];
+  continueEntryIds: string[];
+  recentActivity: TrackerList[];
+  continueEntries: Array<{ entry: ListEntry; list: TrackerList }>;
   recentlyUpdated: Array<{ entry: ListEntry; list: TrackerList }>;
   upcomingReminders: Array<{ entry: ListEntry; list: TrackerList }>;
   addAgain: Array<{ entry: ListEntry; list: TrackerList }>;
@@ -94,6 +99,7 @@ interface ListActionsValue {
           imageUrl?: string;
           pinned?: boolean;
           pinnedToProfile?: boolean;
+          privacy?: ListPrivacy;
           preset?: ListPreset;
           templateId?: string;
           tags?: string[];
@@ -108,6 +114,7 @@ interface ListActionsValue {
         | 'imageUrl'
         | 'pinned'
         | 'pinnedToProfile'
+        | 'privacy'
         | 'templateId'
         | 'tags'
         | 'showInMyLists'
@@ -125,6 +132,7 @@ interface ListActionsValue {
         | 'imageUrl'
         | 'pinned'
         | 'pinnedToProfile'
+        | 'privacy'
         | 'tags'
         | 'showInMyLists'
         | 'parentListId'
@@ -141,6 +149,7 @@ interface ListActionsValue {
         | 'imageUrl'
         | 'pinned'
         | 'pinnedToProfile'
+        | 'privacy'
         | 'config'
         | 'templateId'
         | 'tags'
@@ -158,6 +167,7 @@ interface ListActionsValue {
   restoreArchivedList: (listId: string) => Promise<void>;
   deleteList: (listId: string) => Promise<void>;
   restoreList: (listId: string) => Promise<void>;
+  moveList: (listId: string, targetListId: string) => Promise<void>;
   reorderLists: (orderedListIds: string[]) => Promise<void>;
   setListPreferences: (listId: string, updates: Partial<ListPreferences>) => Promise<void>;
   markListOpened: (listId: string) => Promise<void>;
@@ -184,7 +194,7 @@ interface EntryActionsValue {
 }
 
 interface ItemUserDataActionsValue {
-  setItemUserData: (itemKey: string, value: ItemUserData) => Promise<void>;
+  setItemUserData: (itemKey: string, value: ItemUserData, entryId?: string) => Promise<void>;
 }
 
 interface ListsContextValue {
@@ -198,6 +208,23 @@ const ListsContext = createContext<ListsContextValue | null>(null);
 
 function touchRecentListIds(currentIds: string[], listId: string): string[] {
   return [listId, ...currentIds.filter((id) => id !== listId)].slice(0, 10);
+}
+
+function touchContinueEntryIds(currentIds: string[], entryId: string): string[] {
+  return [entryId, ...currentIds.filter((id) => id !== entryId)].slice(0, 12);
+}
+
+function findContinueEntryIdsForItemKey(state: ListsState, itemKey: string, preferredEntryId?: string): string[] {
+  if (preferredEntryId) {
+    return [preferredEntryId];
+  }
+
+  const matchingEntryIds = state.lists
+    .flatMap((list) => list.entries)
+    .filter((entry) => getEntryItemKey(entry) === itemKey)
+    .map((entry) => entry.id);
+
+  return matchingEntryIds;
 }
 
 function createClientId(prefix: 'entry' | 'list' | 'template'): string {
@@ -301,6 +328,27 @@ function findEntryLocation(state: ListsState, entryId: string) {
   return null;
 }
 
+function listReferencesTarget(
+  lists: TrackerList[],
+  listId: string,
+  targetListId: string | undefined
+): boolean {
+  if (!targetListId) {
+    return false;
+  }
+
+  const parentById = new Map(lists.map((list) => [list.id, list.parentListId]));
+  let pointer: string | undefined = targetListId;
+  while (pointer) {
+    if (pointer === listId) {
+      return true;
+    }
+    pointer = parentById.get(pointer);
+  }
+
+  return false;
+}
+
 export function ListsProvider({ children }: { children: React.ReactNode }) {
   const {
     activeAccount,
@@ -318,6 +366,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
   const restoreArchivedListMutation = useMutation(api.lists.restoreArchivedList);
   const deleteListMutation = useMutation(api.lists.deleteList);
   const restoreListMutation = useMutation(api.lists.restoreList);
+  const moveListMutation = useMutation(api.lists.moveList);
   const reorderListsMutation = useMutation(api.lists.reorderLists);
   const setListPreferencesMutation = useMutation(api.lists.setListPreferences);
   const markListOpenedMutation = useMutation(api.lists.markListOpened);
@@ -387,6 +436,8 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
         itemUserDataByKey: state?.itemUserDataByKey ?? {},
         recentSearches: state?.recentSearches ?? [],
         recentListIds: state?.recentListIds ?? [],
+        recentActivityListIds: state?.recentActivityListIds ?? [],
+        continueEntryIds: state?.continueEntryIds ?? [],
         reminderNotificationIds: reminderNotificationIdsRef.current,
       });
 
@@ -424,6 +475,8 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
 
   const query = useMemo<ListsQueryValue>(() => {
     const recentListIds = state?.recentListIds ?? [];
+    const recentActivityListIds = state?.recentActivityListIds ?? [];
+    const continueEntryIds = state?.continueEntryIds ?? [];
 
     return {
       lists,
@@ -431,12 +484,15 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
       deletedLists,
       pinnedLists: getPinnedLists(activeLists),
       recentLists: getRecentLists(activeLists.filter((list) => !list.archivedAt), recentListIds),
+      recentActivity: getRecentActivityLists(activeLists, recentActivityListIds),
       archivedLists: getArchivedLists(activeLists),
       listTemplates: [...BUILT_IN_LIST_TEMPLATES, ...(state?.savedTemplates ?? [])],
       itemUserDataByKey: state?.itemUserDataByKey ?? {},
       recentSearches: state?.recentSearches ?? [],
       recentListIds,
-      continueTracking: getContinueTrackingEntries(activeLists),
+      recentActivityListIds,
+      continueEntryIds,
+      continueEntries: getContinueEntries(activeLists, continueEntryIds),
       recentlyUpdated: getRecentlyUpdatedEntries(activeLists),
       upcomingReminders: getUpcomingReminderEntries(activeLists),
       addAgain: getAddAgainEntries(activeLists),
@@ -504,6 +560,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                 imageUrl: normalizedOptions.uploadedImage?.url ?? normalizedOptions.imageUrl,
                 description: normalizedOptions.description?.trim() || undefined,
                 tags: normalizeTags(normalizedOptions.tags),
+                privacy: normalizedOptions.privacy ?? 'public',
                 preset: normalizedOptions.preset ?? derivePresetFromConfig(config),
                 config,
                 entries: [],
@@ -525,6 +582,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                   ...current,
                   lists: [...current.lists, nextList],
                   recentListIds: touchRecentListIds(current.recentListIds, listId),
+                  recentActivityListIds: touchRecentListIds(current.recentActivityListIds, listId),
                 },
                 result: listId,
               };
@@ -552,6 +610,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                 pinned: overrides?.pinned ?? baseList.pinned,
                 pinnedToProfile: overrides?.pinnedToProfile ?? baseList.pinnedToProfile,
                 tags: normalizeTags(overrides?.tags ?? baseList.tags),
+                privacy: overrides?.privacy ?? baseList.privacy ?? 'public',
                 showInMyLists: overrides?.showInMyLists ?? !overrides?.parentListId,
                 parentListId: overrides?.parentListId,
                 updatedAt: Date.now(),
@@ -562,6 +621,10 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                   ...current,
                   lists: [...current.lists, nextList],
                   recentListIds: touchRecentListIds(current.recentListIds, nextList.id),
+                  recentActivityListIds: touchRecentListIds(
+                    current.recentActivityListIds,
+                    nextList.id
+                  ),
                 },
                 result: nextList.id,
               };
@@ -591,6 +654,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                   typeof updates.pinnedToProfile === 'boolean'
                     ? updates.pinnedToProfile
                     : list.pinnedToProfile,
+                privacy: 'privacy' in updates ? updates.privacy ?? 'public' : list.privacy ?? 'public',
                 config: nextConfig,
                 preset: derivePresetFromConfig(nextConfig),
                 preferences: sanitizeListPreferencesForConfig(list.preferences, nextConfig),
@@ -610,6 +674,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                 nextState: {
                   ...current,
                   [location.key]: collection,
+                  recentActivityListIds: touchRecentListIds(current.recentActivityListIds, listId),
                 },
                 result: undefined,
               };
@@ -684,6 +749,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                 nextState: {
                   ...current,
                   [location.key]: collection,
+                  recentActivityListIds: touchRecentListIds(current.recentActivityListIds, listId),
                 },
                 result: undefined,
               };
@@ -711,6 +777,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                 nextState: {
                   ...current,
                   [location.key]: collection,
+                  recentActivityListIds: touchRecentListIds(current.recentActivityListIds, listId),
                 },
                 result: undefined,
               };
@@ -739,6 +806,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                     },
                   ],
                   recentListIds: current.recentListIds.filter((id) => id !== listId),
+                  recentActivityListIds: current.recentActivityListIds.filter((id) => id !== listId),
                 },
                 result: undefined,
               };
@@ -767,6 +835,116 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                     },
                   ],
                   recentListIds: touchRecentListIds(current.recentListIds, listId),
+                  recentActivityListIds: touchRecentListIds(
+                    current.recentActivityListIds,
+                    listId
+                  ),
+                },
+                result: undefined,
+              };
+            });
+          },
+          moveList: async (listId, targetListId) => {
+            await runMockListsUpdate((current) => {
+              if (!targetListId || listId === targetListId) {
+                return {
+                  nextState: current,
+                  result: undefined,
+                };
+              }
+
+              const movingListIndex = current.lists.findIndex((list) => list.id === listId);
+              const targetListIndex = current.lists.findIndex((list) => list.id === targetListId);
+              if (movingListIndex < 0 || targetListIndex < 0) {
+                return {
+                  nextState: current,
+                  result: undefined,
+                };
+              }
+
+              const movingList = current.lists[movingListIndex]!;
+              if (
+                movingList.parentListId === targetListId ||
+                listReferencesTarget(current.lists, listId, targetListId)
+              ) {
+                return {
+                  nextState: current,
+                  result: undefined,
+                };
+              }
+
+              const timestamp = Date.now();
+              const previousParentListId = movingList.parentListId;
+              const nextLists = current.lists.map((list) => {
+                if (list.id === listId) {
+                  return {
+                    ...list,
+                    parentListId: targetListId,
+                    showInMyLists: false,
+                    updatedAt: timestamp,
+                  };
+                }
+
+                if (list.id === previousParentListId) {
+                  return {
+                    ...list,
+                    entries: list.entries.filter(
+                      (entry) =>
+                        entry.linkedListId !== listId && entry.detailPath !== `list/${listId}`
+                    ),
+                    updatedAt: timestamp,
+                  };
+                }
+
+                if (list.id === targetListId) {
+                  const hasLinkedEntry = list.entries.some(
+                    (entry) => entry.linkedListId === listId || entry.detailPath === `list/${listId}`
+                  );
+                  if (hasLinkedEntry) {
+                    return {
+                      ...list,
+                      updatedAt: timestamp,
+                    };
+                  }
+
+                  return {
+                    ...list,
+                    entries: [
+                      ...list.entries,
+                      createMockEntryFromDraft(
+                        {
+                          title: movingList.title,
+                          type: 'list',
+                          detailPath: `list/${listId}`,
+                          linkedListId: listId,
+                          sourceRef: {
+                            source: 'custom',
+                            detailPath: `list/${listId}`,
+                          },
+                        },
+                        list.config
+                      ),
+                    ],
+                    updatedAt: timestamp,
+                  };
+                }
+
+                return list;
+              });
+
+              return {
+                nextState: {
+                  ...current,
+                  lists: nextLists,
+                  recentListIds: touchRecentListIds(
+                    touchRecentListIds(current.recentListIds, targetListId),
+                    listId
+                  ),
+                  recentActivityListIds: [previousParentListId, targetListId, listId].reduce(
+                    (ids, currentListId) =>
+                      currentListId ? touchRecentListIds(ids, currentListId) : ids,
+                    current.recentActivityListIds
+                  ),
                 },
                 result: undefined,
               };
@@ -790,9 +968,14 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                       ? {
                           ...list,
                           sortOrder: sortOrderById.get(list.id),
+                          updatedAt: Date.now(),
                         }
                       : list
                   ),
+                  recentActivityListIds:
+                    orderedListIds.length > 0
+                      ? touchRecentListIds(current.recentActivityListIds, orderedListIds[0]!)
+                      : current.recentActivityListIds,
                 },
                 result: undefined,
               };
@@ -826,6 +1009,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                 nextState: {
                   ...current,
                   [location.key]: collection,
+                  recentActivityListIds: touchRecentListIds(current.recentActivityListIds, listId),
                 },
                 result: undefined,
               };
@@ -959,6 +1143,10 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                   ...current,
                   lists: [...nextLists, nextSublist],
                   recentListIds: touchRecentListIds(current.recentListIds, listId),
+                  recentActivityListIds: touchRecentListIds(
+                    touchRecentListIds(current.recentActivityListIds, sublistId),
+                    listId
+                  ),
                 },
                 result: sublistId,
               };
@@ -1047,6 +1235,10 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                     current.recentListIds.filter((id) => id !== sublistId),
                     parentList.id
                   ),
+                  recentActivityListIds: touchRecentListIds(
+                    current.recentActivityListIds.filter((id) => id !== sublistId),
+                    parentList.id
+                  ),
                 },
                 result: normalizedTag,
               };
@@ -1060,6 +1252,8 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
               itemUserDataByKey: state?.itemUserDataByKey ?? {},
               recentSearches: state?.recentSearches ?? [],
               recentListIds: state?.recentListIds ?? [],
+              recentActivityListIds: state?.recentActivityListIds ?? [],
+              continueEntryIds: state?.continueEntryIds ?? [],
               reminderNotificationIds: {},
             }),
           importLists: async (raw) => {
@@ -1078,6 +1272,8 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
               itemUserDataByKey: {},
               recentSearches: [],
               recentListIds: [],
+              recentActivityListIds: [],
+              continueEntryIds: [],
               reminderNotificationIds: {},
             }));
           },
@@ -1154,6 +1350,9 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
       restoreList: async (listId) => {
         await runMutation(() => restoreListMutation({ listId }));
       },
+      moveList: async (listId, targetListId) => {
+        await runMutation(() => moveListMutation({ listId, targetListId }));
+      },
       reorderLists: async (orderedListIds) => {
         if (!orderedListIds.length) {
           return;
@@ -1185,6 +1384,8 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
           itemUserDataByKey: state?.itemUserDataByKey ?? {},
           recentSearches: state?.recentSearches ?? [],
           recentListIds: state?.recentListIds ?? [],
+          recentActivityListIds: state?.recentActivityListIds ?? [],
+          continueEntryIds: state?.continueEntryIds ?? [],
           reminderNotificationIds: {},
         }),
       importLists: async (raw) => {
@@ -1217,6 +1418,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
       lists,
       loadMockDataMutation,
       markListOpenedMutation,
+      moveListMutation,
       resetActiveMockListsState,
       recordRecentSearchMutation,
       reorderListsMutation,
@@ -1261,6 +1463,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                   ...current,
                   lists: nextLists,
                   recentListIds: touchRecentListIds(current.recentListIds, listId),
+                  recentActivityListIds: touchRecentListIds(current.recentActivityListIds, listId),
                 },
                 result: entry.id,
               };
@@ -1329,6 +1532,11 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                   ...current,
                   [location.key]: collection,
                   recentListIds: touchRecentListIds(current.recentListIds, list.id),
+                  recentActivityListIds: touchRecentListIds(
+                    current.recentActivityListIds,
+                    list.id
+                  ),
+                  continueEntryIds: touchContinueEntryIds(current.continueEntryIds, entryId),
                 },
                 result: undefined,
               };
@@ -1356,6 +1564,8 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                 nextState: {
                   ...current,
                   [location.key]: collection,
+                  recentActivityListIds: touchRecentListIds(current.recentActivityListIds, list.id),
+                  continueEntryIds: current.continueEntryIds.filter((id) => id !== entryId),
                 },
                 result: undefined,
               };
@@ -1406,6 +1616,10 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                   ...current,
                   lists: nextLists,
                   recentListIds: touchRecentListIds(current.recentListIds, targetListId),
+                  recentActivityListIds: touchRecentListIds(
+                    touchRecentListIds(current.recentActivityListIds, sourceListId),
+                    targetListId
+                  ),
                 },
                 result: undefined,
               };
@@ -1438,6 +1652,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                 nextState: {
                   ...current,
                   lists: nextLists,
+                  recentActivityListIds: touchRecentListIds(current.recentActivityListIds, listId),
                 },
                 result: undefined,
               };
@@ -1478,6 +1693,8 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                 nextState: {
                   ...current,
                   [location.key]: collection,
+                  recentActivityListIds: touchRecentListIds(current.recentActivityListIds, list.id),
+                  continueEntryIds: touchContinueEntryIds(current.continueEntryIds, entryId),
                 },
                 result: undefined,
               };
@@ -1517,6 +1734,8 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                 nextState: {
                   ...current,
                   [location.key]: collection,
+                  recentActivityListIds: touchRecentListIds(current.recentActivityListIds, list.id),
+                  continueEntryIds: touchContinueEntryIds(current.continueEntryIds, entryId),
                 },
                 result: undefined,
               };
@@ -1551,6 +1770,8 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                 nextState: {
                   ...current,
                   [location.key]: collection,
+                  recentActivityListIds: touchRecentListIds(current.recentActivityListIds, list.id),
+                  continueEntryIds: touchContinueEntryIds(current.continueEntryIds, entryId),
                 },
                 result: undefined,
               };
@@ -1588,6 +1809,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                   ...current,
                   lists: nextLists,
                   recentListIds: touchRecentListIds(current.recentListIds, listId),
+                  recentActivityListIds: touchRecentListIds(current.recentActivityListIds, listId),
                 },
                 result: undefined,
               };
@@ -1619,6 +1841,16 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
                 nextState: {
                   ...current,
                   lists: nextLists,
+                  recentActivityListIds: current.lists.reduce(
+                    (ids, list) =>
+                      list.entries.some((entry) => entryIds.includes(entry.id))
+                        ? touchRecentListIds(ids, list.id)
+                        : ids,
+                    current.recentActivityListIds
+                  ),
+                  continueEntryIds: current.continueEntryIds.filter(
+                    (id) => !entryIds.includes(id)
+                  ),
                 },
                 result: undefined,
               };
@@ -1710,30 +1942,38 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
     () => {
       if (isMockAccount) {
         return {
-          setItemUserData: async (itemKey, value) => {
-            await runMockListsUpdate((current) => ({
-              nextState: {
-                ...current,
-                itemUserDataByKey: {
-                  ...current.itemUserDataByKey,
-                  [itemKey]: {
-                    ...value,
-                    tags: normalizeTags(value.tags),
-                    progress: normalizeProgress(value.progress),
-                    customFields: value.customFields.map((field) => ({ ...field })),
-                    updatedAt: value.updatedAt ?? Date.now(),
+          setItemUserData: async (itemKey, value, entryId) => {
+            await runMockListsUpdate((current) => {
+              const matchingEntryIds = findContinueEntryIdsForItemKey(current, itemKey, entryId);
+
+              return {
+                nextState: {
+                  ...current,
+                  itemUserDataByKey: {
+                    ...current.itemUserDataByKey,
+                    [itemKey]: {
+                      ...value,
+                      tags: normalizeTags(value.tags),
+                      progress: normalizeProgress(value.progress),
+                      customFields: value.customFields.map((field) => ({ ...field })),
+                      updatedAt: value.updatedAt ?? Date.now(),
+                    },
                   },
+                  continueEntryIds: matchingEntryIds.reduce(
+                    (ids, currentEntryId) => touchContinueEntryIds(ids, currentEntryId),
+                    current.continueEntryIds
+                  ),
                 },
-              },
-              result: undefined,
-            }));
+                result: undefined,
+              };
+            });
           },
         };
       }
 
       return {
-        setItemUserData: async (itemKey, value) => {
-          await runMutation(() => setItemUserDataMutation({ itemKey, value }));
+        setItemUserData: async (itemKey, value, entryId) => {
+          await runMutation(() => setItemUserDataMutation({ itemKey, value, entryId }));
         },
       };
     },
@@ -1777,13 +2017,13 @@ export function useItemUserDataActions(): ItemUserDataActionsValue {
   return useListsContext().itemUserDataActions;
 }
 
-export function useItemUserData(itemKey: string) {
+export function useItemUserData(itemKey: string, entryId?: string) {
   const { itemUserDataByKey } = useListsQuery();
   const { setItemUserData } = useItemUserDataActions();
 
   return {
     itemUserData: itemUserDataByKey[itemKey] ?? createEmptyItemUserData(),
-    setItemUserData: (value: ItemUserData) => setItemUserData(itemKey, value),
+    setItemUserData: (value: ItemUserData) => setItemUserData(itemKey, value, entryId),
   };
 }
 
