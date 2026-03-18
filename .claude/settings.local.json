@@ -7,7 +7,8 @@
       "Bash(grep -A 5 -B 5 \"RatingStars\\\\|rating\" /c/Users/Justin/Development/Projects/OlistPlayground2/app/anime/[id].tsx)",
       "Bash(grep -E \"\\\\.\\(tsx?|ts\\)$\")",
       "Bash(sed -i 's/<RatingStars value={communityRating} showValue \\\\/>/<RatingStars value={communityRating} \\\\/>/g' app/anime/[id].tsx app/manga/[id].tsx app/tv-movie/[type]/[id].tsx)",
-      "Bash(sed -i 's/<RatingStars value={rating} showValue \\\\/>/<RatingStars value={rating} \\\\/>/g' app/games/[id].tsx)"
+      "Bash(sed -i 's/<RatingStars value={rating} showValue \\\\/>/<RatingStars value={rating} \\\\/>/g' app/games/[id].tsx)",
+      "Bash(grep -n \"KeyboardAvoidingView\\\\|TextInput\\\\|FlatList\\\\|addItem\\\\|add item\\\\|keyboard\" /c/Users/Justin/Development/Projects/OlistPlayground2/app/list/[id].tsx)"
     ]
   }
 }

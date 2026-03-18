@@ -379,8 +379,9 @@ export default function ListDetailScreen() {
     !listSearchQuery.trim();
   const bottomToolbarInset = insets.bottom + BOTTOM_TOOLBAR_HEIGHT + BOTTOM_TOOLBAR_MARGIN * 2;
   const nativeSearchWidth = Math.max(180, windowWidth - 156);
+  const keyboardContentInset = isIos && composerVisible && keyboardHeight > 0 ? keyboardHeight : 0;
   const footerSpacerHeight = composerVisible
-    ? bottomToolbarInset + keyboardHeight + (isIos ? 24 : COMPOSER_TOOLBAR_HEIGHT + COMPOSER_TOOLBAR_OFFSET)
+    ? bottomToolbarInset + (isIos ? 24 : keyboardHeight + COMPOSER_TOOLBAR_HEIGHT + COMPOSER_TOOLBAR_OFFSET)
     : bottomToolbarInset;
   const actionBarBottom = keyboardHeight > 0 ? keyboardHeight + 12 : insets.bottom + 16;
 
@@ -1402,7 +1403,9 @@ export default function ListDetailScreen() {
             >
               <FlatList
                 ref={listRef}
+                contentInset={{ bottom: keyboardContentInset }}
                 contentInsetAdjustmentBehavior="never"
+                scrollIndicatorInsets={{ bottom: keyboardContentInset }}
                 data={visibleEntries}
                 keyExtractor={(item) => item.id}
                 keyboardShouldPersistTaps="handled"
