@@ -1,7 +1,7 @@
 import { useQueries } from '@tanstack/react-query';
 import { Image } from 'expo-image';
 import { Link, Stack, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Linking,
@@ -29,7 +29,9 @@ import {
   buildSeededHref,
   readDetailSeed,
 } from '@/lib/detail-navigation';
+import { useListsQuery } from '@/contexts/lists-context';
 import { normalizeRating } from '@/lib/tracker-metadata';
+import { findEntryByItemKey } from '@/lib/tracker-selectors';
 import { ExpandableDescription } from '@/components/ExpandableDescription';
 import { ExpandableTags } from '@/components/ExpandableTags';
 import { apiQueryKeys } from '@/services/api-query-keys';
@@ -62,6 +64,11 @@ interface TmdbMovieDetails {
   genres: TmdbGenre[];
 }
 
+interface TmdbCreatedBy {
+  id: number;
+  name: string;
+}
+
 interface TmdbTvDetails {
   id: number;
   name: string;
@@ -78,6 +85,7 @@ interface TmdbTvDetails {
   status: string;
   tagline: string | null;
   genres: TmdbGenre[];
+  created_by: TmdbCreatedBy[];
 }
 
 type TmdbDetails = TmdbMovieDetails | TmdbTvDetails;
@@ -152,26 +160,35 @@ async function fetchTmdbVideos(
   );
 }
 
+interface TmdbCreditsResult {
+  cast: TmdbCastMember[];
+  directors: string[];
+}
+
 async function fetchTmdbCredits(
   type: TmdbType,
   id: string,
   signal?: AbortSignal
-): Promise<TmdbCastMember[]> {
+): Promise<TmdbCreditsResult> {
   const apiKey = getTmdbApiKey();
-  if (!apiKey) return [];
+  if (!apiKey) return { cast: [], directors: [] };
 
   const endpoint = type === 'movie' ? 'movie' : 'tv';
   const response = await fetch(
     `${TMDB_API_BASE}/${endpoint}/${id}/credits?api_key=${encodeURIComponent(apiKey)}&language=en-US`,
     { signal }
   );
-  if (!response.ok) return [];
+  if (!response.ok) return { cast: [], directors: [] };
 
-  const json: { cast?: TmdbCastMember[] } = await response.json();
-  return (json.cast ?? [])
+  const json: { cast?: TmdbCastMember[]; crew?: { name: string; job: string }[] } = await response.json();
+  const cast = (json.cast ?? [])
     .filter((member) => member.name && member.character)
     .sort((a, b) => (a.order ?? 999) - (b.order ?? 999))
     .slice(0, 20);
+  const directors = (json.crew ?? [])
+    .filter((c) => c.job === 'Director')
+    .map((c) => c.name);
+  return { cast, directors };
 }
 
 async function fetchTmdbRecommendations(
@@ -211,9 +228,15 @@ export default function TvMovieDetailsScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const seed = readDetailSeed(params);
   const [activeTab, setActiveTab] = useState<ItemDetailTabId>('details');
+  const [authorExpanded, setAuthorExpanded] = useState(false);
 
   const mediaType: TmdbType | null = type === 'movie' || type === 'tv' ? type : null;
+  const { activeLists } = useListsQuery();
   const itemKey = mediaType && id ? getItemUserDataKey(mediaType, id) : null;
+  const entryLocation = useMemo(
+    () => (itemKey ? findEntryByItemKey(activeLists, itemKey) : null),
+    [activeLists, itemKey]
+  );
   const [detailsQuery, trailersQuery, castQuery, recommendationsQuery] = useQueries({
     queries: [
       {
@@ -244,7 +267,8 @@ export default function TvMovieDetailsScreen() {
   });
   const details = detailsQuery.data ?? null;
   const trailers = trailersQuery.data ?? [];
-  const cast = castQuery.data ?? [];
+  const cast = castQuery.data?.cast ?? [];
+  const directors = castQuery.data?.directors ?? [];
   const recommendations = recommendationsQuery.data ?? [];
   const loading = detailsQuery.isPending;
   const error =
@@ -291,6 +315,23 @@ export default function TvMovieDetailsScreen() {
 
   const headerTitle = title || (mediaType === 'movie' ? 'Movie' : 'TV');
   const communityRating = normalizeRating(details?.vote_average ?? undefined);
+  const authorLine = details
+    ? isMovie(details)
+      ? directors.join(', ') || null
+      : (details.created_by ?? []).map((c) => c.name).join(', ') || null
+    : null;
+  const progressLine = details
+    ? isMovie(details)
+      ? [
+          details.runtime ? `${details.runtime} min` : null,
+          details.release_date ? details.release_date.slice(0, 4) : null,
+        ].filter(Boolean).join(' · ') || null
+      : [
+          details.number_of_seasons ? `${details.number_of_seasons} season${details.number_of_seasons !== 1 ? 's' : ''}` : null,
+          details.number_of_episodes ? `${details.number_of_episodes} ep` : null,
+          details.first_air_date ? details.first_air_date.slice(0, 4) : null,
+        ].filter(Boolean).join(' · ') || null
+    : null;
 
   if (!id || !mediaType) {
     return (
@@ -326,17 +367,26 @@ export default function TvMovieDetailsScreen() {
             <ThemedText type="title" style={styles.title}>
               {headerTitle}
             </ThemedText>
-            {subtitle ? (
-              <ThemedText style={[styles.subtitle, { color: colors.icon }]}>
-                {subtitle}
-              </ThemedText>
-            ) : null}
-            {activeTab === 'details' && metaParts.length > 0 ? (
+            {(authorLine || progressLine || communityRating) ? (
               <View style={styles.metaRow}>
-                <ThemedText style={[styles.meta, { color: colors.icon }]}>
-                  {metaParts.join(' | ')}
-                </ThemedText>
-                {communityRating ? <RatingStars value={communityRating} showValue /> : null}
+                <View style={styles.metaLeft}>
+                  {authorLine ? (
+                    <Pressable onPress={() => setAuthorExpanded((v) => !v)}>
+                      <ThemedText
+                        numberOfLines={authorExpanded ? undefined : 1}
+                        style={[styles.subtitle, { color: colors.icon }]}
+                      >
+                        {authorLine}
+                      </ThemedText>
+                    </Pressable>
+                  ) : null}
+                  {progressLine ? (
+                    <ThemedText style={[styles.subtitle, { color: colors.icon }]}>
+                      {progressLine}
+                    </ThemedText>
+                  ) : null}
+                </View>
+                {communityRating ? <RatingStars value={communityRating} /> : null}
               </View>
             ) : null}
           </View>
@@ -543,6 +593,11 @@ export default function TvMovieDetailsScreen() {
                       ? details.number_of_episodes
                       : undefined,
                 }}
+                statusConfig={entryLocation ? {
+                  entryId: entryLocation.entry.id,
+                  listId: entryLocation.list.id,
+                  currentStatus: entryLocation.entry.status,
+                } : undefined}
               />
             ) : null}
           </View>
@@ -586,9 +641,14 @@ const styles = StyleSheet.create({
     fontSize: 15,
     marginBottom: 12,
   },
+  metaLeft: {
+    flex: 1,
+    gap: 2,
+  },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 8,
     gap: 12,
   },

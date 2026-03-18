@@ -3,18 +3,20 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Pressable,
   StyleSheet,
+  Text,
   TextInput,
   View,
 } from 'react-native';
 
-import { RatingStars } from '@/components/tracker/RatingStars';
 import { ThemedText } from '@/components/themed-text';
-import { useItemUserData } from '@/contexts/lists-context';
-import type { CustomField, EntryProgressUnit, ItemUserData } from '@/data/mock-lists';
 import { Colors } from '@/constants/theme';
+import { useItemUserData } from '@/contexts/lists-context';
+import type { CustomField, EntryProgressUnit, EntryStatus, ItemUserData } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { LIST_STATUS_OPTIONS } from '@/lib/list-config-options';
 import {
   formatProgressLabel,
+  formatRatingValue,
   normalizeProgress,
 } from '@/lib/tracker-metadata';
 
@@ -25,10 +27,17 @@ interface ItemProgressConfig {
   allowCustomTotal?: boolean;
 }
 
+interface ItemStatusConfig {
+  entryId: string;
+  listId: string;
+  currentStatus?: EntryStatus;
+}
+
 interface ItemUserDataPanelProps {
   itemKey: string;
   showRating?: boolean;
   progressConfig?: ItemProgressConfig;
+  statusConfig?: ItemStatusConfig;
 }
 
 function cloneItemUserData(value: ItemUserData): ItemUserData {
@@ -68,11 +77,11 @@ function getItemUserDataSignature(value: ItemUserData): string {
     rating: value.rating ?? null,
     progress: value.progress
       ? {
-          current: value.progress.current ?? null,
-          total: value.progress.total ?? null,
-          unit: value.progress.unit,
-          label: value.progress.label ?? '',
-        }
+        current: value.progress.current ?? null,
+        total: value.progress.total ?? null,
+        unit: value.progress.unit,
+        label: value.progress.label ?? '',
+      }
       : null,
     customFields: value.customFields.map((field) => ({
       title: field.title,
@@ -90,10 +99,46 @@ function createBlankCustomField(): CustomField {
   };
 }
 
+function getStatusLabel(status?: EntryStatus): string {
+  if (!status) return '-';
+  return LIST_STATUS_OPTIONS.find((o) => o.value === status)?.label.toUpperCase() ?? status.toUpperCase();
+}
+
+function getProgressUnitAbbrev(unit: EntryProgressUnit, customLabel?: string): string {
+  if (customLabel?.trim()) {
+    return customLabel.trim().substring(0, 2).toUpperCase();
+  }
+  switch (unit) {
+    case 'episode': return 'EP';
+    case 'chapter': return 'CH';
+    case 'volume': return 'VL';
+    case 'percent': return '%';
+    case 'item':
+    default: return 'IT';
+  }
+}
+
+function formatProgressPillLabel(
+  progress: ReturnType<typeof normalizeProgress>,
+  config?: ItemProgressConfig
+): string {
+  if (!progress && !config) return '-';
+  const unit = progress?.unit ?? config?.unit;
+  const customLabel = progress?.label ?? config?.label;
+  const abbrev = unit ? getProgressUnitAbbrev(unit, customLabel) : '';
+  const current = progress?.current !== undefined ? String(progress.current) : '-';
+  const total = progress?.total ?? config?.total;
+  if (unit === 'percent') return `${current}%`;
+  if (total !== undefined) return `${current}/${total} ${abbrev}`;
+  if (progress?.current !== undefined) return `${current} ${abbrev}`;
+  return `-/- ${abbrev}`;
+}
+
 export function ItemUserDataPanel({
   itemKey,
   showRating = false,
   progressConfig,
+  statusConfig,
 }: ItemUserDataPanelProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
@@ -150,114 +195,131 @@ export function ItemUserDataPanel({
     });
   };
 
+  const openRatingSheet = () => {
+    router.push({
+      pathname: '/rating-sheet',
+      params: { itemKey },
+    });
+  };
+
+  const openStatusSheet = () => {
+    if (!statusConfig) return;
+    router.push({
+      pathname: '/status-sheet',
+      params: {
+        entryId: statusConfig.entryId,
+        listId: statusConfig.listId,
+        currentStatus: statusConfig.currentStatus ?? '',
+      },
+    });
+  };
+
   const progressTotal = draft.progress?.total ?? progressConfig?.total;
   const progressDisplayLabel =
     effectiveProgress !== undefined ? formatProgressLabel(effectiveProgress) : null;
   const canShowProgress =
     !!progressConfig && (progressTotal !== undefined || progressConfig.allowCustomTotal);
 
+  const showStatusPill = !!statusConfig;
+  const showProgressPill = canShowProgress;
+  const showRatingPill = showRating;
+  const showPillRow = showStatusPill || showProgressPill || showRatingPill;
+
+  const pillStyle = (pressed: boolean) => [
+    styles.pill,
+    {
+      borderColor: colors.icon + '28',
+      backgroundColor: colors.icon + '10',
+      opacity: pressed ? 0.7 : 1,
+    },
+  ];
+
   return (
     <View style={styles.container}>
-      {showRating ? (
-        <View style={styles.section}>
-          <ThemedText type="defaultSemiBold">Rating</ThemedText>
-          <RatingStars
-            value={draft.rating}
-            onChange={(nextValue) =>
-              setDraft((current) => ({
-                ...current,
-                rating: nextValue,
-              }))
-            }
-            showValue
-            allowClear
-          />
-        </View>
-      ) : null}
-
-      {canShowProgress ? (
-        <View style={styles.section}>
-          <View style={styles.progressHeader}>
-            <ThemedText type="defaultSemiBold">Progress</ThemedText>
-            {progressConfig?.allowCustomTotal && progressConfig.total === undefined ? (
-              <TextInput
-                style={[
-                  styles.totalInput,
-                  {
-                    color: colors.text,
-                    borderColor: colors.icon + '28',
-                    backgroundColor: colors.icon + '10',
-                  },
-                ]}
-                keyboardType="numeric"
-                placeholder={`Total ${progressConfig.label}`}
-                placeholderTextColor={colors.icon}
-                value={progressTotal !== undefined ? String(progressTotal) : ''}
-                onChangeText={(value) => {
-                  const nextTotal = Number(value);
-                  setDraft((current) => ({
-                    ...current,
-                    progress: normalizeProgress({
-                      current: current.progress?.current,
-                      total:
-                        value.trim() && Number.isFinite(nextTotal) && nextTotal > 0
-                          ? nextTotal
-                          : undefined,
-                      unit: progressConfig.unit,
-                      label: progressConfig.label,
-                      updatedAt: Date.now(),
-                    }),
-                  }));
-                }}
-              />
-            ) : null}
-          </View>
-          <Pressable
-            disabled={progressTotal === undefined}
-            onPress={openProgressSheet}
-            style={({ pressed }) => [
-              styles.progressCard,
-              {
-                borderColor: colors.icon + '28',
-                backgroundColor: colors.icon + '10',
-                opacity: progressTotal === undefined ? 0.55 : pressed ? 0.82 : 1,
-              },
-            ]}
-          >
-            <View style={styles.progressCardText}>
-              <ThemedText type="defaultSemiBold">
-                {progressConfig?.label ?? effectiveProgress?.label ?? 'Progress'}
-              </ThemedText>
-              <ThemedText style={{ color: colors.icon }}>
-                {progressDisplayLabel ?? `-/${progressTotal ?? '-'}`}
-              </ThemedText>
+      {showPillRow ? (
+        <View style={styles.pillRow}>
+          {showStatusPill ? (
+            <View style={styles.pillCol}>
+              <Pressable
+                onPress={openStatusSheet}
+                style={({ pressed }) => pillStyle(pressed)}
+              >
+                <ThemedText style={styles.pillText}>
+                  {getStatusLabel(statusConfig!.currentStatus)}
+                </ThemedText>
+              </Pressable>
+              <ThemedText style={[styles.pillLabel, { color: colors.icon }]}>STATUS</ThemedText>
             </View>
-            <ThemedText style={{ color: colors.tint }}>
-              {progressTotal === undefined ? 'Set total' : 'Update'}
-            </ThemedText>
-          </Pressable>
+          ) : null}
+          {showProgressPill ? (
+            <View style={styles.pillCol}>
+              <Pressable
+                disabled={progressTotal === undefined && !progressConfig?.allowCustomTotal}
+                onPress={openProgressSheet}
+                style={({ pressed }) => [
+                  ...pillStyle(pressed),
+                  progressTotal === undefined && !progressConfig?.allowCustomTotal
+                    ? { opacity: 0.5 }
+                    : {},
+                ]}
+              >
+                <ThemedText style={styles.pillText}>
+                  {formatProgressPillLabel(effectiveProgress, progressConfig)}
+                </ThemedText>
+              </Pressable>
+              <ThemedText style={[styles.pillLabel, { color: colors.icon }]}>PROGRESS</ThemedText>
+            </View>
+          ) : null}
+          {showRatingPill ? (
+            <View style={styles.pillCol}>
+              <Pressable
+                onPress={openRatingSheet}
+                style={({ pressed }) => pillStyle(pressed)}
+              >
+                <ThemedText style={styles.pillText}>
+                  {draft.rating ? `${formatRatingValue(draft.rating)}/5` : '-'}
+                  {' '}
+                </ThemedText>
+                <Text style={{ color: colors.tint, fontSize: 12 }}>★</Text>
+              </Pressable>
+              <ThemedText style={[styles.pillLabel, { color: colors.icon }]}>RATING</ThemedText>
+            </View>
+          ) : null}
         </View>
       ) : null}
 
-      <TextInput
-        style={[
-          styles.input,
-          {
-            color: colors.text,
-            borderColor: colors.icon + '28',
-            backgroundColor: colors.icon + '10',
-          },
-        ]}
-        placeholder="Tags, comma separated"
-        placeholderTextColor={colors.icon}
-        value={draft.tags.join(', ')}
-        onChangeText={(value) =>
-          setDraft((current) => ({
-            ...current,
-            tags: value.split(','),
-          }))
-        }
-      />
+      {progressConfig?.allowCustomTotal && progressConfig.total === undefined ? (
+        <TextInput
+          style={[
+            styles.input,
+            {
+              color: colors.text,
+              borderColor: colors.icon + '28',
+              backgroundColor: colors.icon + '10',
+            },
+          ]}
+          keyboardType="numeric"
+          placeholder={`Total ${progressConfig.label}`}
+          placeholderTextColor={colors.icon}
+          value={progressTotal !== undefined ? String(progressTotal) : ''}
+          onChangeText={(value) => {
+            const nextTotal = Number(value);
+            setDraft((current) => ({
+              ...current,
+              progress: normalizeProgress({
+                current: current.progress?.current,
+                total:
+                  value.trim() && Number.isFinite(nextTotal) && nextTotal > 0
+                    ? nextTotal
+                    : undefined,
+                unit: progressConfig.unit,
+                label: progressConfig.label,
+                updatedAt: Date.now(),
+              }),
+            }));
+          }}
+        />
+      ) : null}
 
       <TextInput
         style={[
@@ -326,9 +388,9 @@ export function ItemUserDataPanel({
                     customFields: current.customFields.map((item, itemIndex) =>
                       itemIndex === index
                         ? {
-                            ...item,
-                            title: value,
-                          }
+                          ...item,
+                          title: value,
+                        }
                         : item
                     ),
                   }))
@@ -353,9 +415,9 @@ export function ItemUserDataPanel({
                     customFields: current.customFields.map((item, itemIndex) =>
                       itemIndex === index
                         ? {
-                            ...item,
-                            value,
-                          }
+                          ...item,
+                          value,
+                        }
                         : item
                     ),
                   }))
@@ -394,8 +456,36 @@ const styles = StyleSheet.create({
   container: {
     gap: 16,
   },
-  section: {
-    gap: 10,
+  pillRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  pillCol: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 4,
+  },
+  pillLabel: {
+    fontSize: 10,
+    lineHeight: 10,
+    fontWeight: '300',
+    letterSpacing: 0.5,
+  },
+  pill: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderRadius: 10,
+    borderCurve: 'continuous',
+  },
+  pillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   input: {
     minHeight: 48,
@@ -405,15 +495,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 15,
   },
-  totalInput: {
-    minWidth: 132,
-    minHeight: 42,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 14,
-  },
   textArea: {
     minHeight: 120,
     borderWidth: 1,
@@ -421,25 +502,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
-  },
-  progressHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  progressCard: {
-    borderWidth: 1,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  progressCardText: {
-    gap: 4,
   },
   fieldsHeader: {
     flexDirection: 'row',

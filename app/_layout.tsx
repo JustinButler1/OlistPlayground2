@@ -93,6 +93,22 @@ export default function RootLayout() {
                         ...(isIos ? { sheetAllowedDetents: [0.35] } : {}),
                       }}
                     />
+                    <Stack.Screen
+                      name="rating-sheet"
+                      options={{
+                        ...sheetOptions,
+                        title: '',
+                        ...(isIos ? { sheetAllowedDetents: [0.35] } : {}),
+                      }}
+                    />
+                    <Stack.Screen
+                      name="status-sheet"
+                      options={{
+                        ...sheetOptions,
+                        title: '',
+                        ...(isIos ? { sheetAllowedDetents: [0.55] } : {}),
+                      }}
+                    />
                     <Stack.Screen name="games/[id]" />
                     <Stack.Screen name="product-import" options={{ title: 'Import Product' }} />
                     <Stack.Screen

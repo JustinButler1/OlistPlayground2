@@ -10,6 +10,7 @@ import {
   formatProgressLabel as formatTrackerProgressLabel,
   getEffectiveEntryProgress,
   getEffectiveEntryRating,
+  getEntryItemKey,
 } from '@/lib/tracker-metadata';
 
 export interface EntryWithList {
@@ -187,6 +188,17 @@ export function getArchivedLists(lists: TrackerList[]): TrackerList[] {
 export function findEntryLocation(lists: TrackerList[], entryId: string): EntryWithList | null {
   for (const list of lists) {
     const entry = list.entries.find((item) => item.id === entryId);
+    if (entry) {
+      return { entry, list };
+    }
+  }
+
+  return null;
+}
+
+export function findEntryByItemKey(lists: TrackerList[], itemKey: string): EntryWithList | null {
+  for (const list of lists) {
+    const entry = list.entries.find((item) => getEntryItemKey(item) === itemKey);
     if (entry) {
       return { entry, list };
     }

@@ -2,13 +2,13 @@ import { Button, Form, Host, HStack, Menu, Section, Spacer, Text, Toggle } from 
 import {
   controlSize,
   disabled as disabledModifier,
-  labelStyle,
   labelsHidden,
+  labelStyle,
 } from '@expo/ui/swift-ui/modifiers';
 import { ScrollView, StyleSheet, Switch, View } from 'react-native';
 
-import { useNewListForm } from '@/components/tracker/use-new-list-form';
 import { ThemedText } from '@/components/themed-text';
+import { useNewListForm } from '@/components/tracker/use-new-list-form';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { LIST_ADDON_OPTIONS } from '@/lib/list-config-options';

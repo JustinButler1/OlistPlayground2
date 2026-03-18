@@ -1,7 +1,7 @@
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { Image } from 'expo-image';
 import { Link, Stack, useLocalSearchParams } from 'expo-router';
-import { forwardRef, useState } from 'react';
+import { forwardRef, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -23,7 +23,9 @@ import { ThemedView } from '@/components/themed-view';
 import { Colors } from '@/constants/theme';
 import { getItemUserDataKey } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useListsQuery } from '@/contexts/lists-context';
 import { normalizeRating } from '@/lib/tracker-metadata';
+import { findEntryByItemKey } from '@/lib/tracker-selectors';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ExpandableDescription } from '@/components/ExpandableDescription';
 import { ExpandableTags } from '@/components/ExpandableTags';
@@ -120,6 +122,7 @@ export default function MangaDetailsScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const [activeTab, setActiveTab] = useState<ItemDetailTabId>('details');
+  const [authorExpanded, setAuthorExpanded] = useState(false);
   const seed = readDetailSeed(params);
   const [mangaQuery, charactersQuery] = useQueries({
     queries: [
@@ -144,8 +147,20 @@ export default function MangaDetailsScreen() {
 
   const imageUrl =
     manga?.images?.jpg?.large_image_url ?? manga?.images?.jpg?.image_url ?? seed.imageUrl;
+  const { activeLists } = useListsQuery();
   const itemKey = id ? getItemUserDataKey('manga', id) : null;
+  const entryLocation = useMemo(
+    () => (itemKey ? findEntryByItemKey(activeLists, itemKey) : null),
+    [activeLists, itemKey]
+  );
   const communityRating = normalizeRating(manga?.score ?? undefined);
+  const authorLine = manga?.authors?.map((a) => a.name).join(', ') || null;
+  const progressLine = [
+    manga?.type,
+    manga?.volumes ? `${manga.volumes} vol` : null,
+    manga?.chapters ? `${manga.chapters} ch` : null,
+    manga?.published?.string ?? null,
+  ].filter(Boolean).join(' · ') || null;
   const progressConfig =
     typeof manga?.chapters === 'number' && manga.chapters > 0
       ? {
@@ -204,12 +219,24 @@ export default function MangaDetailsScreen() {
     >
           <View style={styles.headerBlock}>
             <ThemedText type="title">{title}</ThemedText>
-            {subtitle ? <ThemedText style={{ color: colors.icon }}>{subtitle}</ThemedText> : null}
-            {meta ? <ThemedText style={{ color: colors.icon }}>{meta}</ThemedText> : null}
-            {communityRating ? (
-              <View style={styles.ratingRow}>
-                <ThemedText style={{ color: colors.icon }}>Community rating</ThemedText>
-                <RatingStars value={communityRating} showValue />
+            {(authorLine || progressLine || communityRating) ? (
+              <View style={styles.metaRow}>
+                <View style={styles.metaLeft}>
+                  {authorLine ? (
+                    <Pressable onPress={() => setAuthorExpanded((v) => !v)}>
+                      <ThemedText
+                        numberOfLines={authorExpanded ? undefined : 1}
+                        style={{ color: colors.icon }}
+                      >
+                        {authorLine}
+                      </ThemedText>
+                    </Pressable>
+                  ) : null}
+                  {progressLine ? (
+                    <ThemedText style={{ color: colors.icon }}>{progressLine}</ThemedText>
+                  ) : null}
+                </View>
+                {communityRating ? <RatingStars value={communityRating} /> : null}
               </View>
             ) : null}
           </View>
@@ -343,6 +370,11 @@ export default function MangaDetailsScreen() {
               itemKey={itemKey}
               showRating
               progressConfig={progressConfig}
+              statusConfig={entryLocation ? {
+                entryId: entryLocation.entry.id,
+                listId: entryLocation.list.id,
+                currentStatus: entryLocation.entry.status,
+              } : undefined}
             />
           ) : null}
     </ApiDetailPage>
@@ -375,8 +407,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 28,
   },
-  ratingRow: {
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 8,
+  },
+  metaLeft: {
+    flex: 1,
+    gap: 2,
   },
   genreRow: {
     flexDirection: 'row',

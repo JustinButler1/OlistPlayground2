@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, Stack, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -21,7 +21,9 @@ import { ThemedView } from '@/components/themed-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { getItemUserDataKey } from '@/data/mock-lists';
+import { useListsQuery } from '@/contexts/lists-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { findEntryByItemKey } from '@/lib/tracker-selectors';
 import { ExpandableDescription } from '@/components/ExpandableDescription';
 import { ExpandableTags } from '@/components/ExpandableTags';
 import {
@@ -60,9 +62,15 @@ export default function BookDetailsScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const seed = readDetailSeed(params);
   const [activeTab, setActiveTab] = useState<ItemDetailTabId>('details');
+  const [authorExpanded, setAuthorExpanded] = useState(false);
 
   const workKey = slug ? slugToBookKey(slug) : null;
+  const { activeLists } = useListsQuery();
   const itemKey = workKey ? getItemUserDataKey('book', workKey) : null;
+  const entryLocation = useMemo(
+    () => (itemKey ? findEntryByItemKey(activeLists, itemKey) : null),
+    [activeLists, itemKey]
+  );
   const workQuery = useQuery({
     queryKey: apiQueryKeys.book.detail(workKey ?? ''),
     queryFn: ({ signal }) => fetchGoogleBookDetails(workKey!, signal),
@@ -81,8 +89,11 @@ export default function BookDetailsScreen() {
     null;
   const description = work ? getDescriptionText(work) : null;
   const title = work?.volumeInfo?.title ?? seed.title ?? 'Book';
-  const subtitle =
-    work?.volumeInfo?.publishedDate ?? seed.subtitle ?? null;
+  const authorLine = authorNames.length > 0 ? authorNames.join(', ') : (seed.subtitle ?? null);
+  const progressLine = [
+    work?.volumeInfo?.pageCount ? `${work.volumeInfo.pageCount} pages` : null,
+    work?.volumeInfo?.publishedDate ?? null,
+  ].filter(Boolean).join(' · ') || null;
 
   if (!slug) {
     return (
@@ -114,19 +125,34 @@ export default function BookDetailsScreen() {
       scrollStyle={styles.scroll}
       screenTitle={title}
     >
+          <View style={styles.headerBlock}>
+            <ThemedText type="title" style={styles.title}>
+              {title}
+            </ThemedText>
+            {(authorLine || progressLine) ? (
+              <View style={styles.metaRow}>
+                <View style={styles.metaLeft}>
+                  {authorLine ? (
+                    <Pressable onPress={() => setAuthorExpanded((v) => !v)}>
+                      <ThemedText
+                        numberOfLines={authorExpanded ? undefined : 1}
+                        style={[styles.subtitle, { color: colors.icon }]}
+                      >
+                        {authorLine}
+                      </ThemedText>
+                    </Pressable>
+                  ) : null}
+                  {progressLine ? (
+                    <ThemedText style={[styles.subtitle, { color: colors.icon }]}>
+                      {progressLine}
+                    </ThemedText>
+                  ) : null}
+                </View>
+              </View>
+            ) : null}
+          </View>
           <ItemDetailTabs activeTab={activeTab} onChange={setActiveTab} />
           <View style={styles.content}>
-            <View style={styles.headerBlock}>
-              <ThemedText type="title" style={styles.title}>
-                {title}
-              </ThemedText>
-
-              {subtitle ? (
-                <ThemedText style={[styles.subtitle, { color: colors.icon }]}>
-                  {subtitle}
-                </ThemedText>
-              ) : null}
-            </View>
             {activeTab === 'details' ? (
               loading ? (
                 <View style={styles.sectionState}>
@@ -138,21 +164,6 @@ export default function BookDetailsScreen() {
                 </View>
               ) : (
                 <>
-                {(work.volumeInfo?.publishedDate || work.volumeInfo?.pageCount) && (
-                  <View style={styles.metaRow}>
-                    {work.volumeInfo?.publishedDate ? (
-                      <ThemedText style={[styles.subtitle, { color: colors.icon }]}>
-                        {work.volumeInfo.publishedDate}
-                      </ThemedText>
-                    ) : null}
-                    {work.volumeInfo?.pageCount ? (
-                      <ThemedText style={[styles.subtitle, { color: colors.icon, marginLeft: work.volumeInfo?.publishedDate ? 8 : 0 }]}>
-                        {work.volumeInfo?.publishedDate ? '| ' : ''}{work.volumeInfo.pageCount} pages
-                      </ThemedText>
-                    ) : null}
-                  </View>
-                )}
-
                 {work.volumeInfo?.categories?.length ? (
                   <ExpandableTags tags={work.volumeInfo.categories.map((c, i) => ({ id: i, name: c }))} />
                 ) : null}
@@ -201,6 +212,11 @@ export default function BookDetailsScreen() {
                   unit: 'item',
                   allowCustomTotal: true,
                 }}
+                statusConfig={entryLocation ? {
+                  entryId: entryLocation.entry.id,
+                  listId: entryLocation.list.id,
+                  currentStatus: entryLocation.entry.status,
+                } : undefined}
               />
             ) : null}
           </View>
@@ -266,11 +282,16 @@ const styles = StyleSheet.create({
     color: '#e74c3c',
     textAlign: 'center',
   },
+  metaLeft: {
+    flex: 1,
+    gap: 2,
+  },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
+    justifyContent: 'space-between',
     marginBottom: 16,
+    gap: 8,
   },
   section: {
     marginTop: 24,

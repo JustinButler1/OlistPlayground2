@@ -185,6 +185,11 @@ export default function GameDetailsScreen() {
       : null;
   const platforms = game?.platforms?.map((platform) => platform.name).filter(Boolean) ?? [];
   const title = game?.name ?? seed.title ?? 'Game';
+  const authorLine = game?.involved_companies?.map((inv) => inv.company.name).join(', ') || null;
+  const progressLine = [
+    year,
+    platforms.length ? platforms.slice(0, 5).join(', ') : null,
+  ].filter(Boolean).join(' · ') || null;
 
   if (!id) {
     return (
@@ -221,7 +226,25 @@ export default function GameDetailsScreen() {
             <ThemedText type="title" style={styles.title}>
               {title}
             </ThemedText>
-            {!game && seed.subtitle ? (
+            {(authorLine || progressLine || rating !== null) ? (
+              <View style={styles.metaRow}>
+                <View style={styles.metaLeft}>
+                  {authorLine ? (
+                    <ThemedText style={[styles.meta, { color: colors.icon }]} numberOfLines={1}>
+                      {authorLine}
+                    </ThemedText>
+                  ) : null}
+                  {progressLine ? (
+                    <ThemedText style={[styles.meta, { color: colors.icon }]}>
+                      {progressLine}
+                    </ThemedText>
+                  ) : !game && seed.subtitle ? (
+                    <ThemedText style={[styles.meta, { color: colors.icon }]}>{seed.subtitle}</ThemedText>
+                  ) : null}
+                </View>
+                {rating !== null ? <RatingStars value={rating} /> : null}
+              </View>
+            ) : !game && seed.subtitle ? (
               <ThemedText style={[styles.meta, { color: colors.icon }]}>{seed.subtitle}</ThemedText>
             ) : null}
           </View>
@@ -236,15 +259,6 @@ export default function GameDetailsScreen() {
             </View>
           ) : (
             <>
-              <View style={styles.metaRow}>
-                {year || platforms.length ? (
-                  <ThemedText style={[styles.meta, { color: colors.icon }]}>
-                    {year ?? 'Unknown year'}
-                    {platforms.length ? ` · ${platforms.slice(0, 5).join(', ')}` : ''}
-                  </ThemedText>
-                ) : null}
-                {rating !== null ? <RatingStars value={rating} showValue /> : null}
-              </View>
 
               {game.genres?.length || game.themes?.length ? (
                 <ExpandableTags
@@ -407,12 +421,15 @@ const styles = StyleSheet.create({
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
-    gap: 12,
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  metaLeft: {
+    flex: 1,
+    gap: 2,
   },
   meta: {
     fontSize: 14,
-    flex: 1,
   },
   sectionTitle: {
     fontSize: 18,

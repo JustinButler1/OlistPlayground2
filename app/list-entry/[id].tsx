@@ -73,6 +73,11 @@ export default function ListEntryDetailScreen() {
                   itemKey={itemKey}
                   showRating={result.list.config.addons.includes('rating') || !!effectiveRating}
                   progressConfig={progressConfig}
+                  statusConfig={{
+                    entryId: result.entry.id,
+                    listId: result.list.id,
+                    currentStatus: result.entry.status,
+                  }}
                 />
               </ScrollView>
             ) : (

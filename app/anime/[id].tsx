@@ -1,7 +1,7 @@
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { Image } from 'expo-image';
 import { Link, Stack, useLocalSearchParams } from 'expo-router';
-import { forwardRef, useState } from 'react';
+import { forwardRef, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -23,7 +23,9 @@ import { ThemedView } from '@/components/themed-view';
 import { Colors } from '@/constants/theme';
 import { getItemUserDataKey } from '@/data/mock-lists';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useListsQuery } from '@/contexts/lists-context';
 import { normalizeRating } from '@/lib/tracker-metadata';
+import { findEntryByItemKey } from '@/lib/tracker-selectors';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ExpandableDescription } from '@/components/ExpandableDescription';
 import { ExpandableTags } from '@/components/ExpandableTags';
@@ -119,6 +121,7 @@ export default function AnimeDetailsScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const [activeTab, setActiveTab] = useState<ItemDetailTabId>('details');
+  const [authorExpanded, setAuthorExpanded] = useState(false);
   const seed = readDetailSeed(params);
   const [animeQuery, charactersQuery] = useQueries({
     queries: [
@@ -143,16 +146,23 @@ export default function AnimeDetailsScreen() {
 
   const imageUrl =
     anime?.images?.jpg?.large_image_url ?? anime?.images?.jpg?.image_url ?? seed.imageUrl;
+  const { activeLists } = useListsQuery();
   const itemKey = id ? getItemUserDataKey('anime', id) : null;
+  const entryLocation = useMemo(
+    () => (itemKey ? findEntryByItemKey(activeLists, itemKey) : null),
+    [activeLists, itemKey]
+  );
   const communityRating = normalizeRating(anime?.score ?? undefined);
-  const meta = [anime?.type, anime?.episodes ? `${anime.episodes} ep` : null, anime?.year, anime?.duration]
-    .filter(Boolean)
-    .join(' | ');
   const title = anime?.title ?? seed.title ?? 'Anime';
-  const subtitle =
-    anime && (anime.title_english || anime.title_japanese)
-      ? [anime.title_english, anime.title_japanese].filter(Boolean).join(' | ')
-      : seed.subtitle;
+  const studioNames = anime?.studios?.map((s) => s.name) ?? [];
+  const producerNames = anime?.producers?.map((p) => p.name) ?? [];
+  const authorLine = [...studioNames, ...producerNames].join(', ') || null;
+  const progressLine = [
+    anime?.type,
+    anime?.episodes ? `${anime.episodes} ep` : null,
+    anime?.year ? String(anime.year) : null,
+    anime?.duration ?? null,
+  ].filter(Boolean).join(' · ') || null;
 
   if (!id) {
     return (
@@ -184,12 +194,24 @@ export default function AnimeDetailsScreen() {
     >
           <View style={styles.headerBlock}>
             <ThemedText type="title">{title}</ThemedText>
-            {subtitle ? <ThemedText style={{ color: colors.icon }}>{subtitle}</ThemedText> : null}
-            {meta ? <ThemedText style={{ color: colors.icon }}>{meta}</ThemedText> : null}
-            {communityRating ? (
-              <View style={styles.ratingRow}>
-                <ThemedText style={{ color: colors.icon }}>Community rating</ThemedText>
-                <RatingStars value={communityRating} showValue />
+            {(authorLine || progressLine || communityRating) ? (
+              <View style={styles.metaRow}>
+                <View style={styles.metaLeft}>
+                  {authorLine ? (
+                    <Pressable onPress={() => setAuthorExpanded((v) => !v)}>
+                      <ThemedText
+                        numberOfLines={authorExpanded ? undefined : 1}
+                        style={{ color: colors.icon }}
+                      >
+                        {authorLine}
+                      </ThemedText>
+                    </Pressable>
+                  ) : null}
+                  {progressLine ? (
+                    <ThemedText style={{ color: colors.icon }}>{progressLine}</ThemedText>
+                  ) : null}
+                </View>
+                {communityRating ? <RatingStars value={communityRating} /> : null}
               </View>
             ) : null}
           </View>
@@ -331,6 +353,11 @@ export default function AnimeDetailsScreen() {
                 unit: 'episode',
                 total: anime?.episodes ?? undefined,
               }}
+              statusConfig={entryLocation ? {
+                entryId: entryLocation.entry.id,
+                listId: entryLocation.list.id,
+                currentStatus: entryLocation.entry.status,
+              } : undefined}
             />
           ) : null}
     </ApiDetailPage>
@@ -362,6 +389,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 28,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  metaLeft: {
+    flex: 1,
+    gap: 2,
   },
   ratingRow: {
     gap: 8,

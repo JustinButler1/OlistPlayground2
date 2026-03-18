@@ -4,7 +4,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { api } from '@/convex/_generated/api';
-import { RatingStars } from '@/components/tracker/RatingStars';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 import { SelectionRow } from '@/components/tracker/selection-row';
 import { ThumbnailImage } from '@/components/thumbnail-image';
 import { ThemedText } from '@/components/themed-text';
@@ -21,7 +21,7 @@ import { useListsQuery } from '@/contexts/lists-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { LIST_STATUS_OPTIONS } from '@/lib/list-config-options';
 import { uploadImageToConvex, type UploadedStorageFile } from '@/lib/convex-upload';
-import { normalizeProgress, normalizeRating } from '@/lib/tracker-metadata';
+import { formatRatingValue, normalizeProgress, normalizeRating } from '@/lib/tracker-metadata';
 
 interface ManualEntryFormProps {
   onSubmit: (draft: EntryDraft) => Promise<void> | void;
@@ -601,7 +601,53 @@ export function ManualEntryForm({
       {hasAddon('rating') ? (
         <View style={styles.section}>
           <ThemedText type="defaultSemiBold">Rating</ThemedText>
-          <RatingStars value={ratingValue} onChange={setRatingValue} showValue allowClear />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <Pressable
+              onPress={() =>
+                setRatingValue((current) => {
+                  if (!current) return undefined;
+                  const next = Math.round((current - 0.25) * 4) / 4;
+                  return next <= 0 ? undefined : next;
+                })
+              }
+              style={{
+                width: 40,
+                height: 40,
+                borderWidth: 1,
+                borderRadius: 20,
+                borderColor: colors.icon + '28',
+                backgroundColor: colors.icon + '10',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <IconSymbol name="minus" size={18} color={colors.text} />
+            </Pressable>
+            <ThemedText style={{ fontSize: 18, fontWeight: '700', fontVariant: ['tabular-nums'], minWidth: 40, textAlign: 'center' }}>
+              {ratingValue ? formatRatingValue(ratingValue) : '-'}
+            </ThemedText>
+            <Pressable
+              onPress={() =>
+                setRatingValue((current) => {
+                  const base = current ?? 0;
+                  const next = Math.round((base + 0.25) * 4) / 4;
+                  return Math.min(next, 5);
+                })
+              }
+              style={{
+                width: 40,
+                height: 40,
+                borderWidth: 1,
+                borderRadius: 20,
+                borderColor: colors.icon + '28',
+                backgroundColor: colors.icon + '10',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <IconSymbol name="plus" size={18} color={colors.text} />
+            </Pressable>
+          </View>
         </View>
       ) : null}
 
