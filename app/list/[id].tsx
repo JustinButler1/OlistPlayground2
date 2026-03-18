@@ -643,6 +643,7 @@ export default function ListDetailScreen() {
     setComposerText('');
     clearPendingComposerMetadata();
     setComposerFocusPending(true);
+    scrollComposerIntoView();
   }
 
   function buildPendingTags() {
