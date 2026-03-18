@@ -1,5 +1,6 @@
 import { Stack, useLocalSearchParams } from 'expo-router';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { SelectionRow } from '@/components/tracker/selection-row';
 import { ThemedText } from '@/components/themed-text';
@@ -21,8 +22,16 @@ export default function ListSettingsScreen() {
   const { activeLists } = useListsQuery();
   const { updateList } = useListActions();
   const list = activeLists.find((item) => item.id === id) ?? null;
+  const [name, setName] = useState(list?.title ?? '');
   const privacy = list?.privacy ?? 'public';
   const selectedPrivacy = PRIVACY_OPTIONS.find((option) => option.value === privacy);
+
+  const handleNameSubmit = useCallback(() => {
+    const trimmed = name.trim();
+    if (list && trimmed && trimmed !== list.title) {
+      void updateList(list.id, { title: trimmed });
+    }
+  }, [list, name, updateList]);
 
   return (
     <>
@@ -33,6 +42,31 @@ export default function ListSettingsScreen() {
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
       >
+        {list ? (
+          <View style={styles.section}>
+            <ThemedText type="subtitle">Name</ThemedText>
+            <View
+              style={[
+                styles.card,
+                {
+                  backgroundColor: colors.background,
+                  borderColor: colors.icon + '20',
+                },
+              ]}
+            >
+              <TextInput
+                style={[styles.nameInput, { color: colors.text }]}
+                value={name}
+                onChangeText={setName}
+                onBlur={handleNameSubmit}
+                onSubmitEditing={handleNameSubmit}
+                placeholder="List name"
+                placeholderTextColor={colors.icon}
+                returnKeyType="done"
+              />
+            </View>
+          </View>
+        ) : null}
         <View style={styles.section}>
           <ThemedText type="subtitle">Privacy</ThemedText>
           <View
@@ -81,5 +115,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
     padding: 12,
+  },
+  nameInput: {
+    fontSize: 16,
+    padding: 4,
   },
 });

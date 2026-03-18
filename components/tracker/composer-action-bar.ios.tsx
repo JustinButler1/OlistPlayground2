@@ -9,18 +9,22 @@ interface ComposerActionBarProps {
   visible: boolean;
   colors: (typeof Colors)['light'] | (typeof Colors)['dark'];
   bottom?: number;
+  sublistMode?: boolean;
   onSearchPress: () => void;
   onTagPress: () => void;
   onLinkPress: () => void;
+  onSublistToggle?: () => void;
 }
 
 export function ComposerActionBar({
   accessoryId,
   visible,
   colors,
+  sublistMode,
   onSearchPress,
   onTagPress,
   onLinkPress,
+  onSublistToggle,
 }: ComposerActionBarProps) {
   if (!visible) {
     return null;
@@ -40,6 +44,14 @@ export function ComposerActionBar({
             <ActionButton icon="magnifyingglass" color={colors.tint} onPress={onSearchPress} />
             <ActionButton icon="tag.fill" color={colors.tint} onPress={onTagPress} />
             <ActionButton icon="link" color={colors.tint} onPress={onLinkPress} />
+            {onSublistToggle ? (
+              <ActionButton
+                icon="list.bullet"
+                color={colors.tint}
+                active={sublistMode}
+                onPress={onSublistToggle}
+              />
+            ) : null}
           </GlassView>
         ) : (
           <View
@@ -55,6 +67,14 @@ export function ComposerActionBar({
             <ActionButton icon="magnifyingglass" color={colors.tint} onPress={onSearchPress} />
             <ActionButton icon="tag.fill" color={colors.tint} onPress={onTagPress} />
             <ActionButton icon="link" color={colors.tint} onPress={onLinkPress} />
+            {onSublistToggle ? (
+              <ActionButton
+                icon="list.bullet"
+                color={colors.tint}
+                active={sublistMode}
+                onPress={onSublistToggle}
+              />
+            ) : null}
           </View>
         )}
       </View>
@@ -65,17 +85,23 @@ export function ComposerActionBar({
 function ActionButton({
   color,
   icon,
+  active,
   onPress,
 }: {
   color: string;
-  icon: 'magnifyingglass' | 'tag.fill' | 'link';
+  icon: 'magnifyingglass' | 'tag.fill' | 'link' | 'list.bullet';
+  active?: boolean;
   onPress: () => void;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
-      style={({ pressed }) => [styles.actionIconButton, { opacity: pressed ? 0.7 : 1 }]}
+      style={({ pressed }) => [
+        styles.actionIconButton,
+        { opacity: pressed ? 0.7 : 1 },
+        active && { backgroundColor: color + '20' },
+      ]}
     >
       <IconSymbol name={icon} size={26} color={color} />
     </Pressable>

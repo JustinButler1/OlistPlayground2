@@ -8,7 +8,12 @@
       "Bash(grep -E \"\\\\.\\(tsx?|ts\\)$\")",
       "Bash(sed -i 's/<RatingStars value={communityRating} showValue \\\\/>/<RatingStars value={communityRating} \\\\/>/g' app/anime/[id].tsx app/manga/[id].tsx app/tv-movie/[type]/[id].tsx)",
       "Bash(sed -i 's/<RatingStars value={rating} showValue \\\\/>/<RatingStars value={rating} \\\\/>/g' app/games/[id].tsx)",
-      "Bash(grep -n \"KeyboardAvoidingView\\\\|TextInput\\\\|FlatList\\\\|addItem\\\\|add item\\\\|keyboard\" /c/Users/Justin/Development/Projects/OlistPlayground2/app/list/[id].tsx)"
+      "Bash(grep -n \"KeyboardAvoidingView\\\\|TextInput\\\\|FlatList\\\\|addItem\\\\|add item\\\\|keyboard\" /c/Users/Justin/Development/Projects/OlistPlayground2/app/list/[id].tsx)",
+      "Bash(grep -n \"composerVisible\\\\|ComposerActionBar\" /c/Users/Justin/Development/Projects/OlistPlayground2/app/list/[id].tsx)",
+      "Bash(grep -n \"TextInput\\\\|placeholder.*[Aa]dd\\\\|input.*entry\" /c/Users/Justin/Development/Projects/OlistPlayground2/app/list/[id].tsx)",
+      "Bash(grep -n \"submitComposer\\\\|composerText\\\\|addEntryToList\" /c/Users/Justin/Development/Projects/OlistPlayground2/app/list/[id].tsx)",
+      "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")",
+      "Bash(grep -n \"openListSettings\\\\|List settings\" /c/Users/Justin/Development/Projects/OlistPlayground2/app/list/[id].tsx)"
     ]
   }
 }

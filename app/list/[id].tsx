@@ -291,6 +291,7 @@ export default function ListDetailScreen() {
   const [newSublistVisible, setNewSublistVisible] = useState(false);
   const [sublistTitle, setSublistTitle] = useState('');
   const [sublistPreset, setSublistPreset] = useState<ListPreset>('blank');
+  const [composerSublistMode, setComposerSublistMode] = useState(false);
   const [configVisible, setConfigVisible] = useState(false);
   const [templateVisible, setTemplateVisible] = useState(false);
   const [draftConfig, setDraftConfig] = useState(list?.config);
@@ -659,6 +660,28 @@ export default function ListDetailScreen() {
     const trimmedTitle = composerText.trim();
     if (!trimmedTitle) {
       Keyboard.dismiss();
+      return;
+    }
+
+    if (composerSublistMode) {
+      void (async () => {
+        const sublistId = await createList(trimmedTitle, 'blank', {
+          showInMyLists: false,
+          parentListId: list.id,
+        });
+        if (!sublistId) {
+          return;
+        }
+        await addEntryToList(list.id, {
+          title: trimmedTitle,
+          type: 'list',
+          tags: buildPendingTags(),
+          detailPath: `list/${sublistId}`,
+          linkedListId: sublistId,
+          sourceRef: { source: 'custom', detailPath: `list/${sublistId}` },
+        });
+        focusNextComposerLine();
+      })();
       return;
     }
 
@@ -1866,9 +1889,11 @@ export default function ListDetailScreen() {
             visible={composerAccessoryVisible}
             colors={colors}
             bottom={actionBarBottom}
+            sublistMode={composerSublistMode}
             onLinkPress={openLinkOptions}
             onSearchPress={() => setSearchVisible(true)}
             onTagPress={() => setTagSheetVisible(true)}
+            onSublistToggle={() => setComposerSublistMode((prev) => !prev)}
           />
         ) : null}
 
