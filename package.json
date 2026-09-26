@@ -3,6 +3,7 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
+    "dev": "concurrently --group \"expo start\" \"convex dev\"",
     "start": "expo start",
     "postinstall": "node ./scripts/fix-react-native-screens-menu-ids.js",
     "reset-project": "node ./scripts/reset-project.js",

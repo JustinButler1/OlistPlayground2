@@ -3,9 +3,9 @@ import { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { EntrySettingsScreen } from '@/components/tracker/EntrySettingsScreen';
 import { ItemDetailTabs, type ItemDetailTabId } from '@/components/tracker/ItemDetailTabs';
 import { ItemUserDataPanel } from '@/components/tracker/ItemUserDataPanel';
-import { ManualEntryForm } from '@/components/tracker/ManualEntryForm';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useEntryActions, useListsQuery } from '@/contexts/lists-context';
@@ -81,13 +81,10 @@ export default function ListEntryDetailScreen() {
                 />
               </ScrollView>
             ) : (
-              <ManualEntryForm
-                submitLabel="Save settings"
-                initialEntry={result.entry}
-                currentListId={result.list.id}
+              <EntrySettingsScreen
+                entry={result.entry}
                 listConfig={result.list.config}
-                mode="addons"
-                onSubmit={handleSave}
+                onSave={handleSave}
               />
             )}
           </>

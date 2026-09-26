@@ -18,6 +18,7 @@ interface EntryRowProps {
   onPress?: () => void;
   onSelectToggle?: () => void;
   trailingLabel?: string;
+  showChevron?: boolean;
   itemUserDataByKey?: Record<string, ItemUserData>;
 }
 
@@ -29,6 +30,7 @@ export function EntryRow({
   onPress,
   onSelectToggle,
   trailingLabel,
+  showChevron,
   itemUserDataByKey,
 }: EntryRowProps) {
   const colorScheme = useColorScheme();
@@ -104,9 +106,9 @@ export function EntryRow({
         <ThemedText style={[styles.trailingLabel, { color: colors.icon }]}>
           {trailingLabel}
         </ThemedText>
-      ) : (
+      ) : showChevron !== false ? (
         <IconSymbol name="chevron.right" size={18} color={colors.icon} />
-      )}
+      ) : null}
     </Pressable>
   );
 }

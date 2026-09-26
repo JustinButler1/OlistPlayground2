@@ -801,12 +801,13 @@ export default function ListDetailScreen() {
       return;
     }
 
-    if (!entry.detailPath && isForeignList) {
+    if (entry.detailPath && !isForeignList) {
+      router.push(`/${entry.detailPath}` as never);
       return;
     }
 
-    const pathname = entry.detailPath ? `/${entry.detailPath}` : `/list-entry/${entry.id}`;
-    router.push(pathname as never);
+    // Non-detail entries: tap does nothing.
+    // Users reach settings via swipe info action.
   };
 
   const openEntryMetadata = (entry: ListEntry) => {

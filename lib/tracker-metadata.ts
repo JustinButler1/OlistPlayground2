@@ -3,6 +3,7 @@ import {
   type EntryProgress,
   type EntryProgressUnit,
   type ItemUserData,
+  type ListConfig,
   type ListEntry,
 } from '@/data/mock-lists';
 
@@ -178,4 +179,74 @@ function isEntryProgressUnit(value: unknown): value is EntryProgressUnit {
     value === 'item' ||
     value === 'percent'
   );
+}
+
+// ---------------------------------------------------------------------------
+// Entry settings helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true when tapping the entry row should navigate somewhere
+ * (linked-list or detailPath). False means tap does nothing.
+ */
+export function canOpenEntryDetails(
+  entry: Pick<ListEntry, 'linkedListId' | 'detailPath'>,
+  isForeignList = false
+): boolean {
+  const linkedListId =
+    entry.linkedListId ||
+    (entry.detailPath?.startsWith('list/') ? entry.detailPath.split('/').pop() : undefined);
+
+  if (linkedListId) {
+    return true;
+  }
+
+  if (entry.detailPath && !isForeignList) {
+    return true;
+  }
+
+  return false;
+}
+
+export type AdvancedSectionId = 'notes' | 'tags' | 'customFields' | 'cover' | 'link';
+
+export type AdvancedVisibilityState = Record<AdvancedSectionId, boolean>;
+
+/**
+ * Checks whether a given advanced section already has saved data.
+ */
+export function hasEntrySectionData(
+  entry: ListEntry,
+  listConfig: ListConfig | undefined,
+  section: AdvancedSectionId
+): boolean {
+  switch (section) {
+    case 'notes':
+      return !!entry.notes?.trim();
+    case 'tags':
+      return entry.tags.length > 0;
+    case 'customFields': {
+      if (!listConfig?.fieldDefinitions.length) {
+        return false;
+      }
+      return (entry.customFields ?? []).some((cf) => cf.value.trim());
+    }
+    case 'cover':
+      return !!entry.coverAssetUri;
+    case 'link':
+      return !!entry.productUrl?.trim();
+  }
+}
+
+/**
+ * Derives which advanced sections should start visible based on existing data.
+ */
+export function getInitialAdvancedSectionVisibility(
+  entry: ListEntry,
+  listConfig: ListConfig | undefined
+): AdvancedVisibilityState {
+  const sections: AdvancedSectionId[] = ['notes', 'tags', 'customFields', 'cover', 'link'];
+  return Object.fromEntries(
+    sections.map((section) => [section, hasEntrySectionData(entry, listConfig, section)])
+  ) as AdvancedVisibilityState;
 }
