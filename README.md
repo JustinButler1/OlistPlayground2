@@ -25,6 +25,13 @@ In the output, you'll find options to open the app in a
 
 You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
 
+## Test accounts
+
+Open the **Profile** tab and select the display name beside the chevron to open
+the account picker. Choose **Avery Stone** for creator-focused mock data or
+**Mina Park** for home-and-routines mock data. Choose the live account (named
+**Shared Workspace** by default) to return to the existing live app data.
+
 ## Get a fresh project
 
 When you're ready, run:
