@@ -3,9 +3,21 @@ import { Slot } from 'expo-router';
 import { renderRouter } from 'expo-router/testing-library';
 import { Text } from 'react-native';
 
+import { Colors } from '@/constants/theme';
+import { AI_PILLARS } from '@/data/ai-pillars';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+
 import TabLayout from '../app/(tabs)/_layout.web';
 import ExperimentalLayout from '../app/(tabs)/experimental/_layout';
 import ExperimentalScreen from '../app/(tabs)/experimental/index';
+
+jest.mock('@/hooks/use-color-scheme', () => ({
+  useColorScheme: jest.fn(() => 'light'),
+}));
+
+afterEach(() => {
+  jest.mocked(useColorScheme).mockReturnValue('light');
+});
 
 jest.mock('@/components/tab-root-background', () => ({
   TabRootBackground: ({ children }: { children: React.ReactNode }) => children,
@@ -60,5 +72,18 @@ test('each existing destination remains reachable and Experimental can be reopen
     fireEvent.press(screen.getByLabelText(/^Experimental, tab/));
     await screen.findByText('Robotics');
     expect(router.getPathname()).toBe('/experimental');
+  }
+});
+
+test.each(['light', 'dark'] as const)('Experimental copy follows the %s theme', async (theme) => {
+  jest.mocked(useColorScheme).mockReturnValue(theme);
+  openTabs();
+  fireEvent.press(screen.getByLabelText(/^Experimental, tab/));
+  await screen.findByText('Machine Learning');
+
+  expect(screen.getByText(/^Explore four pillars of AI:/)).toHaveStyle({ color: Colors[theme].text });
+  for (const pillar of AI_PILLARS) {
+    expect(screen.getByText(pillar.title)).toHaveStyle({ color: Colors[theme].text });
+    expect(screen.getByText(pillar.description)).toHaveStyle({ color: Colors[theme].text });
   }
 });

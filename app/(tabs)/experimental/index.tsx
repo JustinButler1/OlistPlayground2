@@ -1,7 +1,8 @@
-import { ScrollView, Text, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { TabRootBackground } from '@/components/tab-root-background';
+import { ThemedText } from '@/components/themed-text';
 import { Colors } from '@/constants/theme';
 import { AI_PILLARS } from '@/data/ai-pillars';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -23,10 +24,10 @@ export default function ExperimentalScreen() {
           gap: 16,
         }}
       >
-        <Text selectable style={{ color: colors.text, fontSize: 16, lineHeight: 24 }}>
+        <ThemedText selectable>
           Explore four pillars of AI: an introductory selection of ways machines learn, understand,
           perceive, and act.
-        </Text>
+        </ThemedText>
         {AI_PILLARS.map((pillar) => (
           <View
             key={pillar.title}
@@ -41,16 +42,16 @@ export default function ExperimentalScreen() {
               backgroundColor: colors.background,
             }}
           >
-            <Text
+            <ThemedText
               selectable
               accessibilityRole="header"
-              style={{ color: colors.text, fontSize: 22, fontWeight: '600' }}
+              style={{ fontSize: 22, fontWeight: '600' }}
             >
               {pillar.title}
-            </Text>
-            <Text selectable style={{ color: colors.text, fontSize: 16, lineHeight: 25 }}>
+            </ThemedText>
+            <ThemedText selectable style={{ lineHeight: 25 }}>
               {pillar.description}
-            </Text>
+            </ThemedText>
           </View>
         ))}
       </ScrollView>
