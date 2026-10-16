@@ -25,6 +25,16 @@ In the output, you'll find options to open the app in a
 
 You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
 
+## Test accounts
+
+Avery Stone and Mina Park are local seeded test accounts for exploring the app with sample data. **Current account** uses the live shared Convex workspace.
+
+To switch, open **Profile**, tap the displayed name dropdown, and select an account. Select **Current account** in the same dropdown to return to the live workspace.
+
+In **Profile → Settings**, **Reset Seeded Test Data** restores the selected mock account's original seeded state, including lists, templates, and recent activity. Using, switching, or resetting mock accounts does not write their mock data to Convex.
+
+On **Current account**, **Profile → Settings → Load Power-User Mock Data** requires confirmation. Confirming **Load** replaces the shared Convex workspace's lists and templates with power-user mock data. Mock data only enters the shared workspace when you explicitly choose and confirm this action.
+
 ## Get a fresh project
 
 When you're ready, run:
