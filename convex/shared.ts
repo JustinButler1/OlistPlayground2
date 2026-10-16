@@ -23,6 +23,7 @@ import {
   resolveMockTemplateEntryImageUrl,
 } from "../data/power-user-mock-seed";
 import { normalizeProgress, normalizeRating } from "../lib/tracker-metadata";
+import type { Doc } from "./_generated/dataModel";
 import { MAIN_WORKSPACE_SLUG } from "./model";
 
 const ENTRY_SORT_STEP = 1_000;
@@ -69,7 +70,7 @@ export interface SnapshotPayload {
       displayName: string;
       birthDate: string | null;
       avatarUri: string | null;
-      interests: string[];
+      interests: Doc<"onboardingProfile">["interests"];
     };
     completedAt: number | null;
   };
