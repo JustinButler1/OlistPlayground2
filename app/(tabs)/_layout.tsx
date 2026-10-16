@@ -3,13 +3,15 @@ import { NativeTabs } from 'expo-router/unstable-native-tabs';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
+export const unstable_settings = { initialRouteName: 'my-lists' };
+
 export default function TabLayout() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
 
   return (
     <NativeTabs tintColor={colors.tint}>
-      <NativeTabs.Trigger name="(home)" disableAutomaticContentInsets>
+      <NativeTabs.Trigger name="home" disableAutomaticContentInsets>
         <NativeTabs.Trigger.Icon
           sf={{ default: 'house', selected: 'house.fill' }}
           md="home"
