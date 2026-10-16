@@ -29,7 +29,7 @@ You can start developing by editing the files inside the **app** directory. This
 
 Avery Stone and Mina Park are local seeded test accounts for exploring the app with sample data. **Current account** uses the live shared Convex workspace.
 
-To switch, open **Profile**, tap the displayed name dropdown, and select an account. Select **Current account** in the same dropdown to return to the live workspace.
+To switch, open **Profile**, tap the displayed name dropdown, and select an account. To return, select **Current account** (displayed as **Shared Workspace** or its configured profile name) in the same dropdown.
 
 In **Profile → Settings**, **Reset Seeded Test Data** restores the selected mock account's original seeded state, including lists, templates, and recent activity. Using, switching, or resetting mock accounts does not write their mock data to Convex.
 
