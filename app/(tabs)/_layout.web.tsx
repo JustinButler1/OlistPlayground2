@@ -63,6 +63,15 @@ export default function TabLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="experimental"
+        options={{
+          title: 'Experimental',
+          tabBarIcon: ({ color }) => (
+            <IconSymbol size={28} name="flask.fill" color={color} />
+          ),
+        }}
+      />
     </Tabs>
   );
 }

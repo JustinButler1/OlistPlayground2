@@ -41,6 +41,14 @@ export default function TabLayout() {
         <NativeTabs.Trigger.Label>Profile</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
+      <NativeTabs.Trigger name="experimental">
+        <NativeTabs.Trigger.Icon
+          sf={{ default: 'flask', selected: 'flask.fill' }}
+          md="science"
+        />
+        <NativeTabs.Trigger.Label>Experimental</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+
       <NativeTabs.Trigger name="explore" role="search" disableAutomaticContentInsets>
         <NativeTabs.Trigger.Icon sf="sparkle.magnifyingglass" md="search" />
         <NativeTabs.Trigger.Label>Explore</NativeTabs.Trigger.Label>
