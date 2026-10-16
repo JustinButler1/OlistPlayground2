@@ -16,6 +16,8 @@ export default function TabLayout() {
         headerShown: false,
         headerBackButtonDisplayMode: 'minimal',
         tabBarButton: HapticTab,
+        tabBarLabelStyle: { fontSize: 10 },
+        tabBarAllowFontScaling: true,
       }}
     >
       <Tabs.Screen
@@ -60,6 +62,15 @@ export default function TabLayout() {
           title: 'Explore',
           tabBarIcon: ({ color }) => (
             <IconSymbol size={28} name="sparkle.magnifyingglass" color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="experimental"
+        options={{
+          title: 'Experimental',
+          tabBarIcon: ({ color }) => (
+            <IconSymbol size={28} name="flask.fill" color={color} />
           ),
         }}
       />
