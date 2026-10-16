@@ -55,7 +55,7 @@ export default function ProfileSheetScreen() {
   const interestLabels =
     snapshot.onboardingState?.profile.interests
       .map((interestId) => ONBOARDING_INTEREST_OPTIONS.find((item) => item.id === interestId)?.label)
-      .filter((value): value is string => !!value) ?? [];
+      .filter((value): value is NonNullable<typeof value> => !!value) ?? [];
   const statItems = [
     { label: 'Public Lists', value: listCount },
     { label: 'Entries', value: totalEntries },

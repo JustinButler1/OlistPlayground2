@@ -29,7 +29,7 @@ import Animated, {
   useAnimatedProps,
   interpolateColor,
 } from "react-native-reanimated";
-import { BlurView } from "@sbaiahmed1/react-native-blur";
+import { BlurView } from "@/components/ui/native-blur";
 
 const AnimatedBlurView = Animated.createAnimatedComponent(BlurView);
 const AnimatedFlatList: any = Animated.createAnimatedComponent(FlatList as any);

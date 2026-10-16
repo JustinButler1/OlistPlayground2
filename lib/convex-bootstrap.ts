@@ -1,110 +1,30 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery } from 'convex/react';
-
 import { api } from '@/convex/_generated/api';
-import { clearListsState, loadListsStateForImport } from '@/lib/lists-storage';
-import {
-  clearOnboardingState,
-  loadOnboardingState,
-} from '@/lib/onboarding-storage';
-
-let ensureWorkspacePromise: Promise<unknown> | null = null;
-let legacyImportPromise: Promise<unknown> | null = null;
-let legacyImportAttempted = false;
 
 export function useConvexWorkspaceBootstrap() {
   const snapshot = useQuery(api.workspace.getSnapshot, {});
   const ensureWorkspace = useMutation(api.bootstrap.ensureWorkspace);
-  const importLegacyLocalState = useMutation(api.bootstrap.importLegacyLocalState);
-  const [isBootstrapping, setIsBootstrapping] = useState(false);
-  const [lastBootstrapError, setLastBootstrapError] = useState<string | null>(null);
-
+  const [isBootstrapping, setIsBootstrapping] = useState(true);
+  const [lastBootstrapError, setLastBootstrapError] = useState<string | null>(
+    null,
+  );
   useEffect(() => {
-    let isMounted = true;
-
-    if (!ensureWorkspacePromise) {
-      setIsBootstrapping(true);
-      ensureWorkspacePromise = ensureWorkspace({})
-        .catch((error: unknown) => {
-          const message = error instanceof Error ? error.message : 'Failed to initialize Convex.';
-          if (isMounted) {
-            setLastBootstrapError(message);
-          }
-          throw error;
-        })
-        .finally(() => {
-          if (isMounted) {
-            setIsBootstrapping(false);
-          }
-        });
-    }
-
-    return () => {
-      isMounted = false;
-    };
-  }, [ensureWorkspace]);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    if (!snapshot || !snapshot.isEmpty || legacyImportAttempted || legacyImportPromise) {
-      return () => {
-        isMounted = false;
-      };
-    }
-
-    legacyImportAttempted = true;
-    setIsBootstrapping(true);
-    legacyImportPromise = (async () => {
-      const [listsState, onboardingState] = await Promise.all([
-        loadListsStateForImport(),
-        loadOnboardingState(),
-      ]);
-      const hasLegacyState =
-        !!listsState ||
-        (!!onboardingState &&
-          (!!onboardingState.profile.displayName.trim() ||
-            !!onboardingState.profile.birthDate ||
-            !!onboardingState.profile.avatarUri ||
-            onboardingState.profile.interests.length > 0 ||
-            !!onboardingState.completedAt));
-
-      if (!hasLegacyState) {
-        return;
-      }
-
-      const result = await importLegacyLocalState({
-        listsState: listsState ?? undefined,
-        onboardingState: onboardingState ?? undefined,
-      });
-
-      if (result.migrationNotes?.length) {
-        console.warn('Legacy import notes', result.migrationNotes);
-      }
-
-      await Promise.all([clearListsState(), clearOnboardingState()]);
-    })()
+    let mounted = true;
+    void ensureWorkspace({})
       .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : 'Failed to import legacy data.';
-        if (isMounted) {
-          setLastBootstrapError(message);
-        }
+        if (mounted)
+          setLastBootstrapError(
+            error instanceof Error ? error.message : 'Initialization failed.',
+          );
       })
       .finally(() => {
-        legacyImportPromise = null;
-        if (isMounted) {
-          setIsBootstrapping(false);
-        }
+        if (mounted) setIsBootstrapping(false);
       });
-
     return () => {
-      isMounted = false;
+      mounted = false;
     };
-  }, [importLegacyLocalState, snapshot]);
-
-  return {
-    snapshot,
-    isBootstrapping,
-    lastBootstrapError,
-  };
+  }, [ensureWorkspace]);
+  // Device legacy data is intentionally neither read nor imported.
+  return { snapshot, isBootstrapping, lastBootstrapError };
 }

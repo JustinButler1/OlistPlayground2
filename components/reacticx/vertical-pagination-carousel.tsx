@@ -1,4 +1,4 @@
-import { BlurView } from '@sbaiahmed1/react-native-blur';
+import { BlurView } from '@/components/ui/native-blur';
 import {
   AndroidHaptics,
   impactAsync,

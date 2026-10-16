@@ -1,8 +1,15 @@
+import {
+  ONBOARDING_INTEREST_IDS,
+  type OnboardingInterestId,
+} from '@/constants/onboarding';
 import { useMemo } from 'react';
 
 import { useTestAccounts } from '@/contexts/test-accounts-context';
 import type { TrackerList } from '@/data/mock-lists';
-import type { MockTestAccountId, TestAccountDefinition } from '@/data/test-accounts';
+import type {
+  MockTestAccountId,
+  TestAccountDefinition,
+} from '@/data/test-accounts';
 import type { ExplorePublicListOwner } from '@/lib/explore-public-lists';
 import type { OnboardingState } from '@/lib/onboarding-storage';
 import { useConvexWorkspaceBootstrap } from '@/lib/convex-bootstrap';
@@ -28,7 +35,8 @@ export function useAccountSnapshots() {
           }
 
           const displayName =
-            seed.onboardingState.profile.displayName.trim() || account.defaultDisplayName;
+            seed.onboardingState.profile.displayName.trim() ||
+            account.defaultDisplayName;
 
           return [
             {
@@ -50,7 +58,8 @@ export function useAccountSnapshots() {
         }
 
         const displayName =
-          snapshot.onboardingState.profile.displayName.trim() || account.defaultDisplayName;
+          snapshot.onboardingState.profile.displayName.trim() ||
+          account.defaultDisplayName;
 
         return [
           {
@@ -62,10 +71,21 @@ export function useAccountSnapshots() {
               handle: account.handle,
             },
             lists: snapshot.listsState.lists,
-            onboardingState: snapshot.onboardingState,
+            onboardingState: {
+              ...snapshot.onboardingState,
+              profile: {
+                ...snapshot.onboardingState.profile,
+                interests: snapshot.onboardingState.profile.interests.filter(
+                  (interest): interest is OnboardingInterestId =>
+                    (ONBOARDING_INTEREST_IDS as readonly string[]).includes(
+                      interest,
+                    ),
+                ),
+              },
+            },
           } satisfies AccountSnapshot,
         ];
       }),
-    [accounts, mockAccountSeeds, snapshot]
+    [accounts, mockAccountSeeds, snapshot],
   );
 }

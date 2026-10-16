@@ -1,9 +1,7 @@
-import { useConvex, useMutation } from 'convex/react';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 
-import { api } from '@/convex/_generated/api';
 import { useListActions, useListsQuery } from '@/contexts/lists-context';
 import {
   createListAutomationBlock,
@@ -16,7 +14,7 @@ import {
   type ListFieldKind,
   type ListTemplate,
 } from '@/data/mock-lists';
-import { uploadImageToConvex, type UploadedStorageFile } from '@/lib/convex-upload';
+import { useImageUpload, type UploadedStorageFile } from '@/lib/convex-upload';
 
 export type NewListCreateMode = 'scratch' | 'template';
 
@@ -71,10 +69,9 @@ function createNewFieldDefinition(): ListFieldDefinition {
 
 function useNewListFormController(): NewListFormController {
   const router = useRouter();
-  const convex = useConvex();
   const { listTemplates } = useListsQuery();
   const { createList, createListFromTemplate, saveListAsTemplate, updateList } = useListActions();
-  const generateUploadUrl = useMutation(api.media.generateUploadUrl);
+  const uploadImage = useImageUpload();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [formRevision, setFormRevision] = useState(0);
   const [title, setTitle] = useState('');
@@ -151,15 +148,11 @@ function useNewListFormController(): NewListFormController {
     });
 
     if (!result.canceled && result.assets?.[0]?.uri) {
-      const uploaded = await uploadImageToConvex({
-        uri: result.assets[0].uri,
-        generateUploadUrl: () => generateUploadUrl({}),
-        resolveUrl: (storageId) => convex.query(api.media.getResolvedUrl, { storageId }),
-      });
+      const uploaded = await uploadImage(result.assets[0].uri);
       setUploadedImage(uploaded);
       setImageUrl(uploaded.url);
     }
-  }, [convex, generateUploadUrl]);
+  }, [uploadImage]);
 
   const clearImage = useCallback(() => {
     setImageUrl(null);

@@ -1,11 +1,11 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
-import { useConvex, useMutation } from 'convex/react';
+import { useSessionMutation as useMutation } from '@/contexts/session-context';
 
 import { api } from '@/convex/_generated/api';
 import { ONBOARDING_INTEREST_IDS, type OnboardingInterestId } from '@/constants/onboarding';
 import { useTestAccounts } from '@/contexts/test-accounts-context';
 import { useConvexWorkspaceBootstrap } from '@/lib/convex-bootstrap';
-import { uploadImageToConvex } from '@/lib/convex-upload';
+import { useImageUpload } from '@/lib/convex-upload';
 import {
   cloneOnboardingState,
   createInitialOnboardingState,
@@ -30,13 +30,12 @@ interface OnboardingContextValue {
 const OnboardingContext = createContext<OnboardingContextValue | null>(null);
 
 export function OnboardingProvider({ children }: { children: ReactNode }) {
-  const convex = useConvex();
   const { activeAccount, activeMockAccountSeed, updateActiveMockOnboardingState } = useTestAccounts();
   const { snapshot, isBootstrapping, lastBootstrapError } = useConvexWorkspaceBootstrap();
   const updateProfile = useMutation(api.onboarding.updateProfile);
   const complete = useMutation(api.onboarding.complete);
   const reset = useMutation(api.onboarding.reset);
-  const generateUploadUrl = useMutation(api.media.generateUploadUrl);
+  const uploadImage = useImageUpload();
   const attachAvatar = useMutation(api.media.attachAvatar);
   const [pendingMutations, setPendingMutations] = useState(0);
   const [lastSyncError, setLastSyncError] = useState<string | null>(null);
@@ -120,11 +119,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
             return;
           }
 
-          const uploaded = await uploadImageToConvex({
-            uri: avatarUri,
-            generateUploadUrl: () => generateUploadUrl({}),
-            resolveUrl: (storageId) => convex.query(api.media.getResolvedUrl, { storageId }),
-          });
+          const uploaded = await uploadImage(avatarUri);
           await attachAvatar({
             storageId: uploaded.storageId,
             mimeType: uploaded.mimeType,
@@ -179,8 +174,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     [
       attachAvatar,
       complete,
-      convex,
-      generateUploadUrl,
+      uploadImage,
       isMockAccount,
       isBootstrapping,
       lastBootstrapError,
