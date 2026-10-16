@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AvatarIcon } from '@/components/avatar-icon';
@@ -20,8 +19,7 @@ export default function ProfileScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const isDark = colorScheme === 'dark';
-  const [accountMenuVisible, setAccountMenuVisible] = useState(false);
-  const { accounts, activeAccount, activeAccountId, switchAccount } = useTestAccounts();
+  const { activeAccount } = useTestAccounts();
   const { state, isComplete, isHydrated, isSyncing, lastSyncError } = useOnboarding();
   const { activeLists, deletedLists } = useListsQuery();
   const displayName = state.profile.displayName.trim() || activeAccount.defaultDisplayName;
@@ -47,10 +45,6 @@ export default function ProfileScreen() {
     { label: 'Lists', value: activeLists.length },
     { label: 'Entries', value: trackedItems },
   ];
-  const accountOptions = accounts.map((account) => ({
-    ...account,
-    displayName: account.id === activeAccountId ? displayName : account.defaultDisplayName,
-  }));
   const surfaceColor = isDark ? 'rgba(5, 18, 35, 0.64)' : 'rgba(245, 248, 252, 0.78)';
   const borderColor = isDark ? 'rgba(255, 255, 255, 0.12)' : colors.icon + '20';
   const shadowColor = isDark
@@ -280,77 +274,8 @@ export default function ProfileScreen() {
         >
           <AvatarIcon profileId={profileId} displayName={displayName} size={88} />
           <View style={styles.identity}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setAccountMenuVisible((current) => !current)}
-              style={({ pressed }) => [
-                styles.nameButton,
-                { opacity: pressed ? 0.78 : 1 },
-              ]}
-            >
-              <ThemedText selectable style={styles.name}>
-                {displayName}
-              </ThemedText>
-              <IconSymbol
-                name={accountMenuVisible ? 'chevron.up' : 'chevron.down'}
-                size={18}
-                color={colors.icon}
-              />
-            </Pressable>
-            <ThemedText selectable style={[styles.uid, { color: colors.icon }]}>
-              @{profileHandle}
-            </ThemedText>
-            {accountMenuVisible ? (
-              <View
-                style={[
-                  styles.accountMenu,
-                  {
-                    backgroundColor: surfaceColor,
-                    borderColor,
-                  },
-                ]}
-              >
-                {accountOptions.map((account) => {
-                  const isSelected = account.id === activeAccountId;
-
-                  return (
-                    <Pressable
-                      key={account.id}
-                      onPress={() => {
-                        setAccountMenuVisible(false);
-                        void switchAccount(account.id);
-                      }}
-                      style={({ pressed }) => [
-                        styles.accountOption,
-                        {
-                          backgroundColor: isSelected
-                            ? colors.tint + '16'
-                            : pressed
-                              ? colors.icon + '10'
-                              : 'transparent',
-                          borderColor: isSelected ? colors.tint + '28' : 'transparent',
-                        },
-                      ]}
-                    >
-                      <View style={styles.accountOptionCopy}>
-                        <ThemedText selectable style={styles.accountOptionTitle}>
-                          {account.displayName}
-                        </ThemedText>
-                        <ThemedText
-                          selectable
-                          style={[styles.accountOptionSubtitle, { color: colors.icon }]}
-                        >
-                          {account.pickerDescription}
-                        </ThemedText>
-                      </View>
-                      {isSelected ? (
-                        <IconSymbol name="checkmark" size={16} color={colors.tint} />
-                      ) : null}
-                    </Pressable>
-                  );
-                })}
-              </View>
-            ) : null}
+            <ThemedText selectable style={styles.name}>{displayName}</ThemedText>
+            {profileHandle ? <ThemedText selectable style={[styles.uid, { color: colors.icon }]}>@{profileHandle}</ThemedText> : null}
           </View>
           <View style={styles.metricRow}>
             {profileStats.map((metric) => (

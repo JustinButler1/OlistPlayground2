@@ -9,7 +9,7 @@ import {
   type ListEntry,
 } from "../data/mock-lists";
 import { normalizeProgress, normalizeRating } from "../lib/tracker-metadata";
-import { mutation } from "./_generated/server";
+import { mutation } from "./auth";
 import {
   addTag,
   applyCheckedAutomation,
@@ -21,7 +21,6 @@ import {
   createBlankListRecord,
   createMediaAssetRecord,
   createLinkedListEntry,
-  createMockWorkspaceState,
   createEntryFromDraft,
   ensureWorkspaceRecord,
   getEntriesForList,
@@ -792,7 +791,7 @@ export const resetWorkspace = mutation({
 export const loadMockData = mutation({
   args: {},
   handler: async (ctx) => {
-    await createMockWorkspaceState(ctx);
+    throw new Error("Mock seeding is disabled.");
   },
 });
 

@@ -16,6 +16,7 @@ import type * as model from "../model.js";
 import type * as onboarding from "../onboarding.js";
 import type * as shared from "../shared.js";
 import type * as templates from "../templates.js";
+import type * as uploads from "../uploads.js";
 import type * as workspace from "../workspace.js";
 
 import type {
@@ -34,6 +35,7 @@ declare const fullApi: ApiFromModules<{
   shared: typeof shared;
   templates: typeof templates;
   workspace: typeof workspace;
+  uploads: typeof uploads;
 }>;
 
 /**

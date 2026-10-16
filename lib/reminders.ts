@@ -41,7 +41,10 @@ export async function ensureReminderPermissionsAsync(): Promise<boolean> {
   await ensureChannelAsync();
 
   const current = await Notifications.getPermissionsAsync();
-  if (current.granted || current.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL) {
+  if (
+    current.granted ||
+    current.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL
+  ) {
     return true;
   }
 
@@ -54,18 +57,23 @@ export async function ensureReminderPermissionsAsync(): Promise<boolean> {
 
 export async function scheduleReminderForEntry(
   entry: ListEntry,
-  listTitle: string
+  listTitle: string,
+  isActive: () => boolean = () => true,
 ): Promise<string | null> {
-  if (Platform.OS === 'web' || !entry.reminderAt || entry.reminderAt <= Date.now()) {
+  if (
+    Platform.OS === 'web' ||
+    !entry.reminderAt ||
+    entry.reminderAt <= Date.now()
+  ) {
     return null;
   }
 
   const hasPermission = await ensureReminderPermissionsAsync();
-  if (!hasPermission) {
+  if (!hasPermission || !isActive()) {
     return null;
   }
 
-  return Notifications.scheduleNotificationAsync({
+  const identifier = await Notifications.scheduleNotificationAsync({
     content: {
       title: entry.title,
       body: `Reminder from ${listTitle}`,
@@ -80,15 +88,23 @@ export async function scheduleReminderForEntry(
       channelId: Platform.OS === 'android' ? REMINDER_CHANNEL_ID : undefined,
     },
   });
+  if (!isActive()) {
+    await cancelReminderNotification(identifier);
+    return null;
+  }
+  return identifier;
 }
 
-export async function cancelReminderNotification(identifier?: string): Promise<void> {
+export async function cancelReminderNotification(
+  identifier?: string,
+): Promise<void> {
   if (!identifier || Platform.OS === 'web') {
     return;
   }
 
   try {
     await Notifications.cancelScheduledNotificationAsync(identifier);
+    await Notifications.dismissNotificationAsync(identifier);
   } catch (error) {
     console.warn('Failed to cancel reminder notification', error);
   }
@@ -97,7 +113,8 @@ export async function cancelReminderNotification(identifier?: string): Promise<v
 export async function syncReminderNotification(
   entry: ListEntry,
   listTitle: string,
-  existingIdentifier?: string
+  existingIdentifier?: string,
+  isActive: () => boolean = () => true,
 ): Promise<string | undefined> {
   if (existingIdentifier) {
     await cancelReminderNotification(existingIdentifier);
@@ -107,12 +124,17 @@ export async function syncReminderNotification(
     return undefined;
   }
 
-  const scheduledIdentifier = await scheduleReminderForEntry(entry, listTitle);
+  const scheduledIdentifier = await scheduleReminderForEntry(
+    entry,
+    listTitle,
+    isActive,
+  );
   return scheduledIdentifier ?? undefined;
 }
 
 export async function reconcileReminderNotifications(
-  state: ListsState
+  state: ListsState,
+  isActive: () => boolean = () => true,
 ): Promise<Record<string, string>> {
   if (Platform.OS === 'web') {
     return {};
@@ -123,11 +145,13 @@ export async function reconcileReminderNotifications(
 
   for (const list of state.lists) {
     for (const entry of list.entries) {
+      if (!isActive()) return {};
       seenEntryIds.add(entry.id);
       const scheduledId = await syncReminderNotification(
         entry,
         list.title,
-        state.reminderNotificationIds[entry.id]
+        state.reminderNotificationIds[entry.id],
+        isActive,
       );
       if (scheduledId) {
         nextNotificationIds[entry.id] = scheduledId;
@@ -135,11 +159,25 @@ export async function reconcileReminderNotifications(
     }
   }
 
-  for (const [entryId, notificationId] of Object.entries(state.reminderNotificationIds)) {
+  for (const [entryId, notificationId] of Object.entries(
+    state.reminderNotificationIds,
+  )) {
     if (!seenEntryIds.has(entryId)) {
       await cancelReminderNotification(notificationId);
     }
   }
 
   return nextNotificationIds;
+}
+
+let cleanup: Promise<void> = Promise.resolve();
+export function clearDeviceReminders(): Promise<void> {
+  if (Platform.OS === 'web') return Promise.resolve();
+  cleanup = cleanup
+    .catch(() => {})
+    .then(async () => {
+      await Notifications.cancelAllScheduledNotificationsAsync();
+      await Notifications.dismissAllNotificationsAsync();
+    });
+  return cleanup;
 }

@@ -49,3 +49,8 @@ export function buildCommunityAvatarGradient(seedText: string): [string, string]
 
   return palette[seed % palette.length] ?? palette[0];
 }
+
+export function clearCreatedCommunityPosts() {
+  postsByAccountId = {};
+  emitChange();
+}

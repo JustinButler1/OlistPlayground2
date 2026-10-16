@@ -1,5 +1,7 @@
 import { useRouter } from 'expo-router';
-import { Alert, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useClerk } from '@clerk/expo';
+import { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { AvatarIcon } from '@/components/avatar-icon';
 import { TabRootBackground } from '@/components/tab-root-background';
@@ -7,7 +9,7 @@ import { ThemedText } from '@/components/themed-text';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useOnboarding } from '@/contexts/onboarding-context';
-import { useListActions, useListsQuery } from '@/contexts/lists-context';
+import { useListsQuery } from '@/contexts/lists-context';
 import { useTestAccounts } from '@/contexts/test-accounts-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
@@ -16,7 +18,8 @@ export default function SettingsScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { activeLists, deletedLists } = useListsQuery();
-  const { loadMockData } = useListActions();
+  const { signOut } = useClerk();
+  const [signOutError, setSignOutError] = useState(false);
   const { activeAccount } = useTestAccounts();
   const { dataSource, isComplete, isHydrated, isSyncing, state } = useOnboarding();
   const displayName = state.profile.displayName.trim() || activeAccount.defaultDisplayName;
@@ -26,34 +29,6 @@ export default function SettingsScreen() {
     !!state.profile.avatarUri ||
     state.profile.interests.length > 0;
 
-  const confirmLoadMockData = () => {
-    const runLoad = () => {
-      void loadMockData();
-    };
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      if (
-        window.confirm(
-          dataSource === 'mock'
-            ? `Reset ${displayName}'s seeded test data back to its defaults?`
-            : 'Replace the shared Convex workspace with the power-user mock workspace? This overwrites the current shared lists and templates.'
-        )
-      ) {
-        runLoad();
-      }
-      return;
-    }
-
-    Alert.alert(
-      dataSource === 'mock' ? 'Reset test account?' : 'Load mock data?',
-      dataSource === 'mock'
-        ? `Reset ${displayName}'s seeded lists, templates, and recent activity back to the original mock state.`
-        : 'Replace the shared Convex workspace with a seeded power-user workspace. This overwrites the current shared lists and templates.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: dataSource === 'mock' ? 'Reset' : 'Load', style: 'destructive', onPress: runLoad },
-      ]
-    );
-  };
 
   return (
     <TabRootBackground>
@@ -73,34 +48,15 @@ export default function SettingsScreen() {
           ]}
         >
           <ThemedText type="subtitle">Data</ThemedText>
-          <ThemedText style={[styles.supportingText, { color: colors.icon }]}>
-            {dataSource === 'mock'
-              ? `${displayName} is using a local seeded test account. Switching away keeps the live account untouched.`
-              : 'This app now uses one shared Convex workspace. Images and tracker data persist from Convex, and reminder schedules are regenerated per device from Convex reminder times.'}
-          </ThemedText>
-          <ThemedText style={styles.metricsText}>
-            {activeLists.length} active lists, {deletedLists.length} deleted lists
-          </ThemedText>
-          <Pressable
-            onPress={confirmLoadMockData}
-            style={({ pressed }) => [
-              styles.primaryAction,
-              {
-                backgroundColor: colors.tint,
-                opacity: pressed ? 0.85 : 1,
-              },
-            ]}
-          >
-            <IconSymbol name="plus" size={18} color={colors.background} />
-            <ThemedText style={[styles.primaryActionText, { color: colors.background }]}>
-              {dataSource === 'mock' ? 'Reset Seeded Test Data' : 'Load Power-User Mock Data'}
-            </ThemedText>
+          <ThemedText>Your lists and activity are private to your signed-in account.</ThemedText>
+          <ThemedText>{activeLists.length} active lists, {deletedLists.length} deleted lists</ThemedText>
+          <Pressable accessibilityRole="button" onPress={() => {
+            setSignOutError(false);
+            void signOut().catch(() => setSignOutError(true));
+          }} style={styles.primaryAction}>
+            <ThemedText>Sign out</ThemedText>
           </Pressable>
-          <ThemedText style={[styles.caption, { color: colors.icon }]}>
-            {dataSource === 'mock'
-              ? 'Restores this test account to its original seeded lists, linked sublists, templates, and recent activity.'
-              : 'Imports a seeded workspace with common list types, realistic custom items, linked sublists, tier data, archived history, deleted lists, templates, and API-backed entries.'}
-          </ThemedText>
+          {signOutError ? <ThemedText>Sign-out failed. Please try again.</ThemedText> : null}
         </View>
 
         <View
@@ -155,8 +111,8 @@ export default function SettingsScreen() {
               ? isComplete
                 ? `${displayName} has ${state.profile.interests.length} saved interests.`
                 : hasStarted
-                  ? `Resume ${dataSource === 'mock' ? 'the test account' : 'the shared'} profile setup from where you left off.`
-                  : `Launch the ${dataSource === 'mock' ? 'test account' : 'shared'} profile onboarding flow from here.`
+                  ? `Resume ${dataSource === 'mock' ? 'the test account' : 'your'} profile setup from where you left off.`
+                  : `Launch the ${dataSource === 'mock' ? 'test account' : 'account'} profile onboarding flow from here.`
               : 'Loading profile...'}
           </ThemedText>
           <Pressable
@@ -182,7 +138,7 @@ export default function SettingsScreen() {
               <ThemedText style={[styles.linkCaption, { color: colors.icon }]}>
                 {dataSource === 'mock'
                   ? 'Only affects the selected test account.'
-                  : 'Shared across the app. Never launched automatically.'}
+                  : 'Saved privately to your account.'}
               </ThemedText>
             </View>
             <IconSymbol name="chevron.right" size={20} color={colors.icon} />

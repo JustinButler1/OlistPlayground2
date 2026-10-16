@@ -599,19 +599,10 @@ export async function createMediaAssetRecord(
     fileName?: string;
   }
 ) {
-  const now = Date.now();
-  const id = await ctx.db.insert(
-    "mediaAssets",
-    compact({
-      workspaceSlug: MAIN_WORKSPACE_SLUG,
-      storageId: args.storageId,
-      kind: args.kind,
-      mimeType: args.mimeType,
-      fileName: args.fileName,
-      createdAt: now,
-    })
-  );
-  return await ctx.db.get(id);
+  const asset = await getMediaAssetByStorageId(ctx, args.storageId);
+  if (!asset) throw new Error("Resource unavailable");
+  await ctx.db.patch(asset._id, compact({ kind: args.kind, mimeType: args.mimeType, fileName: args.fileName }));
+  return await ctx.db.get(asset._id);
 }
 
 export async function maybeDeleteAssetIfUnreferenced(ctx: any, assetId: any) {

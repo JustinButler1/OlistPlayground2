@@ -1,4 +1,4 @@
-import { useConvex, useMutation } from 'convex/react';
+import { useSessionMutation as useMutation } from '@/contexts/session-context';
 import { useEffect, useMemo, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
@@ -20,7 +20,7 @@ import type { EntryDraft } from '@/contexts/lists-context';
 import { useListsQuery } from '@/contexts/lists-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { LIST_STATUS_OPTIONS } from '@/lib/list-config-options';
-import { uploadImageToConvex, type UploadedStorageFile } from '@/lib/convex-upload';
+import { useImageUpload, type UploadedStorageFile } from '@/lib/convex-upload';
 import { formatRatingValue, normalizeProgress, normalizeRating } from '@/lib/tracker-metadata';
 
 interface ManualEntryFormProps {
@@ -61,8 +61,7 @@ export function ManualEntryForm({
   onRequestCreateLinkedList,
   mode = 'full',
 }: ManualEntryFormProps) {
-  const convex = useConvex();
-  const generateUploadUrl = useMutation(api.media.generateUploadUrl);
+  const uploadImage = useImageUpload();
   const attachEntryCover = useMutation(api.media.attachEntryCover);
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
@@ -276,11 +275,7 @@ export function ManualEntryForm({
     });
 
     if (!result.canceled && result.assets?.[0]?.uri) {
-      const uploaded = await uploadImageToConvex({
-        uri: result.assets[0].uri,
-        generateUploadUrl: () => generateUploadUrl({}),
-        resolveUrl: (storageId) => convex.query(api.media.getResolvedUrl, { storageId }),
-      });
+      const uploaded = await uploadImage(result.assets[0].uri);
 
       if (initialEntry?.id) {
         const attached = await attachEntryCover({

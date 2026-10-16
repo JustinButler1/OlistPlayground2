@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation } from 'convex/react';
+import { useSessionMutation as useMutation } from '@/contexts/session-context';
 
 import { api } from '@/convex/_generated/api';
 import {
@@ -439,7 +439,7 @@ export function ListsProvider({ children }: { children: React.ReactNode }) {
         recentActivityListIds: state?.recentActivityListIds ?? [],
         continueEntryIds: state?.continueEntryIds ?? [],
         reminderNotificationIds: reminderNotificationIdsRef.current,
-      });
+      }, () => !cancelled);
 
       if (!cancelled) {
         setReminderNotificationIds(nextReminderIds);
