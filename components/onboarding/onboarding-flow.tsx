@@ -361,12 +361,14 @@ export function OnboardingFlow() {
                 onBack={previousStep}
                 onNext={() => {
                   void completeOnboarding().then(() => {
-                    router.back();
+                    router.replace('/(tabs)/my-lists');
+                  }).catch(() => {
+                    // The onboarding context displays the sync error; stay here to retry.
                   });
                 }}
               />
             }
-            title="Finish and return to Profile"
+            title="Finish and open My Lists"
           >
             <View style={styles.featureStack}>
               <View
