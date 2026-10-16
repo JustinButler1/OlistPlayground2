@@ -41,8 +41,8 @@ export default function ProgressSheet() {
   const colors = Colors[colorScheme ?? 'light'];
 
   const itemKey = params.itemKey;
-  const label = params.label || 'Episodes';
   const unit = (params.unit as EntryProgressUnit) || 'episode';
+  const label = params.label || getProgressUnitLabel(unit, 'long');
   const total = params.total ? Number(params.total) : undefined;
 
   const { itemUserData, setItemUserData } = useItemUserData(itemKey, params.entryId);
