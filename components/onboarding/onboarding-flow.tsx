@@ -270,7 +270,7 @@ export function OnboardingFlow() {
                   onBlur={() => setIsCarouselLocked(false)}
                   onChangeText={setDisplayNameDraft}
                   onFocus={() => setIsCarouselLocked(true)}
-                  placeholder="What should Olist call you?"
+                  placeholder="What should Olist Tracker call you?"
                   placeholderTextColor={colors.icon}
                   returnKeyType="done"
                   style={[

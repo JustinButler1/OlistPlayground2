@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "OlistPlayground2",
-    "slug": "OlistPlayground2",
+    "name": "Olist Tracker",
+    "slug": "olist-tracker",
     "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -55,7 +55,7 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow Olist to choose custom covers for your tracked items.",
+          "photosPermission": "Allow Olist Tracker to choose custom covers for your tracked items.",
           "cameraPermission": false,
           "microphonePermission": false
         }
@@ -64,14 +64,14 @@
       [
         "expo-secure-store",
         {
-          "faceIDPermission": "Allow Olist to protect private tracker settings and backups.",
+          "faceIDPermission": "Allow Olist Tracker to protect private tracker settings and backups.",
           "configureAndroidBackup": true
         }
       ],
       [
         "expo-local-authentication",
         {
-          "faceIDPermission": "Allow Olist to confirm protected backup actions."
+          "faceIDPermission": "Allow Olist Tracker to confirm protected backup actions."
         }
       ],
       "@react-native-community/datetimepicker"
